@@ -1,0 +1,31 @@
+{
+  "name": "anime-card-bot-global",
+  "version": "1.0.0",
+  "description": "Production-ready Discord anime card economy bot scaffold: gacha, inventory, AFK farming, equipment, market, auctions, raids, seasons.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js",
+    "commands:deploy": "node scripts/deploy-commands.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "seed": "node scripts/seed.js",
+    "import:anime": "node scripts/import-anime.js",
+    "health": "node scripts/healthcheck.js"
+  },
+  "dependencies": {
+    "@prisma/client": "latest",
+    "axios": "latest",
+    "bullmq": "latest",
+    "discord.js": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "ioredis": "latest",
+    "nanoid": "latest",
+    "prisma": "latest",
+    "zod": "latest",
+    "sharp": "latest"
+  }
+}
