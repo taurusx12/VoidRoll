@@ -104,6 +104,8 @@ model EquipmentTemplate {
   basePower Int
   imageUrl String?
   active Boolean @default(true)
+
+userEquipments UserEquipment[]
 }
 
 model UserEquipment {
