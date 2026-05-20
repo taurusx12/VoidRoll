@@ -40,27 +40,63 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (i.commandName === 'roll') {
-      const cd = await checkCooldown(userId, 'roll');
-      if (cd) return i.reply({ content: `الرول باقي له: <t:${Math.floor(cd.getTime()/1000)}:R>`, ephemeral: true });
-      await setCooldown(userId, 'roll', config.rollCooldownSeconds);
-      const result = await rollCard(userId);
-      const aura = getAura(result.character);
-      const embed = new EmbedBuilder()
-        .setTitle('🎴 New Roll')
-        .setDescription(`${result.text}
+
+  const cd = await checkCooldown(userId, 'roll');
+
+  if (cd) {
+    return i.reply({
+      content: `الرول باقي له: <t:${Math.floor(cd.getTime()/1000)}:R>`,
+      ephemeral: true
+    });
+  }
+
+  await i.deferReply();
+
+  await setCooldown(userId, 'roll', config.rollCooldownSeconds);
+
+  const result = await rollCard(userId);
+
+  const aura = getAura(result.character);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎴 New Roll!')
+    .setDescription(`${result.text}
+
 🌌 Aura: **${aura.name}**`)
-        .setColor(embedColor(aura.color))
-        .setFooter({ text: `Card ID: ${result.card.id}` });
-      try {
-        const png = await renderCard({ card: result.card, character: result.character });
-        const file = new AttachmentBuilder(png, { name: 'card.png' });
-        embed.setImage('attachment://card.png');
-        return i.reply({ embeds: [embed], files: [file] });
-      } catch (_) {
-        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
-        return i.reply({ embeds: [embed] });
-      }
+    .setColor(embedColor(aura.color))
+    .setFooter({ text: `Card ID: ${result.card.id}` });
+
+  try {
+
+    const png = await renderCard({
+      card: result.card,
+      character: result.character
+    });
+
+    const file = new AttachmentBuilder(png, {
+      name: 'card.png'
+    });
+
+    embed.setImage('attachment://card.png');
+
+    return i.editReply({
+      embeds: [embed],
+      files: [file]
+    });
+
+  } catch (_) {
+
+    if (result.character.imageUrl) {
+      embed.setImage(result.character.imageUrl);
     }
+
+    return i.editReply({
+      embeds: [embed]
+    });
+
+  }
+
+}
 
     if (i.commandName === 'inventory') {
       const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { obtainedAt: 'desc' }, take: 10 });
