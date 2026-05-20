@@ -49,9 +49,11 @@ async function renderCard({ card, character }) {
   if (!img) return await base.toBuffer();
 
   try {
-    const image = await sharp({
-      url: img
-    })
+    const response = await fetch(img);
+const arrayBuffer = await response.arrayBuffer();
+const buffer = Buffer.from(arrayBuffer);
+
+const image = await sharp(buffer)
       .resize(560, 640, { fit: 'cover' })
       .png()
       .toBuffer();
