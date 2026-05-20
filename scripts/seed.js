@@ -1,24 +1,65 @@
-const { nanoid } = require('nanoid');
 const { prisma } = require('../src/lib/db');
+
 const chars = [
-  ['Naruto Uzumaki','Naruto','LEGENDARY','Chakra',900],['Sasuke Uchiha','Naruto','LEGENDARY','Lightning',920],['Madara Uchiha','Naruto','MYTHIC','Shadow',1450],
-  ['Monkey D. Luffy','One Piece','LEGENDARY','Rubber',980],['Roronoa Zoro','One Piece','LEGENDARY','Steel',950],['Shanks','One Piece','MYTHIC','Haki',1500],
-  ['Satoru Gojo','Jujutsu Kaisen','MYTHIC','Infinity',1600],['Ryomen Sukuna','Jujutsu Kaisen','DIVINE','Cursed',2200],
-  ['Levi Ackerman','Attack on Titan','EPIC','Steel',720],['Eren Yeager','Attack on Titan','MYTHIC','Titan',1450],
-  ['Ichigo Kurosaki','Bleach','MYTHIC','Soul',1500],['Aizen Sosuke','Bleach','DIVINE','Illusion',2100],
-  ['Goku','Dragon Ball','DIVINE','Ki',2400],['Vegeta','Dragon Ball','MYTHIC','Ki',1700],
-  ['Tanjiro Kamado','Demon Slayer','EPIC','Water',700],['Nezuko Kamado','Demon Slayer','EPIC','Demon',740],
-  ['Gon Freecss','Hunter x Hunter','LEGENDARY','Nature',980],['Killua Zoldyck','Hunter x Hunter','LEGENDARY','Lightning',1000]
+  ['Naruto Uzumaki','Naruto','MYTHIC','Chakra',1450,'https://i.imgur.com/6L89jvD.png'],
+  ['Sasuke Uchiha','Naruto','MYTHIC','Lightning',1500,'https://i.imgur.com/2WZtOD6.png'],
+  ['Madara Uchiha','Naruto','DIVINE','Shadow',2200,'https://i.imgur.com/4Q1bJ4V.png'],
+  ['Monkey D. Luffy','One Piece','MYTHIC','Rubber',1600,'https://i.imgur.com/4AiXzf8.jpeg'],
+  ['Roronoa Zoro','One Piece','LEGENDARY','Steel',1200,'https://i.imgur.com/eQp8WYM.jpeg'],
+  ['Shanks','One Piece','DIVINE','Haki',2500,'https://i.imgur.com/fDUFP7K.jpeg'],
+  ['Levi Ackerman','Attack on Titan','EPIC','Steel',900,'https://i.imgur.com/0y0y0y0.jpeg'],
+  ['Eren Yeager','Attack on Titan','MYTHIC','Titan',1700,'https://i.imgur.com/1x1x1x1.jpeg'],
+  ['Gojo Satoru','Jujutsu Kaisen','DIVINE','Infinity',2600,'https://i.imgur.com/2x2x2x2.jpeg'],
+  ['Killua Zoldyck','Hunter x Hunter','LEGENDARY','Lightning',1100,'https://i.imgur.com/3x3x3x3.jpeg']
 ];
+
 const eq = [
-  ['Iron Blade','WEAPON','COMMON',20],['Cursed Katana','WEAPON','EPIC',95],['Infinity Cloak','ARMOR','MYTHIC',260],['Demon King Ring','RING','DIVINE',420],['Spirit Pendant','ARTIFACT','LEGENDARY',180]
+  ['Iron Blade','WEAPON','COMMON',20],
+  ['Cursed Katana','WEAPON','EPIC',95],
+  ['Infinity Cloak','ARMOR','MYTHIC',260],
+  ['Demon King Ring','RING','DIVINE',420]
 ];
-(async()=>{
-  for (const [name, anime, rarity, element, power] of chars) {
-    await prisma.character.upsert({ where:{ id: `${anime}:${name}`.replace(/\s+/g,'_') }, update:{}, create:{ id: `${anime}:${name}`.replace(/\s+/g,'_'), name, anime, rarity, element, basePower: power, baseFarm: Math.floor(power/10), baseLuck: Math.floor(power/30) } });
+
+(async () => {
+
+  await prisma.userCard.deleteMany();
+  await prisma.character.deleteMany();
+
+  for (const [name, anime, rarity, element, power, imageUrl] of chars) {
+
+    await prisma.character.create({
+      data: {
+        id: `${anime}-${name}`.replace(/\s+/g, '-'),
+        name,
+        anime,
+        rarity,
+        element,
+        imageUrl,
+        basePower: power,
+        baseFarm: Math.floor(power / 10),
+        baseLuck: Math.floor(power / 30)
+      }
+    });
+
   }
+
   for (const [name, slot, rarity, basePower] of eq) {
-    await prisma.equipmentTemplate.upsert({ where:{ id: name.replace(/\s+/g,'_') }, update:{}, create:{ id: name.replace(/\s+/g,'_'), name, slot, rarity, basePower } });
+
+    await prisma.equipmentTemplate.upsert({
+      where: { id: name.replace(/\s+/g, '-') },
+      update: {},
+      create: {
+        id: name.replace(/\s+/g, '-'),
+        name,
+        slot,
+        rarity,
+        basePower
+      }
+    });
+
   }
-  console.log('Seed complete'); await prisma.$disconnect();
+
+  console.log('Seed complete');
+  await prisma.$disconnect();
+
 })();
