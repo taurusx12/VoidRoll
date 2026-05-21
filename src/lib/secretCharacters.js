@@ -12,7 +12,7 @@ const SECRET_CHARACTER_KEYWORDS = [
   'all might', 'all for one', 'shigaraki', 'star and stripe',
   'escanor', 'meliodas', 'ban',
   'zeref', 'acnologia', 'natsu',
-  'sinbad', 'gilgamesh', 'kirito',
+  'sinbad', 'gilgamesh',
   'eren yeager', 'eren jaeger', 'founding titan',
   'alucard', 'dio'
 ];

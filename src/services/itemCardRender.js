@@ -1,47 +1,58 @@
-const sharp = require('sharp');
+const { createCanvas } = require('@napi-rs/canvas');
 
-const colors = {
-  COMMON: '#BFC7D5', RARE: '#3B82F6', EPIC: '#A855F7', LEGENDARY: '#F59E0B',
-  MYTHIC: '#EF4444', DIVINE: '#F472B6', SECRET: '#22D3EE'
+const rarityColors = {
+  COMMON: '#BFC7D5',
+  RARE: '#3B82F6',
+  EPIC: '#A855F7',
+  LEGENDARY: '#F59E0B',
+  MYTHIC: '#EF4444',
+  DIVINE: '#F472B6',
+  SECRET: '#22D3EE'
 };
 
-function weaponIcon(slot) {
-  if (slot === 'WEAPON') return '⚔';
-  if (slot === 'ARMOR') return '🛡';
-  if (slot === 'RING') return '◈';
-  return '✦';
-}
-
 async function renderItemCard(eq) {
-  const t = eq.template;
-  const color = colors[t.rarity] || '#ffffff';
-  const icon = weaponIcon(t.slot);
-  const name = String(t.name).replace(/&/g, '&amp;');
-  const bonus = `${t.bonusType || 'POWER'} +${t.bonusValue || 0}`;
-  const character = t.characterHint ? `Best on: ${t.characterHint}` : 'Universal Item';
+  const canvas = createCanvas(768, 1024);
+  const ctx = canvas.getContext('2d');
 
-  const svg = `
-  <svg width="720" height="1000" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#050816"/>
-        <stop offset="55%" stop-color="#16112b"/>
-        <stop offset="100%" stop-color="${color}"/>
-      </linearGradient>
-      <filter id="glow"><feGaussianBlur stdDeviation="10" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    </defs>
-    <rect width="720" height="1000" rx="48" fill="url(#bg)"/>
-    <rect x="35" y="35" width="650" height="930" rx="42" fill="none" stroke="${color}" stroke-width="12" filter="url(#glow)"/>
-    <rect x="85" y="95" width="550" height="570" rx="32" fill="#00000088" stroke="#ffffff55" stroke-width="4"/>
-    <text x="360" y="430" text-anchor="middle" font-size="220" fill="${color}" filter="url(#glow)">${icon}</text>
-    <rect x="85" y="705" width="550" height="180" rx="28" fill="#050816cc"/>
-    <text x="360" y="765" text-anchor="middle" font-size="38" font-weight="800" fill="#fff">${name}</text>
-    <text x="360" y="815" text-anchor="middle" font-size="28" font-weight="700" fill="${color}">${t.rarity} • ${t.slot}</text>
-    <text x="360" y="855" text-anchor="middle" font-size="24" fill="#e5e7eb">PWR ${eq.power} • ${bonus}</text>
-    <text x="360" y="910" text-anchor="middle" font-size="22" fill="#cbd5e1">${character}</text>
-  </svg>`;
+  const rarity = eq.template?.rarity || 'COMMON';
+  const color = rarityColors[rarity] || '#8B5CF6';
 
-  return sharp(Buffer.from(svg)).png().toBuffer();
+  const gradient = ctx.createLinearGradient(0, 0, 768, 1024);
+  gradient.addColorStop(0, '#050816');
+  gradient.addColorStop(0.5, '#111827');
+  gradient.addColorStop(1, '#020617');
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 768, 1024);
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 16;
+  ctx.strokeRect(40, 40, 688, 944);
+
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 35;
+  ctx.strokeRect(70, 70, 628, 884);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(384, 410, 150, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 48px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(eq.template?.name || 'Unknown Item', 384, 720);
+
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillStyle = color;
+  ctx.fillText(`${rarity} • ${eq.template?.slot || 'ITEM'}`, 384, 780);
+
+  ctx.fillStyle = '#E5E7EB';
+  ctx.font = 'bold 38px sans-serif';
+  ctx.fillText(`PWR ${eq.power || 0}`, 384, 850);
+
+  return canvas.encode('png');
 }
 
 module.exports = { renderItemCard };

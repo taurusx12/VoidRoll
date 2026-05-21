@@ -40,20 +40,6 @@ const commands = [
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
 
-  new SlashCommandBuilder()
-    .setName('equip')
-    .setDescription('Equip an item to a character card')
-    .addStringOption(o =>
-      o.setName('item_id')
-        .setDescription('Item ID')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('card_id')
-        .setDescription('Card ID')
-        .setRequired(true)
-    ),
-
   new SlashCommandBuilder().setName('shop').setDescription('Show official packs and events'),
 
   new SlashCommandBuilder()
@@ -144,47 +130,6 @@ const commands = [
     ),
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
-  new SlashCommandBuilder().setName('bosses').setDescription('Show active bosses'),
-  new SlashCommandBuilder().setName('limited-boss').setDescription('Fight the limited boss'),
-
-  new SlashCommandBuilder()
-    .setName('dungeon')
-    .setDescription('Show or start your dungeon progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
-
-  new SlashCommandBuilder()
-    .setName('tower')
-    .setDescription('Show or start your tower progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
-
-  new SlashCommandBuilder()
-    .setName('story')
-    .setDescription('Show or start your story progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
 
   new SlashCommandBuilder()
     .setName('admin-give-rolls')

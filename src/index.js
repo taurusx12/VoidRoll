@@ -11,8 +11,6 @@ const {
   ButtonStyle
 } = require('discord.js');
 
-const { nanoid } = require('nanoid');
-
 const config = require('./lib/config');
 const { prisma } = require('./lib/db');
 const { ensureUser } = require('./services/users');
@@ -22,7 +20,7 @@ const market = require('./services/market');
 const equipment = require('./services/equipment');
 const { getAura, embedColor } = require('./lib/aura');
 const { renderCard } = require('./services/cardRender');
-const { rollItem, equipItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
+const { rollItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
 const { renderItemCard } = require('./services/itemCardRender');
 const { isSecretCandidate } = require('./lib/secretCharacters');
 
@@ -56,10 +54,6 @@ function priceRange(rarity) {
   };
 
   return ranges[rarity] || [100, 5000];
-}
-
-async function getRollUser(userId) {
-  return prisma.user.findUnique({ where: { id: userId } });
 }
 
 async function applySecretCharacterBoosts() {
@@ -139,7 +133,7 @@ async function createCardForUser(userId, character) {
 
   const card = await prisma.userCard.create({
     data: {
-      id: nanoid(12),
+      id: require('nanoid').nanoid(12),
       userId,
       characterId: updated.id,
       serial: updated.globalPrint,
@@ -251,10 +245,7 @@ async function openPack(userId, type) {
 async function inventoryEmbed(userId, index = 0) {
   const cards = await prisma.userCard.findMany({
     where: { userId },
-    include: {
-      character: true,
-      
-    },
+    include: { character: true },
     orderBy: { obtainedAt: 'desc' },
     take: 200
   });
@@ -272,7 +263,6 @@ async function inventoryEmbed(userId, index = 0) {
       `💎 Rarity: **${c.character.rarity}**\n` +
       `⚔️ Power: **${c.power}**\n` +
       `🌌 Technique: **${aura.name}**\n` +
-      `🧩 Equipped Items: **${c.equipment.length}**\n` +
       `🆔 Card ID: \`${c.id}\``
     )
     .setColor(embedColor(aura.color))
@@ -358,7 +348,6 @@ client.on('interactionCreate', async (i) => {
         `👤 /profile - Show gold, rolls, tokens, and timer\n` +
         `🎒 /inventory - Image inventory with arrows\n` +
         `⚙️ /equipment - Show your items\n` +
-        `🧩 /equip - Equip an item to a character\n` +
         `🛒 /shop - Official packs and events\n` +
         `📦 /pack - Open an anime pack\n` +
         `🔁 /transfer - Transfer Market listings\n` +
@@ -379,10 +368,7 @@ client.on('interactionCreate', async (i) => {
         `Tokens: ${u.tokens ?? 0}\n` +
         `Rolls: ${u.rolls ?? 0}\n` +
         `Next Refill: <t:${Math.floor(next.getTime() / 1000)}:R>\n` +
-        `Level: ${u.level}\n` +
-        `Story: Chapter ${u.storyChapter || 1}, Stage ${u.storyStage || 1}\n` +
-        `Dungeon Stage: ${u.dungeonStage || 1}\n` +
-        `Tower Floor: ${u.towerFloor || 1}`
+        `Level: ${u.level}\n`
       );
     }
 
@@ -420,7 +406,7 @@ client.on('interactionCreate', async (i) => {
       else if (commandName === 'r') type = 'character';
       else type = i.options.getString('type') || 'character';
 
-      const user = await getRollUser(userId);
+      const user = await prisma.user.findUnique({ where: { id: userId } });
 
       if ((user.rolls ?? 0) <= 0) {
         const last = new Date(user.lastRollRefillAt || Date.now());
@@ -448,11 +434,9 @@ client.on('interactionCreate', async (i) => {
             `Slot: **${eq.template.slot}**\n` +
             `Rarity: **${eq.template.rarity}**\n` +
             `Power: **${eq.power}**\n` +
-            `Bonus: **${eq.template.bonusType || 'POWER'} +${eq.template.bonusValue || 0}**\n` +
-            `${eq.template.characterHint ? `Best on: **${eq.template.characterHint}**\n` : ''}` +
             `🎲 Rolls left: **${(user.rolls ?? 1) - 1}**`
           )
-          .setColor(embedColor(eq.template.rarity === 'DIVINE' ? '#F472B6' : eq.template.rarity === 'MYTHIC' ? '#EF4444' : '#8B5CF6'))
+          .setColor(embedColor('#8B5CF6'))
           .setFooter({ text: `Item ID: ${eq.id}` });
 
         const png = await renderItemCard(eq);
@@ -557,17 +541,17 @@ client.on('interactionCreate', async (i) => {
       const chars = await prisma.character.findMany({
         where: { rarity: 'SECRET' },
         orderBy: { basePower: 'desc' },
-        take: 50
+        take: 25
       });
 
       if (!chars.length) {
         return i.reply('No SECRET characters found yet.');
       }
 
-      return i.reply(
-        `🕳️ **SECRET CHARACTERS**\n\n` +
-        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\n')
-      );
+      const lines = chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`);
+      const content = (`🕳️ **SECRET CHARACTERS**\n\n` + lines.join('\n')).slice(0, 1900);
+
+      return i.reply(content);
     }
 
     if (commandName === 'rarity') {
@@ -608,10 +592,7 @@ client.on('interactionCreate', async (i) => {
     if (commandName === 'equipment') {
       const eq = await prisma.userEquipment.findMany({
         where: { userId },
-        include: {
-          template: true,
-          card: { include: { character: true } }
-        },
+        include: { template: true },
         take: 15,
         orderBy: { createdAt: 'desc' }
       });
@@ -627,21 +608,9 @@ client.on('interactionCreate', async (i) => {
       const embed = new EmbedBuilder()
         .setTitle('⚙️ Equipment Inventory')
         .setDescription(eq.map(itemLine).join('\n').slice(0, 3500))
-        .setImage('attachment://item.png')
-        .setFooter({ text: 'Use /equip item_id card_id to equip an item.' });
+        .setImage('attachment://item.png');
 
       return i.reply({ embeds: [embed], files: [file] });
-    }
-
-    if (commandName === 'equip') {
-      const itemId = i.options.getString('item_id', true);
-      const cardId = i.options.getString('card_id', true);
-      const r = await equipItem(userId, itemId, cardId);
-
-      return i.reply(
-        `✅ Equipped **${r.item.template.name}** to **${r.card.character.name}**.\n` +
-        `${r.item.template.characterHint && r.card.character.name.toLowerCase().includes(r.item.template.characterHint.toLowerCase()) ? '🔥 Set Bonus activated!' : ''}`
-      );
     }
 
     if (commandName === 'shop') {
@@ -842,50 +811,6 @@ client.on('interactionCreate', async (i) => {
         `• Clear 1 dungeon → 10 Tokens\n` +
         `• Defeat a boss → 25 Tokens\n` +
         `• Equip an anime item → 5 Tokens`
-      );
-    }
-
-    if (commandName === 'bosses') {
-      return i.reply(
-        `👹 **BOSSES**\n` +
-        `Auto boss events can spawn in the configured channel.\n` +
-        `Join them when the bot announces one.`
-      );
-    }
-
-    if (commandName === 'limited-boss') {
-      return i.reply(
-        `👑 **LIMITED BOSS**\n` +
-        `Wait for the automatic event announcement, then join from the event message.`
-      );
-    }
-
-    if (commandName === 'dungeon') {
-      return i.reply(
-        `🏰 **DUNGEON**\n` +
-        `Your current dungeon stage will be used automatically. Items can drop after wins.`
-      );
-    }
-
-    if (commandName === 'tower') {
-      return i.reply(
-        `🗼 **TOWER**\n` +
-        `Your current tower floor will be used automatically. Rewards scale with floor.`
-      );
-    }
-
-    if (commandName === 'story') {
-      return i.reply(
-        `📖 **STORY**\n` +
-        `You progress forward only. Wins can drop gold, rolls, tokens, and equipment.`
-      );
-    }
-
-    if (commandName === 'sacrifice') {
-      return i.reply(
-        `🔥 **SACRIFICE**\n` +
-        `Sacrifice weak cards to power up strong cards.\n` +
-        `Full visual selector is coming next.`
       );
     }
 
