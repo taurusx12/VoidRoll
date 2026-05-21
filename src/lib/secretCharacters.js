@@ -54,9 +54,7 @@ function isSecretCandidate(character) {
 
   if (character.rarity === 'SECRET') return true;
 
-  if (character.rarity === 'DIVINE' && hasAny(anime, SECRET_ANIME_KEYWORDS)) {
-    return true;
-  }
+  if (character.rarity === 'DIVINE' && hasAny(anime, SECRET_ANIME_KEYWORDS)) return true;
 
   if ((character.basePower || 0) >= 9000) return true;
 
