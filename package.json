@@ -16,7 +16,7 @@
     "health": "node scripts/healthcheck.js"
   },
   "dependencies": {
-"@prisma/client": "5.22.0",
+    "@prisma/client": "^5.22.0",
     "axios": "latest",
     "bullmq": "latest",
     "discord.js": "latest",
@@ -24,8 +24,10 @@
     "express": "latest",
     "ioredis": "latest",
     "nanoid": "latest",
-    "prisma": "5.22.0",
-    "zod": "latest",
-    "sharp": "latest"
+    "sharp": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
   }
 }

@@ -253,7 +253,7 @@ async function inventoryEmbed(userId, index = 0) {
     where: { userId },
     include: {
       character: true,
-      equipment: { include: { template: true } }
+      
     },
     orderBy: { obtainedAt: 'desc' },
     take: 200
