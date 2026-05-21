@@ -15,7 +15,7 @@ async function renderCard({ card, character }) {
   };
 
   const color = rarityColors[character.rarity] || '#8B5CF6';
-  const img = character.imageUrl || `https://api.dicebear.com/9.x/bottts-neutral/png?seed=${encodeURIComponent(character.name)}`;
+  const img = character.imageUrl || '';
 
   const svg = `
   <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
