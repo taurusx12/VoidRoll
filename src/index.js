@@ -550,6 +550,26 @@ async function guaranteedCharacterRoll(userId, rarity) {
   return createCardForUser(userId, character);
 }
 
+
+const GOLD_SHOP_ITEMS = {
+  rolls_5: { name: '5 Rolls', gold: 6000, rolls: 5 },
+  rolls_10: { name: '10 Rolls', gold: 10000, rolls: 10 },
+  rolls_25: { name: '25 Rolls', gold: 22000, rolls: 25 },
+  legendary_orb: { name: 'Legendary Orb Roll', gold: 300000, rarity: 'LEGENDARY' },
+  mythic_orb: { name: 'Mythic Orb Roll', gold: 900000, rarity: 'MYTHIC' },
+  divine_orb: { name: 'Divine Orb Roll', gold: 2500000, rarity: 'DIVINE' },
+  secret_orb: { name: 'Secret Orb Roll', gold: 9000000, rarity: 'SECRET' }
+};
+
+function trainingCost(amount) {
+  const safeAmount = Math.max(1, Math.min(100, Number(amount || 1)));
+  return {
+    amount: safeAmount,
+    gold: safeAmount * 15000,
+    powerGain: safeAmount * 120
+  };
+}
+
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -648,6 +668,12 @@ client.on('interactionCreate', async (i) => {
         `🔮 /orb-shop - Guaranteed orb market\n` +
         `🔮 /orb-roll - Guaranteed rarity character\n` +
         `✨ /ascend - Upgrade character rarity/power\n` +
+        `💰 /gold-shop - Spend gold on rolls/orbs\n` +
+        `💸 /gold-buy - Buy using gold\n` +
+        `🏋️ /train - Spend gold to raise card power\n` +
+        `💰 /gold-shop - Spend gold on rolls/orbs\n` +
+        `💸 /gold-buy - Buy using gold\n` +
+        `🏋️ /train - Spend gold to raise card power\n` +
         `📜 /quests - Show quests`
       );
     }
@@ -1162,6 +1188,136 @@ client.on('interactionCreate', async (i) => {
       await prisma.character.update({ where: { id: card.characterId }, data: { rarity: target, basePower: Math.max(card.character.basePower || 0, cfg.power) } });
       const updated = await prisma.userCard.update({ where: { id: card.id }, data: { power: Math.max(card.power || 0, cfg.power + Math.floor(Math.random() * 500)) }, include: { character: true } });
       return i.reply(`✨ **ASCENSION COMPLETE**\n${updated.character.name} is now **${target}**.\nNew Power: **${updated.power}**`);
+    }
+
+
+    if (commandName === 'gold-shop') {
+      return i.reply(
+        `💰 **GOLD SHOP**\n\n` +
+        `🎲 **Rolls**\n` +
+        `• rolls_5 = 5 Rolls → **6,000 Gold**\n` +
+        `• rolls_10 = 10 Rolls → **10,000 Gold**\n` +
+        `• rolls_25 = 25 Rolls → **22,000 Gold**\n\n` +
+        `🔮 **Guaranteed Orb Rolls**\n` +
+        `• legendary_orb → **300,000 Gold**\n` +
+        `• mythic_orb → **900,000 Gold**\n` +
+        `• divine_orb → **2,500,000 Gold**\n` +
+        `• secret_orb → **9,000,000 Gold**\n\n` +
+        `🏋️ **Training**\n` +
+        `Use **/train card_id:<id> amount:<1-100>**\n` +
+        `Each amount costs **15,000 Gold** and gives **+120 Power**.\n\n` +
+        `Buy with: **/gold-buy item:<item_name>**`
+      );
+    }
+
+    if (commandName === 'gold-buy') {
+      await i.deferReply();
+
+      const itemKey = i.options.getString('item', true);
+      const item = GOLD_SHOP_ITEMS[itemKey];
+
+      if (!item) {
+        return i.editReply('Invalid gold shop item. Use /gold-shop.');
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < item.gold) {
+        return i.editReply(`You need **${money(item.gold)} Gold** to buy **${item.name}**.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { gold: { decrement: item.gold } }
+      });
+
+      if (item.rolls) {
+        const updated = await prisma.user.update({
+          where: { id: userId },
+          data: { rolls: { increment: item.rolls } }
+        });
+
+        return i.editReply(
+          `✅ Bought **${item.name}** for **${money(item.gold)} Gold**.\n` +
+          `New Rolls: **${updated.rolls}**`
+        );
+      }
+
+      if (item.rarity) {
+        const result = await guaranteedCharacterRoll(userId, item.rarity);
+        const aura = getAura(result.character);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`💰 Gold Shop ${item.rarity} Roll`)
+          .setDescription(
+            `${rarityEmoji(result.character.rarity)} **${result.character.name}**\n` +
+            `🎌 Anime: **${result.character.anime}**\n` +
+            `💎 Rarity: **${result.character.rarity}**\n` +
+            `⚔️ Power: **${result.card.power}**\n` +
+            `💰 Cost: **${money(item.gold)} Gold**`
+          )
+          .setColor(embedColor(aura.color))
+          .setFooter({ text: `Card ID: ${result.card.id}` });
+
+        try {
+          const png = await renderCard({ card: result.card, character: result.character });
+          const file = new AttachmentBuilder(png, { name: 'gold-card.png' });
+          embed.setImage('attachment://gold-card.png');
+          return i.editReply({ embeds: [embed], files: [file] });
+        } catch (_) {
+          if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+          return i.editReply({ embeds: [embed] });
+        }
+      }
+
+      return i.editReply('Purchase completed.');
+    }
+
+    if (commandName === 'train') {
+      const cardId = i.options.getString('card_id', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const cost = trainingCost(amount);
+
+      const card = await prisma.userCard.findFirst({
+        where: { id: cardId, userId },
+        include: { character: true }
+      });
+
+      if (!card) {
+        return i.reply({
+          content: 'Card not found in your inventory.',
+          ephemeral: true
+        });
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cost.gold) {
+        return i.reply(
+          `You need **${money(cost.gold)} Gold** for this training.\n` +
+          `Training amount: **${cost.amount}** → Power Gain: **+${cost.powerGain}**`
+        );
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { decrement: cost.gold }
+        }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: { power: { increment: cost.powerGain } },
+        include: { character: true }
+      });
+
+      return i.reply(
+        `🏋️ **TRAINING COMPLETE**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${cost.powerGain} Power**.\n` +
+        `Cost: **${money(cost.gold)} Gold**\n` +
+        `New Power: **${updated.power}**`
+      );
     }
 
     if (commandName === 'admin-give-rolls') {

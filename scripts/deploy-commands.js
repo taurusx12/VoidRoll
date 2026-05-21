@@ -224,6 +224,43 @@ const commands = [
         )
     ),
 
+
+  new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, orbs, and training info'),
+
+
+  new SlashCommandBuilder()
+    .setName('gold-buy')
+    .setDescription('Buy an item from the gold shop')
+    .addStringOption(o =>
+      o.setName('item')
+        .setDescription('rolls_5/rolls_10/rolls_25/legendary_orb/mythic_orb/divine_orb/secret_orb')
+        .setRequired(true)
+        .addChoices(
+          { name: '5 Rolls - 6,000 Gold', value: 'rolls_5' },
+          { name: '10 Rolls - 10,000 Gold', value: 'rolls_10' },
+          { name: '25 Rolls - 22,000 Gold', value: 'rolls_25' },
+          { name: 'Legendary Orb - 300,000 Gold', value: 'legendary_orb' },
+          { name: 'Mythic Orb - 900,000 Gold', value: 'mythic_orb' },
+          { name: 'Divine Orb - 2,500,000 Gold', value: 'divine_orb' },
+          { name: 'Secret Orb - 9,000,000 Gold', value: 'secret_orb' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('train')
+    .setDescription('Spend gold to increase a card power')
+    .addStringOption(o =>
+      o.setName('card_id')
+        .setDescription('Card ID')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Training amount 1-100')
+        .setRequired(false)
+    ),
+
   new SlashCommandBuilder()
     .setName('admin-give-rolls')
     .setDescription('Admin: give rolls to a player')
