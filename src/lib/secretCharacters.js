@@ -1,5 +1,4 @@
 const SECRET_CHARACTER_KEYWORDS = [
-  // Universe breakers / god tier / final boss level
   'goku', 'vegeta', 'beerus', 'whis', 'zeno', 'frieza', 'broly',
   'saitama', 'blast',
   'anos', 'rimuru', 'milim',
@@ -15,7 +14,7 @@ const SECRET_CHARACTER_KEYWORDS = [
   'zeref', 'acnologia', 'natsu',
   'sinbad', 'gilgamesh', 'kirito',
   'eren yeager', 'eren jaeger', 'founding titan',
-  'alucard'
+  'alucard', 'dio'
 ];
 
 const SECRET_ANIME_KEYWORDS = [
@@ -36,7 +35,8 @@ const SECRET_ANIME_KEYWORDS = [
   'seven deadly sins',
   'nanatsu',
   'fairy tail',
-  'fate'
+  'fate',
+  'hellsing'
 ];
 
 function normalize(value = '') {
@@ -54,18 +54,12 @@ function isSecretCandidate(character) {
 
   if (character.rarity === 'SECRET') return true;
 
-  // Any current Divine from a major fighting anime is promoted to Secret.
-  if (
-    character.rarity === 'DIVINE' &&
-    hasAny(anime, SECRET_ANIME_KEYWORDS)
-  ) {
+  if (character.rarity === 'DIVINE' && hasAny(anime, SECRET_ANIME_KEYWORDS)) {
     return true;
   }
 
-  // Very high power cards should become Secret even if the name list missed them.
   if ((character.basePower || 0) >= 9000) return true;
 
-  // Keyword based promotion for famous top-tier characters.
   if (hasAny(combined, SECRET_CHARACTER_KEYWORDS)) return true;
 
   return false;

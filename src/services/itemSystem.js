@@ -2,9 +2,15 @@ const { nanoid } = require('nanoid');
 const { prisma } = require('../lib/db');
 
 const RARITY_ORDER = ['COMMON','RARE','EPIC','LEGENDARY','MYTHIC','DIVINE','SECRET'];
+
 const RARITY_COLORS = {
-  COMMON: '#BFC7D5', RARE: '#3B82F6', EPIC: '#A855F7', LEGENDARY: '#F59E0B',
-  MYTHIC: '#EF4444', DIVINE: '#F472B6', SECRET: '#22D3EE'
+  COMMON: '#BFC7D5',
+  RARE: '#3B82F6',
+  EPIC: '#A855F7',
+  LEGENDARY: '#F59E0B',
+  MYTHIC: '#EF4444',
+  DIVINE: '#F472B6',
+  SECRET: '#22D3EE'
 };
 
 const ITEMS = [
@@ -32,19 +38,23 @@ const ITEMS = [
 
 function itemRarityRoll() {
   const r = Math.random();
-  if (r < 0.0003) return 'SECRET';
-  if (r < 0.004) return 'DIVINE';
-  if (r < 0.025) return 'MYTHIC';
-  if (r < 0.08) return 'LEGENDARY';
-  if (r < 0.22) return 'EPIC';
-  if (r < 0.50) return 'RARE';
+
+  if (r < 0.001) return 'SECRET';
+  if (r < 0.006) return 'DIVINE';
+  if (r < 0.0135) return 'MYTHIC';
+  if (r < 0.0235) return 'LEGENDARY';
+  if (r < 0.10) return 'EPIC';
+  if (r < 0.36) return 'RARE';
+
   return 'COMMON';
 }
 
 function pickItem() {
   const rarity = itemRarityRoll();
   let pool = ITEMS.filter(x => x.rarity === rarity);
+
   if (!pool.length) pool = ITEMS.filter(x => x.rarity === 'COMMON');
+
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -81,6 +91,7 @@ async function seedItemTemplates() {
 
 async function rollItem(userId) {
   await seedItemTemplates();
+
   const item = pickItem();
   const templateId = item.name.replace(/\s+/g, '-');
   const power = item.basePower + Math.floor(Math.random() * Math.max(10, Math.floor(item.basePower * 0.12)));
@@ -104,12 +115,14 @@ async function equipItem(userId, itemId, cardId) {
     where: { id: itemId, userId },
     include: { template: true }
   });
+
   if (!eq) throw new Error('Item not found in your inventory.');
 
   const card = await prisma.userCard.findFirst({
     where: { id: cardId, userId },
     include: { character: true }
   });
+
   if (!card) throw new Error('Card not found in your inventory.');
 
   const sameSlot = await prisma.userEquipment.findMany({
@@ -120,14 +133,24 @@ async function equipItem(userId, itemId, cardId) {
     },
     include: { template: true }
   });
+
   for (const old of sameSlot) {
-    await prisma.userEquipment.update({ where: { id: old.id }, data: { cardId: null, equippedAt: null } });
+    await prisma.userEquipment.update({
+      where: { id: old.id },
+      data: { cardId: null, equippedAt: null }
+    });
   }
 
   const updated = await prisma.userEquipment.update({
     where: { id: itemId },
-    data: { cardId, equippedAt: new Date() },
-    include: { template: true, card: { include: { character: true } } }
+    data: {
+      cardId,
+      equippedAt: new Date()
+    },
+    include: {
+      template: true,
+      card: { include: { character: true } }
+    }
   });
 
   return { item: updated, card };
@@ -137,6 +160,7 @@ function getItemBonus(template, characterName = '') {
   const hint = (template.characterHint || '').toLowerCase();
   const name = characterName.toLowerCase();
   const setBonus = hint && name.includes(hint.toLowerCase()) ? 2 : 1;
+
   return {
     type: template.bonusType || 'POWER',
     value: (template.bonusValue || 0) * setBonus,
@@ -147,7 +171,15 @@ function getItemBonus(template, characterName = '') {
 function itemLine(eq) {
   const t = eq.template;
   const bonus = getItemBonus(t, eq.card?.character?.name || '');
+
   return `${eq.id} • ${t.name} • ${t.slot} • ${t.rarity} • PWR ${eq.power} • ${bonus.type}+${bonus.value}${bonus.setBonus ? ' • SET BONUS' : ''}`;
 }
 
-module.exports = { rollItem, equipItem, getItemBonus, itemLine, RARITY_COLORS, seedItemTemplates };
+module.exports = {
+  rollItem,
+  equipItem,
+  getItemBonus,
+  itemLine,
+  RARITY_COLORS,
+  seedItemTemplates
+};
