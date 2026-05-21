@@ -137,26 +137,100 @@ async function showTeam(userId) {
   return { text, power };
 }
 
+const ENEMY_ROSTERS = {
+  early: [
+    'Tanjiro Kamado', 'Zenitsu Agatsuma', 'Inosuke Hashibira', 'Nezuko Kamado', 'Yuji Itadori',
+    'Megumi Fushiguro', 'Nobara Kugisaki', 'Ochaco Uraraka', 'Katsuki Bakugo', 'Shoto Todoroki',
+    'Killua Zoldyck', 'Gon Freecss', 'Edward Elric', 'Mikasa Ackerman', 'Levi Ackerman'
+  ],
+  mid: [
+    'Rengoku Kyojuro', 'Tengen Uzui', 'Giyu Tomioka', 'Akaza', 'Toji Fushiguro',
+    'Suguru Geto', 'Kakashi Hatake', 'Itachi Uchiha', 'Pain', 'Minato Namikaze',
+    'Roronoa Zoro', 'Trafalgar Law', 'Portgas D. Ace', 'Ichigo Kurosaki', 'Byakuya Kuchiki'
+  ],
+  late: [
+    'Satoru Gojo', 'Ryomen Sukuna', 'Madara Uchiha', 'Aizen Sosuke', 'Muzan Kibutsuji',
+    'Meruem', 'All For One', 'Tomura Shigaraki', 'Kaido', 'Shanks',
+    'Monkey D. Luffy', 'Naruto Uzumaki', 'Sasuke Uchiha', 'Yhwach', 'Goku'
+  ],
+  divine: [
+    'Sukuna, King of Curses', 'Gojo Satoru', 'Madara Uchiha', 'Aizen, Lord of Illusions', 'Gear 5 Luffy',
+    'Baryon Mode Naruto', 'Ultra Instinct Goku', 'Yoriichi Tsugikuni', 'Founding Titan Eren', 'Muzan Kibutsuji',
+    'Kaido, King of Beasts', 'Shanks, Red Hair', 'Yhwach, The Almighty', 'Rimuru Tempest', 'Anos Voldigoad'
+  ]
+};
+
+function techniqueFor(name = '') {
+  const n = name.toLowerCase();
+  if (n.includes('gojo')) return 'Hollow Purple';
+  if (n.includes('sukuna')) return 'Malevolent Shrine';
+  if (n.includes('naruto')) return 'Rasengan Barrage';
+  if (n.includes('sasuke')) return 'Amaterasu';
+  if (n.includes('madara')) return 'Perfect Susanoo';
+  if (n.includes('luffy')) return 'Bajrang Gun';
+  if (n.includes('zoro')) return 'King of Hell';
+  if (n.includes('shanks')) return 'Conqueror Haki';
+  if (n.includes('goku')) return 'Ultra Instinct Rush';
+  if (n.includes('vegeta')) return 'Final Flash';
+  if (n.includes('ichigo')) return 'Mugetsu';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu';
+  if (n.includes('tanjiro')) return 'Sun Breathing';
+  if (n.includes('rengoku')) return 'Flame Tiger';
+  if (n.includes('akaza')) return 'Destructive Death';
+  if (n.includes('muzan')) return 'Demon Blood Storm';
+  if (n.includes('levi')) return 'Ackerman Blitz';
+  if (n.includes('eren')) return 'Titan Roar';
+  if (n.includes('killua')) return 'Godspeed';
+  if (n.includes('gon')) return 'Jajanken';
+  if (n.includes('bakugo')) return 'Howitzer Impact';
+  if (n.includes('todoroki')) return 'Heaven-Piercing Ice Wall';
+  if (n.includes('deku') || n.includes('izuku')) return 'One For All Smash';
+  if (n.includes('meruem')) return 'King’s Pressure';
+  if (n.includes('yoriichi')) return 'Thirteenth Form';
+  if (n.includes('yhwach')) return 'The Almighty';
+  return 'Ultimate Burst';
+}
+
+function enemyTierForProgress(kind, chapter = 1, stage = 1) {
+  const score = kind === 'story' ? (chapter * 30 + stage) : stage;
+  if (score >= 1450) return 'divine';
+  if (score >= 850) return 'late';
+  if (score >= 300) return 'mid';
+  return 'early';
+}
+
+function pickEnemyNames(kind, chapter = 1, stage = 1, isBoss = false, isFinal = false) {
+  const tier = isFinal ? 'divine' : isBoss ? (chapter >= 30 || stage >= 50 ? 'late' : 'mid') : enemyTierForProgress(kind, chapter, stage);
+  const pool = ENEMY_ROSTERS[tier] || ENEMY_ROSTERS.early;
+  const offset = (chapter * 7 + stage * 3) % pool.length;
+  const names = [];
+  for (let i = 0; i < 5; i++) names.push(pool[(offset + i) % pool.length]);
+  return names;
+}
+
 function storyStatus(user) {
   const chapter = user.storyChapter || 1;
   const stage = user.storyStage || 1;
   const isBoss = stage % 5 === 0;
   const isFinal = stage === 30;
   const enemyPower = Math.floor(700 + chapter * 380 + stage * 95 + (isBoss ? chapter * 600 + stage * 70 : 0) + (isFinal ? chapter * 1200 : 0));
-  const enemyName = isFinal ? `Chapter ${chapter} Final Boss` : isBoss ? `Chapter ${chapter} Stage ${stage} Boss` : `Chapter ${chapter} Enemy Squad`;
-  return { chapter, stage, isBoss, isFinal, enemyPower, enemyName };
+  const enemyNames = pickEnemyNames('story', chapter, stage, isBoss, isFinal);
+  const enemyName = isFinal ? enemyNames[0] : isBoss ? enemyNames[0] : `${enemyNames[0]}'s Squad`;
+  return { chapter, stage, isBoss, isFinal, enemyPower, enemyName, enemyNames };
 }
 
 function dungeonStatus(user) {
   const stage = user.dungeonStage || 1;
   const isBoss = stage % 5 === 0;
   const enemyPower = Math.floor(1800 + stage * 520 + (isBoss ? stage * 450 : 0));
-  const enemyName = isBoss ? `Dungeon Stage ${stage} Boss` : `Dungeon Stage ${stage} Monsters`;
+  const enemyNames = pickEnemyNames('dungeon', 1, stage, isBoss, false);
+  const enemyName = isBoss ? enemyNames[0] : `${enemyNames[0]}'s Dungeon Team`;
   return {
     stage,
     isBoss,
     enemyPower,
     enemyName,
+    enemyNames,
     gold: Math.floor(1000 + stage * 320 + (isBoss ? 2200 : 0)),
     tokens: isBoss ? 12 + Math.floor(stage / 5) : 3 + Math.floor(stage / 10),
     rolls: isBoss ? 3 : 0
@@ -165,9 +239,11 @@ function dungeonStatus(user) {
 
 function towerStatus(user) {
   const floor = user.towerFloor || 1;
+  const enemyNames = pickEnemyNames('tower', 1, floor, floor % 5 === 0, false);
   return {
     floor,
-    enemyName: `Tower Floor ${floor}`,
+    enemyName: `${enemyNames[0]}'s Tower Team`,
+    enemyNames,
     enemyPower: Math.floor(1200 + floor * 500 + Math.pow(floor, 1.35) * 120),
     gold: Math.floor(1000 + floor * 350),
     tokens: Math.floor(2 + floor / 3),
@@ -177,24 +253,36 @@ function towerStatus(user) {
 
 function bossList() {
   return [
-    { name: 'Shadow Beast', enemyPower: 2500, gold: 2000, tokens: 4, rolls: 0 },
-    { name: 'Flame Tyrant', enemyPower: 5000, gold: 4500, tokens: 9, rolls: 1 },
-    { name: 'Void King', enemyPower: 10000, gold: 10000, tokens: 20, rolls: 3 }
+    { name: 'Akaza', enemyNames: ['Akaza', 'Rengoku Kyojuro', 'Tengen Uzui', 'Giyu Tomioka', 'Shinobu Kocho'], enemyPower: 2500, gold: 2000, tokens: 4, rolls: 0 },
+    { name: 'Madara Uchiha', enemyNames: ['Madara Uchiha', 'Pain', 'Itachi Uchiha', 'Obito Uchiha', 'Minato Namikaze'], enemyPower: 5000, gold: 4500, tokens: 9, rolls: 1 },
+    { name: 'Aizen Sosuke', enemyNames: ['Aizen Sosuke', 'Ichigo Kurosaki', 'Byakuya Kuchiki', 'Yhwach', 'Kenpachi Zaraki'], enemyPower: 10000, gold: 10000, tokens: 20, rolls: 3 }
   ];
 }
 
 function limitedBoss() {
-  return { name: 'Sukuna, King of Curses', enemyPower: 15000, gold: 18000, tokens: 35, rolls: 10 };
+  return {
+    name: 'Sukuna, King of Curses',
+    enemyNames: ['Sukuna, King of Curses', 'Satoru Gojo', 'Toji Fushiguro', 'Suguru Geto', 'Megumi Fushiguro'],
+    enemyPower: 15000,
+    gold: 18000,
+    tokens: 35,
+    rolls: 10
+  };
 }
 
-function makeEnemyTeam(enemyName, enemyPower, count = 5) {
+function makeEnemyTeam(enemyData, count = 5) {
+  const enemyPower = enemyData.enemyPower || enemyData.power || 1000;
+  const names = enemyData.enemyNames && enemyData.enemyNames.length ? enemyData.enemyNames : [enemyData.enemyName || enemyData.name || 'Unknown Enemy'];
   const each = Math.max(100, Math.floor(enemyPower / count));
   const enemies = [];
   for (let i = 0; i < count; i++) {
-    const power = Math.floor(each * (0.8 + Math.random() * 0.4));
+    const power = Math.floor(each * (0.85 + Math.random() * 0.45));
+    const name = names[i % names.length];
     enemies.push({
-      name: count === 1 ? enemyName : `${enemyName} ${i + 1}`,
+      name,
+      technique: techniqueFor(name),
       power,
+      mana: Math.floor(Math.random() * 25),
       hp: hpFromPower(power),
       maxHp: hpFromPower(power)
     });
@@ -207,7 +295,9 @@ function makePlayerTeam(cards) {
     id: c.id,
     name: c.character.name,
     rarity: c.character.rarity,
+    technique: c.character.auraName || techniqueFor(c.character.name),
     power: c.power,
+    mana: 0,
     hp: hpFromPower(c.power),
     maxHp: hpFromPower(c.power)
   }));
@@ -217,9 +307,34 @@ function alive(units) {
   return units.filter(x => x.hp > 0);
 }
 
+function manaGain(attacker, didCrit = false) {
+  const base = 22 + Math.floor(attacker.power / 900);
+  return didCrit ? base + 12 : base;
+}
+
+function attackUnit(attacker, target, logs, enemy = false) {
+  let dmg = dmgFromPower(attacker.power);
+  const critChance = enemy ? 0.10 : 0.14;
+  const crit = Math.random() < critChance;
+  if (crit) dmg = Math.floor(dmg * 1.8);
+
+  attacker.mana = clamp((attacker.mana || 0) + manaGain(attacker, crit), 0, 100);
+
+  if (attacker.mana >= 100) {
+    attacker.mana = 0;
+    dmg = Math.floor(dmg * 2.8 + attacker.power * 0.35);
+    target.hp = Math.max(0, target.hp - dmg);
+    logs.push(`${enemy ? '💀' : '🔥'} ${attacker.name} used **${attacker.technique || 'Ultimate Burst'}** on ${target.name} for ${money(dmg)} damage!`);
+    return;
+  }
+
+  target.hp = Math.max(0, target.hp - dmg);
+  logs.push(`${enemy ? '💥' : '⚔️'} ${attacker.name} hit ${target.name} for ${money(dmg)}${crit ? ' CRIT' : ''}. Mana ${attacker.mana}/100`);
+}
+
 function simulateLiveBattle(cards, enemyData) {
   const players = makePlayerTeam(cards);
-  const enemies = makeEnemyTeam(enemyData.enemyName || enemyData.name, enemyData.enemyPower || enemyData.power, 5);
+  const enemies = makeEnemyTeam(enemyData, 5);
   const snapshots = [];
   const logs = [];
 
@@ -228,22 +343,18 @@ function simulateLiveBattle(cards, enemyData) {
       title,
       players: players.map(x => ({ ...x })),
       enemies: enemies.map(x => ({ ...x })),
-      logs: logs.slice(-6)
+      logs: logs.slice(-7)
     });
   };
 
   push('Battle Started');
 
-  for (let turn = 1; turn <= 20; turn++) {
+  for (let turn = 1; turn <= 24; turn++) {
     for (const p of alive(players)) {
       const targets = alive(enemies);
       if (!targets.length) break;
       const target = targets[Math.floor(Math.random() * targets.length)];
-      let dmg = dmgFromPower(p.power);
-      const crit = Math.random() < 0.12;
-      if (crit) dmg = Math.floor(dmg * 1.8);
-      target.hp = Math.max(0, target.hp - dmg);
-      logs.push(`⚔️ ${p.name} hit ${target.name} for ${money(dmg)}${crit ? ' CRIT' : ''}.`);
+      attackUnit(p, target, logs, false);
       push(`Turn ${turn} • Your Attack`);
     }
 
@@ -253,9 +364,7 @@ function simulateLiveBattle(cards, enemyData) {
       const targets = alive(players);
       if (!targets.length) break;
       const target = targets[Math.floor(Math.random() * targets.length)];
-      let dmg = dmgFromPower(e.power);
-      target.hp = Math.max(0, target.hp - dmg);
-      logs.push(`💥 ${e.name} hit ${target.name} for ${money(dmg)}.`);
+      attackUnit(e, target, logs, true);
       push(`Turn ${turn} • Enemy Attack`);
     }
 
@@ -270,27 +379,26 @@ function simulateLiveBattle(cards, enemyData) {
     title: win ? 'Victory' : 'Defeat',
     players: players.map(x => ({ ...x })),
     enemies: enemies.map(x => ({ ...x })),
-    logs: logs.slice(-6),
+    logs: logs.slice(-7),
     final: true
   });
 
   return { win, snapshots, teamPower: playerPower, enemyPower };
 }
 
-function formatSnapshot(snapshot, meta = {}) {
-  const teamHp = snapshot.players.reduce((s, x) => s + x.hp, 0);
-  const teamMax = snapshot.players.reduce((s, x) => s + x.maxHp, 0);
-  const enemyHp = snapshot.enemies.reduce((s, x) => s + x.hp, 0);
-  const enemyMax = snapshot.enemies.reduce((s, x) => s + x.maxHp, 0);
+function unitLine(x) {
+  return `${x.hp > 0 ? '🟢' : '🔴'} ${x.name} ${bar(x.hp, x.maxHp, 8)} ${money(x.hp)}/${money(x.maxHp)} HP • Mana ${x.mana || 0}/100`;
+}
 
-  const alivePlayers = snapshot.players.filter(x => x.hp > 0).length;
-  const aliveEnemies = snapshot.enemies.filter(x => x.hp > 0).length;
+function formatSnapshot(snapshot, meta = {}) {
+  const playersText = snapshot.players.slice(0, 5).map(unitLine).join('\n');
+  const enemiesText = snapshot.enemies.slice(0, 5).map(unitLine).join('\n');
 
   return (
     `**${snapshot.title}**\n` +
     `${meta.label ? `${meta.label}\n` : ''}` +
-    `Your Team: ${bar(teamHp, teamMax)} ${money(teamHp)}/${money(teamMax)} HP • Alive ${alivePlayers}/5\n` +
-    `Enemy Team: ${bar(enemyHp, enemyMax)} ${money(enemyHp)}/${money(enemyMax)} HP • Alive ${aliveEnemies}/5\n\n` +
+    `\n**Your Team**\n${playersText}\n\n` +
+    `**Enemy Team**\n${enemiesText}\n\n` +
     (snapshot.logs.length ? snapshot.logs.join('\n') : 'Preparing battle...')
   );
 }
@@ -327,7 +435,7 @@ async function prepareBattle(userId, mode) {
 
   if (mode === 'story') {
     const s = storyStatus(user);
-    enemy = { name: s.enemyName, enemyName: s.enemyName, enemyPower: s.enemyPower };
+    enemy = { name: s.enemyName, enemyName: s.enemyName, enemyNames: s.enemyNames, enemyPower: s.enemyPower };
     rewards = {
       gold: 1000 + s.chapter * 250 + s.stage * 75 + (s.isBoss ? 1500 : 0),
       tokens: s.isFinal ? 15 : s.isBoss ? 7 : 2,
@@ -348,7 +456,7 @@ async function prepareBattle(userId, mode) {
 
   if (mode === 'dungeon') {
     const d = dungeonStatus(user);
-    enemy = { name: d.enemyName, enemyName: d.enemyName, enemyPower: d.enemyPower };
+    enemy = { name: d.enemyName, enemyName: d.enemyName, enemyNames: d.enemyNames, enemyPower: d.enemyPower };
     rewards = { gold: d.gold, tokens: d.tokens, rolls: d.rolls, xp: 120 + d.stage * 8 };
     updateProgress = async (win) => {
       if (!win) return;
@@ -358,7 +466,7 @@ async function prepareBattle(userId, mode) {
 
   if (mode === 'tower') {
     const t = towerStatus(user);
-    enemy = { name: t.enemyName, enemyName: t.enemyName, enemyPower: t.enemyPower };
+    enemy = { name: t.enemyName, enemyName: t.enemyName, enemyNames: t.enemyNames, enemyPower: t.enemyPower };
     rewards = { gold: t.gold, tokens: t.tokens, rolls: t.rolls, xp: 100 + t.floor * 8 };
     updateProgress = async (win) => {
       if (!win) return;
@@ -368,7 +476,7 @@ async function prepareBattle(userId, mode) {
 
   if (mode === 'limited-boss') {
     const b = limitedBoss();
-    enemy = { name: b.name, enemyName: b.name, enemyPower: b.enemyPower };
+    enemy = { name: b.name, enemyName: b.name, enemyNames: b.enemyNames, enemyPower: b.enemyPower };
     rewards = { gold: b.gold, tokens: b.tokens, rolls: b.rolls, xp: 500 };
   }
 
