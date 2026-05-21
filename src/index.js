@@ -294,6 +294,29 @@ function getProgressTitle(mode, value, user) {
   return `Dungeon Stage ${value}`;
 }
 
+
+async function getUserBattleTeam(userId) {
+  const teamSlots = await prisma.teamSlot.findMany({
+    where: { userId },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  const fromTeam = teamSlots
+    .map(s => s.card)
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (fromTeam.length) return fromTeam;
+
+  return prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 5
+  });
+}
+
 async function getTeamPower(userId) {
   const team = await prisma.teamSlot.findMany({
     where: { userId },
@@ -412,7 +435,7 @@ async function sendBossAnnouncement(channel) {
       `❤️ Boss HP: **${money(boss.hp)}**\n` +
       `🎁 Rewards: **${money(boss.rewardGold)} gold**, **${boss.rewardTokens} tokens**, rare drops.\n\n` +
       `اضغط الزر عشان تدخل البوس.\n` +
-      `القتال يبدأ تلقائيًا بعد دقيقتين.`
+      `القتال يبدأ تلقائيًا بعد دقيقتين، وبتشوف لوق لايف للضربات والالتات.`
     )
     .setColor(0x8b0000);
 
@@ -424,6 +447,7 @@ async function sendBossAnnouncement(channel) {
   );
 
   const msg = await channel.send({ embeds: [embed], components: [row] });
+
 
   setTimeout(async () => {
     const latest = activeManualBosses.get(eventId);
@@ -437,20 +461,119 @@ async function sendBossAnnouncement(channel) {
       return channel.send(`👹 **${bossName}** disappeared. No one joined.`);
     }
 
+    const battleMsg = await channel.send(
+      `👹 **BOSS FIGHT STARTED: ${bossName}**
+` +
+      `Players joined: **${players.length}**
+` +
+      `Boss HP: **${money(latest.hp)}**
+
+` +
+      `Loading teams...`
+    );
+
+    const playerTeams = [];
     let totalPower = 0;
-    const lines = [];
 
     for (const joinedUserId of players) {
-      const pwr = await getTeamPower(joinedUserId);
-      totalPower += pwr;
-      lines.push(`<@${joinedUserId}> team power: **${money(pwr)}**`);
+      const cards = await getUserBattleTeam(joinedUserId);
+      const power = cards.reduce((sum, c) => sum + (c.power || 0), 0);
+      totalPower += power;
+      playerTeams.push({ userId: joinedUserId, cards, power, mana: 0 });
     }
 
-    const won = totalPower >= latest.power;
-    let result =
-      `👹 **BOSS RESULT: ${bossName}**\n\n` +
-      lines.join('\n').slice(0, 1200) +
-      `\n\nTotal Power: **${money(totalPower)}** / **${money(latest.power)}**\n`;
+    let bossHp = latest.hp;
+    let bossMana = 0;
+    let log =
+      `👹 **BOSS FIGHT: ${bossName}**
+` +
+      `❤️ Boss HP: **${money(bossHp)}**
+` +
+      `👥 Players: **${players.length}**
+
+`;
+
+    log += `**Teams**
+`;
+    for (const p of playerTeams) {
+      const names = p.cards.map(c => c.character?.name || 'Unknown').join(', ');
+      log += `<@${p.userId}>: ${names || 'No cards'} • PWR **${money(p.power)}**
+`;
+    }
+
+    log += `
+`;
+
+    await battleMsg.edit(log.slice(-1900)).catch(() => {});
+
+    const rounds = 7;
+
+    for (let round = 1; round <= rounds; round++) {
+      log += `
+__**Round ${round}**__
+`;
+
+      for (const p of playerTeams) {
+        const cards = p.cards.length ? p.cards : [{ power: 100, character: { name: 'Unknown Fighter' } }];
+
+        for (const card of cards) {
+          const name = card.character?.name || 'Unknown Fighter';
+          const dmg = Math.max(50, Math.floor((card.power || 100) * (0.12 + Math.random() * 0.10)));
+          bossHp -= dmg;
+          p.mana += 22 + Math.floor(Math.random() * 18);
+
+          log += `⚔️ **${name}** hit ${bossName} for **${money(dmg)}**. Mana: ${Math.min(100, p.mana)}/100
+`;
+
+          if (p.mana >= 100) {
+            const ultDmg = Math.max(150, Math.floor((card.power || 100) * (0.42 + Math.random() * 0.22)));
+            bossHp -= ultDmg;
+            p.mana = 0;
+            log += `🌌 **${name} ULTIMATE!** dealt **${money(ultDmg)}** massive damage!
+`;
+          }
+
+          if (bossHp <= 0) break;
+        }
+
+        if (bossHp <= 0) break;
+      }
+
+      bossMana += 28 + Math.floor(Math.random() * 22);
+
+      if (bossHp > 0) {
+        if (bossMana >= 100) {
+          bossMana = 0;
+          const target = playerTeams[Math.floor(Math.random() * playerTeams.length)];
+          const targetCard = target.cards[Math.floor(Math.random() * Math.max(1, target.cards.length))];
+          const targetName = targetCard?.character?.name || 'the team';
+          const bossUlt = Math.floor(latest.power * (0.08 + Math.random() * 0.05));
+          log += `☠️ **${bossName} ULTIMATE!** crushed **${targetName}** for **${money(bossUlt)}** damage!
+`;
+        } else {
+          const target = playerTeams[Math.floor(Math.random() * playerTeams.length)];
+          const bossHit = Math.floor(latest.power * (0.025 + Math.random() * 0.025));
+          log += `💢 **${bossName}** attacks <@${target.userId}> team for **${money(bossHit)}**. Boss Mana: ${bossMana}/100
+`;
+        }
+      }
+
+      log += `❤️ Boss HP left: **${money(Math.max(0, bossHp))}**
+`;
+
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      await battleMsg.edit(log.slice(-1900)).catch(() => {});
+
+      if (bossHp <= 0) break;
+    }
+
+    const won = bossHp <= 0 || totalPower >= latest.power;
+
+    log += `
+__**Final Result**__
+`;
+    log += `Total Team Power: **${money(totalPower)}** / Boss Power: **${money(latest.power)}**
+`;
 
     if (won) {
       const goldEach = Math.floor(latest.rewardGold / players.length);
@@ -467,14 +590,15 @@ async function sendBossAnnouncement(channel) {
         }).catch(() => {});
       }
 
-      result += `\n✅ Boss defeated! Each player got **${money(goldEach)} gold**, **${tokensEach} tokens**, **5 rolls**.`;
+      log += `✅ **Boss defeated!** Each player got **${money(goldEach)} gold**, **${tokensEach} tokens**, **5 rolls**.`;
     } else {
-      result += `\n❌ Boss survived. Upgrade your team.`;
+      log += `❌ **Boss survived.** Upgrade your team and try again.`;
     }
 
     activeManualBosses.delete(eventId);
-    return channel.send(result.slice(0, 1900));
+    return battleMsg.edit(log.slice(-1900)).catch(() => channel.send(log.slice(-1900)));
   }, 2 * 60 * 1000);
+
 
   return boss;
 }
