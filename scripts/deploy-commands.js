@@ -1,18 +1,13 @@
 require('dotenv').config();
 
-const {
-  REST,
-  Routes,
-  SlashCommandBuilder
-} = require('discord.js');
-
+const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
   new SlashCommandBuilder().setName('roll').setDescription('Roll a random anime card'),
-  new SlashCommandBuilder().setName('inventory').setDescription('Show your latest cards'),
+  new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
 
   new SlashCommandBuilder()
     .setName('team')
@@ -22,12 +17,8 @@ const commands = [
         .setDescription('Set a card in a team slot')
         .addIntegerOption(o => o.setName('slot').setDescription('Team slot 1-5').setRequired(true))
         .addStringOption(o => o.setName('card_id').setDescription('Card ID').setRequired(true)))
-    .addSubcommand(s =>
-      s.setName('show')
-        .setDescription('Show your current team'))
-    .addSubcommand(s =>
-      s.setName('auto')
-        .setDescription('Auto-fill your team with your strongest 5 cards')),
+    .addSubcommand(s => s.setName('show').setDescription('Show your current team'))
+    .addSubcommand(s => s.setName('auto').setDescription('Auto-fill your team with your strongest 5 cards')),
 
   new SlashCommandBuilder().setName('market').setDescription('Show market listings'),
   new SlashCommandBuilder()
@@ -46,39 +37,51 @@ const commands = [
     .setDescription('Upgrade equipment')
     .addStringOption(o => o.setName('equipment_id').setDescription('Equipment ID').setRequired(true)),
 
-  new SlashCommandBuilder().setName('quests').setDescription('Show your daily quests'),
+  new SlashCommandBuilder().setName('quests').setDescription('Show daily quests'),
   new SlashCommandBuilder().setName('bosses').setDescription('Show active bosses'),
-  new SlashCommandBuilder().setName('limited-boss').setDescription('Fight the current limited boss'),
+  new SlashCommandBuilder()
+    .setName('limited-boss')
+    .setDescription('Limited boss mode')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('status/start')
+        .setRequired(false)
+        .addChoices({ name: 'Status', value: 'status' }, { name: 'Start', value: 'start' })),
+
   new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Enter a dungeon')
+    .setDescription('Dungeon mode')
     .addStringOption(o =>
-      o.setName('type')
-        .setDescription('fire/shadow/ice/void')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Fire', value: 'fire' },
-          { name: 'Shadow', value: 'shadow' },
-          { name: 'Ice', value: 'ice' },
-          { name: 'Void', value: 'void' }
-        )),
-  new SlashCommandBuilder().setName('tower').setDescription('Climb the tower'),
+      o.setName('action')
+        .setDescription('status/start')
+        .setRequired(false)
+        .addChoices({ name: 'Status', value: 'status' }, { name: 'Start', value: 'start' })),
+
+  new SlashCommandBuilder()
+    .setName('tower')
+    .setDescription('Tower mode')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('status/start')
+        .setRequired(false)
+        .addChoices({ name: 'Status', value: 'status' }, { name: 'Start', value: 'start' })),
+
   new SlashCommandBuilder()
     .setName('story')
-    .setDescription('Play story mode')
-    .addSubcommand(s =>
-      s.setName('fight')
-        .setDescription('Fight your current story stage'))
-    .addSubcommand(s =>
-      s.setName('status')
-        .setDescription('Show story progress')),
+    .setDescription('Story mode')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('status/start')
+        .setRequired(false)
+        .addChoices({ name: 'Status', value: 'status' }, { name: 'Start', value: 'start' })),
+
   new SlashCommandBuilder()
     .setName('sacrifice')
     .setDescription('Sacrifice cards to power up another card')
     .addStringOption(o => o.setName('main_card').setDescription('Main card ID').setRequired(true))
     .addStringOption(o => o.setName('sacrifice_card').setDescription('Card to sacrifice').setRequired(true)),
 
-  new SlashCommandBuilder().setName('claim').setDescription('Claim passive farming rewards from your cards'),
+  new SlashCommandBuilder().setName('claim').setDescription('Claim passive farming rewards from all owned cards'),
   new SlashCommandBuilder().setName('help').setDescription('Show all bot commands'),
 
   new SlashCommandBuilder()
@@ -91,15 +94,9 @@ const commands = [
   const rest = new REST({ version: '10' }).setToken(config.token);
 
   if (config.guildId) {
-    await rest.put(
-      Routes.applicationGuildCommands(config.clientId, config.guildId),
-      { body: commands }
-    );
+    await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commands });
   } else {
-    await rest.put(
-      Routes.applicationCommands(config.clientId),
-      { body: commands }
-    );
+    await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
   }
 
   console.log('Commands deployed');

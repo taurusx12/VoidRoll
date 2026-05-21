@@ -45,12 +45,14 @@ model User {
   tokens Int @default(0)
   rolls Int @default(15)
   lastRollRefillAt DateTime @default(now())
+  lastPassiveClaimAt DateTime?
   xp Int @default(0)
   level Int @default(1)
   dailyStreak Int @default(0)
   lastDailyAt DateTime?
   storyChapter Int @default(1)
   storyStage Int @default(1)
+  dungeonStage Int @default(1)
   towerFloor Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
