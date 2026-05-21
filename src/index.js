@@ -394,7 +394,6 @@ client.once('ready', () => {
     .then(() => console.log('Item templates synced'))
     .catch(console.error);
 
-  applySecretCharacterBoosts().catch(console.error);
 
   const firstDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 60) * 1000;
   const interval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
