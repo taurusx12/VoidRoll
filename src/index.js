@@ -283,9 +283,7 @@ async function inventoryEmbed(userId, index = 0) {
 const activeManualBosses = new Map();
 
 function getProgressField(mode) {
-  if (mode === 'story') return 'storyStage';
-  if (mode === 'tower') return 'towerFloor';
-  return 'dungeonStage';
+  return null;
 }
 
 function getProgressTitle(mode, value, user) {
@@ -339,10 +337,9 @@ async function runProgressBattle(interaction, mode) {
   await interaction.deferReply();
   const userId = interaction.user.id;
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  const field = getProgressField(mode);
-  const current = user[field] || 1;
+  const current = 1;
   const teamPower = await getTeamPower(userId);
-  const chapter = user.storyChapter || 1;
+  const chapter = 1;
   const required = mode === 'story' ? 700 + ((chapter - 1) * 30 + current) * 260 : mode === 'tower' ? 1200 + current * 420 : 900 + current * 330;
   const enemies = await getAnimeEnemies(5, Math.max(0, required / 8));
   let allyMana = 0;
@@ -396,7 +393,7 @@ async function runProgressBattle(interaction, mode) {
   logs.push('');
   logs.push('✅ Victory!');
   logs.push(`🎁 Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.`);
-  logs.push('➡️ Progress saved.');
+  logs.push('➡️ Rewards saved.');
   return interaction.editReply(logs.join('\\n').slice(0, 1900));
 }
 
@@ -1219,8 +1216,7 @@ client.on('interactionCreate', async (i) => {
       const action = i.options.getString('action') || 'info';
       const mode = commandName;
       const user = await prisma.user.findUnique({ where: { id: userId } });
-      const field = getProgressField(mode);
-      const current = user[field] || 1;
+      const current = 1;
       const teamPower = await getTeamPower(userId);
       const required = mode === 'story'
         ? 700 + current * 260
