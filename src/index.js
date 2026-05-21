@@ -842,7 +842,6 @@ client.on('interactionCreate', async (i) => {
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
       );
     }
-
     if (commandName === 'search') {
       const name = i.options.getString('name', true);
 
@@ -861,22 +860,20 @@ client.on('interactionCreate', async (i) => {
 
       const first = chars[0];
       const aura = getAura(first);
+      const otherResults = chars
+        .slice(1)
+        .map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`)
+        .join('\n');
 
       const embed = new EmbedBuilder()
         .setTitle(`🔎 ${first.name}`)
         .setDescription(
-          `🎌 Anime: **${first.anime}**
-` +
-          `💎 Rarity: **${first.rarity}**
-` +
-          `⚔️ Base Power: **${first.basePower}**
-` +
-          `🌌 Technique: **${aura.name}**
-
-` +
-          `**Other results:**
-` +
-          chars.slice(1).map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\\n')
+          `🎌 Anime: **${first.anime}**\n` +
+          `💎 Rarity: **${first.rarity}**\n` +
+          `⚔️ Base Power: **${first.basePower}**\n` +
+          `🌌 Technique: **${aura.name}**\n\n` +
+          `**Other results:**\n` +
+          (otherResults || 'No other results.')
         )
         .setImage(first.imageUrl)
         .setColor(embedColor(aura.color));
@@ -895,7 +892,6 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ embeds: [embed] });
       }
     }
-
     if (commandName === 'secrets') {
       const chars = await prisma.character.findMany({
         where: { rarity: 'SECRET' },
@@ -907,13 +903,11 @@ client.on('interactionCreate', async (i) => {
         return i.reply('No SECRET characters found.');
       }
 
-      return i.reply(
-        `🕳️ **SECRET CHARACTERS**
+      const list = chars
+        .map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`)
+        .join('\n');
 
-` +
-        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
-')
-      );
+      return i.reply(`🕳️ **SECRET CHARACTERS**\n\n${list}`);
     }
 
     if (commandName === 'rarity') {
