@@ -45,6 +45,7 @@ model User {
   tokens Int @default(0)
   rolls Int @default(15)
   lastRollRefillAt DateTime @default(now())
+  lastPassiveClaimAt DateTime?
   xp Int @default(0)
   level Int @default(1)
   dailyStreak Int @default(0)
@@ -55,6 +56,8 @@ model User {
   equipment UserEquipment[]
   listings MarketListing[]
   deployments Deployment[]
+  teamSlots TeamSlot[]
+  storyProgress StoryProgress?
 }
 
 model Character {
@@ -95,8 +98,31 @@ model UserCard {
   character Character @relation(fields:[characterId], references:[id])
   listings MarketListing[]
   deployments Deployment[]
+  teamSlots TeamSlot[]
   @@index([userId])
   @@index([characterId, serial])
+}
+
+model TeamSlot {
+  id String @id
+  userId String
+  slot Int
+  cardId String
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId], references:[id])
+  card UserCard @relation(fields:[cardId], references:[id])
+  @@unique([userId, slot])
+}
+
+model StoryProgress {
+  id String @id
+  userId String
+  chapter Int @default(1)
+  stage Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId], references:[id])
+  @@unique([userId])
 }
 
 model EquipmentTemplate {
