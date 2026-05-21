@@ -5,7 +5,10 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  AttachmentBuilder
+  AttachmentBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 
 const config = require('./lib/config');
@@ -31,14 +34,74 @@ function cardLine(c) {
   return `${c.id} • ${c.character.name} #${c.serial} • ${c.character.rarity} • PWR ${c.power}${c.shiny ? ' ✨' : ''}${c.trait ? ` • ${c.trait}` : ''}`;
 }
 
+function buildInventoryEmbed(card, index, total) {
+  return new EmbedBuilder()
+    .setTitle(`🎴 ${card.character.name}`)
+    .setDescription(
+      `🎌 Anime: **${card.character.anime}**\n` +
+      `💎 Rarity: **${card.character.rarity}**\n` +
+      `⚔️ Power: **${money(card.power)}**\n` +
+      `📈 Level: **${card.level}**\n` +
+      `🆔 Card ID: \`${card.id}\``
+    )
+    .setImage(card.character.imageUrl || null)
+    .setFooter({ text: `Card ${index + 1}/${total}` });
+}
+
+function buildInventoryButtons(userId, index, total) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`inv:${userId}:${Math.max(0, index - 1)}`)
+      .setLabel('◀ Previous')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(index <= 0),
+    new ButtonBuilder()
+      .setCustomId(`inv:${userId}:${Math.min(total - 1, index + 1)}`)
+      .setLabel('Next ▶')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(index >= total - 1)
+  );
+}
+
+async function getInventoryCards(userId) {
+  return prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { obtainedAt: 'desc' },
+    take: 100
+  });
+}
+
+
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
 client.on('interactionCreate', async (i) => {
-  if (!i.isChatInputCommand()) return;
-
   try {
+    if (i.isButton()) {
+      const [type, ownerId, indexText] = i.customId.split(':');
+
+      if (type !== 'inv') return;
+
+      if (i.user.id !== ownerId) {
+        return i.reply({ content: 'This inventory is not yours.', ephemeral: true });
+      }
+
+      const cards = await getInventoryCards(ownerId);
+
+      if (!cards.length) {
+        return i.update({ content: 'You do not have any cards yet.', embeds: [], components: [] });
+      }
+
+      const index = Math.max(0, Math.min(cards.length - 1, Number(indexText) || 0));
+      const embed = buildInventoryEmbed(cards[index], index, cards.length);
+      const row = buildInventoryButtons(ownerId, index, cards.length);
+
+      return i.update({ embeds: [embed], components: [row] });
+    }
+
+    if (!i.isChatInputCommand()) return;
     await ensureUser(i.user);
     const userId = i.user.id;
 
@@ -147,15 +210,20 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (i.commandName === 'inventory') {
-      const cards = await prisma.userCard.findMany({
-        where: { userId },
-        include: { character: true },
-        orderBy: { obtainedAt: 'desc' },
-        take: 10
-      });
+      const cards = await getInventoryCards(userId);
 
-      if (!cards.length) return i.reply('You do not have any cards yet. Use /roll to get your first card.');
-      return i.reply(cards.map(cardLine).join('\n'));
+      if (!cards.length) {
+        return i.reply('You do not have any cards yet. Use /roll to get your first card.');
+      }
+
+      const index = 0;
+      const embed = buildInventoryEmbed(cards[index], index, cards.length);
+      const row = buildInventoryButtons(userId, index, cards.length);
+
+      return i.reply({
+        embeds: [embed],
+        components: [row]
+      });
     }
 
     if (i.commandName === 'team') {
