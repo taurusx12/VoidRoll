@@ -75,6 +75,10 @@ const commands = [
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
 
+  new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give rolls to a player')
+    .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount').setRequired(true)),
+
   new SlashCommandBuilder().setName('admin-give-equipment').setDescription('Admin: give test equipment')
     .addStringOption(o => o.setName('rarity').setDescription('COMMON/RARE/EPIC/LEGENDARY/MYTHIC/DIVINE/SECRET'))
 ].map(c => c.toJSON());
