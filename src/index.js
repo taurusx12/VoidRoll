@@ -282,10 +282,6 @@ async function inventoryEmbed(userId, index = 0) {
 
 const activeManualBosses = new Map();
 
-function getProgressField(mode) {
-  return null;
-}
-
 function getProgressTitle(mode, value, user) {
   if (mode === 'story') return `Chapter ${user.storyChapter || 1}, Stage ${value}/30`;
   if (mode === 'tower') return `Tower Floor ${value}`;
@@ -333,69 +329,171 @@ async function getTeamPower(userId) {
   return cards.reduce((sum, c) => sum + (c.power || 0), 0);
 }
 
+
+function getProgressTitle(mode, progress) {
+  if (mode === 'story') return `Chapter ${progress.chapter}, Stage ${progress.stage}/30`;
+  if (mode === 'tower') return `Tower Floor ${progress.towerFloor}`;
+  return `Dungeon Floor ${progress.dungeonFloor}`;
+}
+
+async function getOrCreateProgress(userId) {
+  return prisma.storyProgress.upsert({
+    where: { userId },
+    update: {},
+    create: {
+      id: require('nanoid').nanoid(12),
+      userId,
+      chapter: 1,
+      stage: 1,
+      dungeonFloor: 1,
+      towerFloor: 1
+    }
+  });
+}
+
+async function updateProgressAfterWin(userId, mode, progress) {
+  if (mode === 'story') {
+    let nextStage = progress.stage + 1;
+    let nextChapter = progress.chapter;
+
+    if (nextStage > 30) {
+      nextStage = 1;
+      nextChapter += 1;
+    }
+
+    if (nextChapter > 60) {
+      nextChapter = 60;
+      nextStage = 30;
+    }
+
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: {
+        chapter: nextChapter,
+        stage: nextStage
+      }
+    });
+  }
+
+  if (mode === 'tower') {
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: { towerFloor: progress.towerFloor + 1 }
+    });
+  }
+
+  return prisma.storyProgress.update({
+    where: { userId },
+    data: { dungeonFloor: progress.dungeonFloor + 1 }
+  });
+}
+
+async function getAnimeEnemies(count = 5, minPower = 0) {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    orderBy: { basePower: 'desc' },
+    take: 350
+  });
+
+  const pool = chars.filter(c => (c.basePower || 0) >= minPower);
+  const source = pool.length ? pool : chars;
+  const shuffled = source.sort(() => Math.random() - 0.5);
+
+  return shuffled.slice(0, count).map(c => c.name);
+}
+
 async function runProgressBattle(interaction, mode) {
   await interaction.deferReply();
+
   const userId = interaction.user.id;
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  const current = 1;
+  const progress = await getOrCreateProgress(userId);
   const teamPower = await getTeamPower(userId);
-  const chapter = 1;
-  const required = mode === 'story' ? 700 + ((chapter - 1) * 30 + current) * 260 : mode === 'tower' ? 1200 + current * 420 : 900 + current * 330;
+
+  const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+  const currentNumber = mode === 'story'
+    ? storyIndex
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+
+  const required = mode === 'story'
+    ? 700 + storyIndex * 260
+    : mode === 'tower'
+      ? 1200 + progress.towerFloor * 420
+      : 900 + progress.dungeonFloor * 330;
+
   const enemies = await getAnimeEnemies(5, Math.max(0, required / 8));
   let allyMana = 0;
   let enemyMana = 0;
-  const logs = [];
-  logs.push(`⚔️ **${mode.toUpperCase()} BATTLE**`);
-  logs.push(`📍 ${getProgressTitle(mode, current, user)}`);
-  logs.push(`👥 Team Power: **${money(teamPower)}**`);
-  logs.push(`👹 Required Power: **${money(required)}**`);
-  logs.push('');
-  logs.push(`**Enemies:** ${enemies.join(', ')}`);
-  logs.push('');
-  for (let r = 1; r <= 6; r++) {
+
+  let text =
+    `⚔️ **${mode.toUpperCase()} BATTLE STARTED**\n` +
+    `📍 ${getProgressTitle(mode, progress)}\n` +
+    `👥 Team Power: **${money(teamPower)}**\n` +
+    `👹 Required Power: **${money(required)}**\n` +
+    `🎭 Enemies: **${enemies.join(', ')}**\n\n`;
+
+  await interaction.editReply(text + 'Battle is starting...');
+
+  for (let r = 1; r <= 7; r++) {
     const enemy = enemies[(r - 1) % enemies.length];
     const hit = Math.max(50, Math.floor(teamPower / (7 + r) + Math.random() * 350));
-    const enemyHit = Math.max(30, Math.floor(required / (11 + r) + Math.random() * 200));
-    allyMana += 25 + Math.floor(Math.random() * 18);
-    enemyMana += 18 + Math.floor(Math.random() * 15);
-    logs.push(`⚔️ Round ${r}: Your team hit **${enemy}** for **${money(hit)}**. Mana: ${Math.min(100, allyMana)}/100`);
+    const enemyHit = Math.max(30, Math.floor(required / (11 + r) + Math.random() * 220));
+
+    allyMana += 24 + Math.floor(Math.random() * 20);
+    enemyMana += 17 + Math.floor(Math.random() * 18);
+
+    text += `\n__Round ${r}__\n`;
+    text += `⚔️ Your team hit **${enemy}** for **${money(hit)}**. Mana: ${Math.min(100, allyMana)}/100\n`;
+
     if (allyMana >= 100) {
-      logs.push(`🌌 **ULTIMATE ACTIVATED!** Your team unleashed a finisher for **${money(Math.floor(hit * 2.4))}** damage.`);
+      const ult = Math.floor(hit * 2.6);
+      text += `🌌 **TEAM ULTIMATE!** Massive finisher dealt **${money(ult)}** damage!\n`;
       allyMana = 0;
     }
-    logs.push(`💢 **${enemy}** hit back for **${money(enemyHit)}**. Enemy Mana: ${Math.min(100, enemyMana)}/100`);
+
+    text += `💢 **${enemy}** hit back for **${money(enemyHit)}**. Enemy Mana: ${Math.min(100, enemyMana)}/100\n`;
+
     if (enemyMana >= 100) {
-      logs.push(`☠️ **Enemy Ultimate!** ${enemy} used a special attack for **${money(Math.floor(enemyHit * 2))}** damage.`);
+      const enemyUlt = Math.floor(enemyHit * 2.1);
+      text += `☠️ **ENEMY ULTIMATE!** ${enemy} used a special attack for **${money(enemyUlt)}** damage!\n`;
       enemyMana = 0;
     }
+
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    await interaction.editReply(text.slice(-1900)).catch(() => {});
   }
+
   const won = teamPower >= required || Math.random() < Math.min(0.45, teamPower / Math.max(1, required) / 3);
+
   if (!won) {
-    logs.push('');
-    logs.push('❌ Defeat. Upgrade your team, items, and rarity.');
-    return interaction.editReply(logs.join('\\n').slice(0, 1900));
+    text += `\n❌ Defeat. Upgrade your team, train your characters, or use better items.`;
+    return interaction.editReply(text.slice(-1900));
   }
+
   const gold = Math.floor(required * 0.75);
   const tokens = mode === 'tower' ? 3 : mode === 'story' ? 4 : 3;
   const rolls = mode === 'story' ? 3 : 2;
-  const data = { gold: { increment: gold }, tokens: { increment: tokens }, rolls: { increment: rolls } };
-  if (mode === 'story') {
-    let nextStage = current + 1;
-    let nextChapter = chapter;
-    if (nextStage > 30) { nextStage = 1; nextChapter += 1; }
-    if (nextChapter > 60) { nextChapter = 60; nextStage = 30; }
-    data.storyStage = nextStage;
-    data.storyChapter = nextChapter;
-  } else {
-    data[field] = current + 1;
-  }
-  await prisma.user.update({ where: { id: userId }, data });
-  logs.push('');
-  logs.push('✅ Victory!');
-  logs.push(`🎁 Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.`);
-  logs.push('➡️ Rewards saved.');
-  return interaction.editReply(logs.join('\\n').slice(0, 1900));
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      gold: { increment: gold },
+      tokens: { increment: tokens },
+      rolls: { increment: rolls }
+    }
+  });
+
+  await updateProgressAfterWin(userId, mode, progress);
+
+  text +=
+    `\n✅ **Victory!**\n` +
+    `🎁 Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.\n` +
+    `➡️ Progress saved.`;
+
+  return interaction.editReply(text.slice(-1900));
 }
+
 
 async function sendBossAnnouncement(channel) {
   const bossNames = [
@@ -1211,31 +1309,37 @@ client.on('interactionCreate', async (i) => {
       );
     }
 
-
     if (commandName === 'story' || commandName === 'dungeon' || commandName === 'tower') {
       const action = i.options.getString('action') || 'info';
       const mode = commandName;
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      const current = 1;
+      const progress = await getOrCreateProgress(userId);
       const teamPower = await getTeamPower(userId);
+
+      const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
       const required = mode === 'story'
-        ? 700 + current * 260
+        ? 700 + storyIndex * 260
         : mode === 'tower'
-          ? 1200 + current * 420
-          : 900 + current * 330;
+          ? 1200 + progress.towerFloor * 420
+          : 900 + progress.dungeonFloor * 330;
 
       if (action === 'start') {
         return runProgressBattle(i, mode);
       }
 
       return i.reply(
-        `📍 **${mode.toUpperCase()}**\n` +
-        `Current: **${getProgressTitle(mode, current, user)}**\n` +
-        `Your Team Power: **${money(teamPower)}**\n` +
-        `Recommended Power: **${money(required)}**\n\n` +
+        `📍 **${mode.toUpperCase()}**
+` +
+        `Current: **${getProgressTitle(mode, progress)}**
+` +
+        `Your Team Power: **${money(teamPower)}**
+` +
+        `Recommended Power: **${money(required)}**
+
+` +
         `Use **/${mode} action:start** to fight.`
       );
     }
+
 
     if (commandName === 'admin-spawn-boss') {
       if (!config.adminIds.includes(userId)) {
