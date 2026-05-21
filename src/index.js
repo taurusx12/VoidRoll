@@ -108,108 +108,53 @@ async function rollRandomCharacter(userId) {
 async function rollRandomItem(userId, slotFilter = null) {
   await ensureItemTemplates(prisma);
 
-  const where = { active: true };
-  if (slotFilter) where.slot = slotFilter;
-
-  let templates = await prisma.equipmentTemplate.findMany({ where });
-
-  if (!templates.length) {
-    templates = await prisma.equipmentTemplate.findMany({ where: { active: true } });
-  }
-
-  if (!templates.length) throw new Error('No item templates are available.');
-
-  const template = weightedPick(templates, t => ITEM_ROLL_WEIGHTS[t.rarity] || 1000);
-
-  const bonus = {
-    COMMON: 30,
-    RARE: 80,
-    EPIC: 160,
-    LEGENDARY: 320,
-    MYTHIC: 700,
-    DIVINE: 1400,
-    SECRET: 2600
-  }[template.rarity] || 30;
-
-  const item = await prisma.userEquipment.create({
-    data: {
-      id: nanoid(),
-      userId,
-      templateId: template.id,
-      power: template.basePower + Math.floor(Math.random() * bonus)
-    }
+  const allChars = await prisma.character.findMany({
+    where: { active: true },
+    take: 1000
   });
 
-  return { item, template };
-}
-
-async function openPack(userId, type) {
-  const pack = String(type || '').toLowerCase();
-
-  const costs = {
-    jjk: { tokens: 10 },
-    demon: { tokens: 10 },
-    naruto: { tokens: 10 },
-    onepiece: { tokens: 10 },
-    weapon: { tokens: 15, slot: 'WEAPON' },
-    armor: { tokens: 15, slot: 'ARMOR' },
-    ring: { tokens: 12, slot: 'RING' },
-    event: { tokens: 25 }
+  const containsAny = (value, words) => {
+    const text = String(value || '').toLowerCase();
+    return words.some(w => text.includes(w));
   };
 
-  const cost = costs[pack];
+  let chars = allChars;
 
-  if (!cost) throw new Error('Invalid pack. Use /shop to see available packs.');
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-
-  if (cost.tokens && user.tokens < cost.tokens) {
-    throw new Error('Not enough tokens.');
+  if (pack === 'jjk') chars = allChars.filter(c => containsAny(c.anime, ['jujutsu', 'kaisen']));
+  if (pack === 'demon') chars = allChars.filter(c => containsAny(c.anime, ['demon slayer', 'kimetsu']));
+  if (pack === 'naruto') chars = allChars.filter(c => containsAny(c.anime, ['naruto']));
+  if (pack === 'onepiece') chars = allChars.filter(c => containsAny(c.anime, ['one piece']));
+  if (pack === 'bleach') chars = allChars.filter(c => containsAny(c.anime, ['bleach']));
+  if (pack === 'mha') chars = allChars.filter(c => containsAny(c.anime, ['my hero', 'boku no hero']));
+  if (pack === 'hxh') chars = allChars.filter(c => containsAny(c.anime, ['hunter x hunter', 'hunter×hunter']));
+  if (pack === 'dbz') chars = allChars.filter(c => containsAny(c.anime, ['dragon ball']));
+  if (pack === 'aot') chars = allChars.filter(c => containsAny(c.anime, ['attack on titan', 'shingeki']));
+  if (pack === 'villains') {
+    const villainKeys = ['sukuna', 'muzan', 'madara', 'aizen', 'yhwach', 'kaido', 'doflamingo', 'shigaraki', 'all for one', 'meruem', 'chrollo', 'hisoka'];
+    chars = allChars.filter(c => containsAny(c.name, villainKeys));
   }
+  if (pack === 'secret') chars = allChars.filter(c => c.rarity === 'SECRET');
+  if (pack === 'event') chars = allChars.filter(c => ['EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'].includes(c.rarity));
 
-  if (['weapon', 'armor', 'ring'].includes(pack)) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { tokens: { decrement: cost.tokens } }
-    });
-
-    return {
-      ...(await rollRandomItem(userId, cost.slot)),
-      cost
-    };
-  }
-
-  const where = { active: true };
-
-  if (pack === 'jjk') where.anime = { contains: 'Jujutsu', mode: 'insensitive' };
-  if (pack === 'demon') where.OR = [
-    { anime: { contains: 'Demon Slayer', mode: 'insensitive' } },
-    { anime: { contains: 'Kimetsu', mode: 'insensitive' } }
-  ];
-  if (pack === 'naruto') where.anime = { contains: 'Naruto', mode: 'insensitive' };
-  if (pack === 'onepiece') where.OR = [
-    { anime: { contains: 'One Piece', mode: 'insensitive' } },
-    { anime: { contains: 'ONE PIECE', mode: 'insensitive' } }
-  ];
-  if (pack === 'event') where.rarity = { in: ['EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'] };
-
-  let chars = await prisma.character.findMany({ where, take: 500 });
-
-  if (!chars.length) {
-    chars = await prisma.character.findMany({
-      where: { active: true },
-      take: 500
-    });
-  }
+  if (!chars.length) chars = allChars;
 
   const character = weightedPick(chars, c => {
     if (pack === 'event') {
       return ({
-        EPIC: 900000,
-        LEGENDARY: 85000,
-        MYTHIC: 12000,
-        DIVINE: 2500,
-        SECRET: 500
+        EPIC: 850000,
+        LEGENDARY: 95000,
+        MYTHIC: 22000,
+        DIVINE: 7000,
+        SECRET: 1200
+      })[c.rarity] || 100;
+    }
+
+    if (pack === 'secret') {
+      return ({
+        SECRET: 700000,
+        DIVINE: 200000,
+        MYTHIC: 85000,
+        LEGENDARY: 15000
       })[c.rarity] || 100;
     }
 
@@ -448,6 +393,8 @@ client.once('ready', () => {
   ensureItemTemplates(prisma)
     .then(() => console.log('Item templates synced'))
     .catch(console.error);
+
+  applySecretCharacterBoosts().catch(console.error);
 
   const firstDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 60) * 1000;
   const interval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
@@ -732,6 +679,13 @@ client.on('interactionCreate', async (i) => {
         `🗡️ Demon Slayer Pack - 10 Tokens\n` +
         `🍥 Naruto Pack - 10 Tokens\n` +
         `🏴‍☠️ One Piece Pack - 10 Tokens\n` +
+        `🧿 Bleach Pack - 10 Tokens\n` +
+        `💥 My Hero Pack - 10 Tokens\n` +
+        `🎣 Hunter x Hunter Pack - 10 Tokens\n` +
+        `🐉 Dragon Ball Pack - 10 Tokens\n` +
+        `🧱 Attack on Titan Pack - 10 Tokens\n` +
+        `😈 Villains Pack - 18 Tokens\n` +
+        `🕳️ Secret Pack - 50 Tokens\n` +
         `⚔️ Weapon Pack - 15 Tokens\n` +
         `🌌 Event Pack - 25 Tokens\n\n` +
         `Use /pack type:<pack>.`
@@ -887,7 +841,8 @@ client.on('interactionCreate', async (i) => {
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
       );
     }
-if (commandName === 'search') {
+
+    if (commandName === 'search') {
       const name = i.options.getString('name', true);
 
       const chars = await prisma.character.findMany({
@@ -903,36 +858,107 @@ if (commandName === 'search') {
         return i.reply('❌ No characters found.');
       }
 
+      const first = chars[0];
+      const aura = getAura(first);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🔎 ${first.name}`)
+        .setDescription(
+          `🎌 Anime: **${first.anime}**
+` +
+          `💎 Rarity: **${first.rarity}**
+` +
+          `⚔️ Base Power: **${first.basePower}**
+` +
+          `🌌 Technique: **${aura.name}**
+
+` +
+          `**Other results:**
+` +
+          chars.slice(1).map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
+')
+        )
+        .setImage(first.imageUrl)
+        .setColor(embedColor(aura.color));
+
+      try {
+        const preview = await renderCard({
+          card: { id: 'preview', serial: 0, power: first.basePower },
+          character: first
+        });
+
+        const file = new AttachmentBuilder(preview, { name: 'search-preview.png' });
+        embed.setImage('attachment://search-preview.png');
+
+        return i.reply({ embeds: [embed], files: [file] });
+      } catch (_) {
+        return i.reply({ embeds: [embed] });
+      }
+    }
+
+    if (commandName === 'secrets') {
+      const chars = await prisma.character.findMany({
+        where: { rarity: 'SECRET' },
+        orderBy: { basePower: 'desc' },
+        take: 50
+      });
+
+      if (!chars.length) {
+        return i.reply('No SECRET characters found.');
+      }
+
       return i.reply(
-        '🔎 **Search Results**\n\n' +
-        chars.map(c => `${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • ${c.rarity}`).join('\n')
+        '🕳️ **SECRET CHARACTERS**
+
+' +
+        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
+')
       );
     }
 
     if (commandName === 'rarity') {
       return i.reply(
-        `🎲 **NORMAL ROLL RATES**\n\n` +
+        `🎲 **NORMAL ROLL RATES**
 
-        `🎴 **Character Roll**\n` +
-        `⚪ Common: 72%\n` +
-        `🔵 Rare: 22%\n` +
-        `🟣 Epic: 5.65%\n` +
-        `🟡 Legendary: 1%\n` +
-        `🔴 Mythic: 0.75%\n` +
-        `🌈 Divine: 0.5%\n` +
-        `🕳️ Secret: 0.1%\n\n` +
+` +
 
-        `⚔️ **Item Roll**\n` +
-        `⚪ Common: 65%\n` +
-        `🔵 Rare: 26%\n` +
-        `🟣 Epic: 7.65%\n` +
-        `🟡 Legendary: 1%\n` +
-        `🔴 Mythic: 0.75%\n` +
-        `🌈 Divine: 0.5%\n` +
+        `🎴 **Character Roll**
+` +
+        `⚪ Common: 72%
+` +
+        `🔵 Rare: 22%
+` +
+        `🟣 Epic: 5.65%
+` +
+        `🟡 Legendary: 1%
+` +
+        `🔴 Mythic: 0.75%
+` +
+        `🌈 Divine: 0.5%
+` +
+        `🕳️ Secret: 0.1%
+
+` +
+
+        `⚔️ **Item Roll**
+` +
+        `⚪ Common: 65%
+` +
+        `🔵 Rare: 26%
+` +
+        `🟣 Epic: 7.65%
+` +
+        `🟡 Legendary: 1%
+` +
+        `🔴 Mythic: 0.75%
+` +
+        `🌈 Divine: 0.5%
+` +
         `🕳️ Secret: 0.1%`
       );
     }
-if (commandName === 'admin-give-rolls') {
+
+    if (commandName === 'admin-give-rolls') {
       if (!config.adminIds.includes(userId)) {
         return i.reply({
           content: 'Admin only.',

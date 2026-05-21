@@ -38,12 +38,19 @@ const commands = [
   new SlashCommandBuilder().setName('shop').setDescription('Show official VoidRoll shop packs'),
 
   new SlashCommandBuilder().setName('pack').setDescription('Open an official pack')
-    .addStringOption(o => o.setName('type').setDescription('jjk/demon/naruto/onepiece/weapon/armor/ring/event').setRequired(true)
+    .addStringOption(o => o.setName('type').setDescription('pack type').setRequired(true)
       .addChoices(
         { name: 'Jujutsu Pack', value: 'jjk' },
         { name: 'Demon Slayer Pack', value: 'demon' },
         { name: 'Naruto Pack', value: 'naruto' },
         { name: 'One Piece Pack', value: 'onepiece' },
+        { name: 'Bleach Pack', value: 'bleach' },
+        { name: 'My Hero Pack', value: 'mha' },
+        { name: 'Hunter x Hunter Pack', value: 'hxh' },
+        { name: 'Dragon Ball Pack', value: 'dbz' },
+        { name: 'Attack on Titan Pack', value: 'aot' },
+        { name: 'Villains Pack', value: 'villains' },
+        { name: 'Secret Pack', value: 'secret' },
         { name: 'Weapon Pack', value: 'weapon' },
         { name: 'Armor Pack', value: 'armor' },
         { name: 'Ring Pack', value: 'ring' },
@@ -75,10 +82,14 @@ const commands = [
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
 
-  new SlashCommandBuilder().setName('search').setDescription('Search for a character')
+  new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Search for a character')
     .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
 
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
+
+  new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
 
   new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give rolls to a player')
     .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
