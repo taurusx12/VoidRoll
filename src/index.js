@@ -57,21 +57,21 @@ async function createCardForUser(userId, character) {
 const CHARACTER_ROLL_WEIGHTS = {
   COMMON: 720000,
   RARE: 220000,
-  EPIC: 52000,
-  LEGENDARY: 7000,
-  MYTHIC: 850,
-  DIVINE: 90,
-  SECRET: 10
+  EPIC: 56500,
+  LEGENDARY: 10000,
+  MYTHIC: 7500,
+  DIVINE: 5000,
+  SECRET: 1000
 };
 
 const ITEM_ROLL_WEIGHTS = {
   COMMON: 650000,
   RARE: 260000,
-  EPIC: 75000,
-  LEGENDARY: 12000,
-  MYTHIC: 2500,
-  DIVINE: 450,
-  SECRET: 50
+  EPIC: 76500,
+  LEGENDARY: 10000,
+  MYTHIC: 7500,
+  DIVINE: 5000,
+  SECRET: 1000
 };
 
 function weightedPick(items, weightFn) {
@@ -887,30 +887,52 @@ client.on('interactionCreate', async (i) => {
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
       );
     }
-if (commandName === 'rarity') {
-  return i.reply(
-    `🎲 **NORMAL ROLL RATES**\n\n` +
+if (commandName === 'search') {
+      const name = i.options.getString('name', true);
 
-    `🎴 **Character Roll**\n` +
-    `⚪ Common: 72%\n` +
-    `🔵 Rare: 22%\n` +
-    `🟣 Epic: 5.2%\n` +
-    `🟡 Legendary: 0.7%\n` +
-    `🔴 Mythic: 0.085%\n` +
-    `🌈 Divine: 0.009%\n` +
-    `🕳️ Secret: 0.001%\n\n` +
+      const chars = await prisma.character.findMany({
+        where: {
+          name: {
+            contains: name
+          }
+        },
+        take: 10
+      });
 
-    `⚔️ **Item Roll**\n` +
-    `⚪ Common: 65%\n` +
-    `🔵 Rare: 26%\n` +
-    `🟣 Epic: 7.5%\n` +
-    `🟡 Legendary: 1.2%\n` +
-    `🔴 Mythic: 0.25%\n` +
-    `🌈 Divine: 0.045%\n` +
-    `🕳️ Secret: 0.005%`
-  );
-}
-    if (commandName === 'admin-give-rolls') {
+      if (!chars.length) {
+        return i.reply('❌ No characters found.');
+      }
+
+      return i.reply(
+        '🔎 **Search Results**\n\n' +
+        chars.map(c => `${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • ${c.rarity}`).join('\n')
+      );
+    }
+
+    if (commandName === 'rarity') {
+      return i.reply(
+        `🎲 **NORMAL ROLL RATES**\n\n` +
+
+        `🎴 **Character Roll**\n` +
+        `⚪ Common: 72%\n` +
+        `🔵 Rare: 22%\n` +
+        `🟣 Epic: 5.65%\n` +
+        `🟡 Legendary: 1%\n` +
+        `🔴 Mythic: 0.75%\n` +
+        `🌈 Divine: 0.5%\n` +
+        `🕳️ Secret: 0.1%\n\n` +
+
+        `⚔️ **Item Roll**\n` +
+        `⚪ Common: 65%\n` +
+        `🔵 Rare: 26%\n` +
+        `🟣 Epic: 7.65%\n` +
+        `🟡 Legendary: 1%\n` +
+        `🔴 Mythic: 0.75%\n` +
+        `🌈 Divine: 0.5%\n` +
+        `🕳️ Secret: 0.1%`
+      );
+    }
+if (commandName === 'admin-give-rolls') {
       if (!config.adminIds.includes(userId)) {
         return i.reply({
           content: 'Admin only.',

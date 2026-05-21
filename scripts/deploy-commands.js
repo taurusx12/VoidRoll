@@ -75,9 +75,7 @@ const commands = [
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
 
-  new SlashCommandBuilder()
-    .setName('search')
-    .setDescription('Search for a character')
+  new SlashCommandBuilder().setName('search').setDescription('Search for a character')
     .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
 
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
