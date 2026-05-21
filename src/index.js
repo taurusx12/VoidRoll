@@ -887,7 +887,29 @@ client.on('interactionCreate', async (i) => {
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
       );
     }
+if (commandName === 'rarity') {
+  return i.reply(
+    `🎲 **NORMAL ROLL RATES**\n\n` +
 
+    `🎴 **Character Roll**\n` +
+    `⚪ Common: 72%\n` +
+    `🔵 Rare: 22%\n` +
+    `🟣 Epic: 5.2%\n` +
+    `🟡 Legendary: 0.7%\n` +
+    `🔴 Mythic: 0.085%\n` +
+    `🌈 Divine: 0.009%\n` +
+    `🕳️ Secret: 0.001%\n\n` +
+
+    `⚔️ **Item Roll**\n` +
+    `⚪ Common: 65%\n` +
+    `🔵 Rare: 26%\n` +
+    `🟣 Epic: 7.5%\n` +
+    `🟡 Legendary: 1.2%\n` +
+    `🔴 Mythic: 0.25%\n` +
+    `🌈 Divine: 0.045%\n` +
+    `🕳️ Secret: 0.005%`
+  );
+}
     if (commandName === 'admin-give-rolls') {
       if (!config.adminIds.includes(userId)) {
         return i.reply({
