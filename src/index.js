@@ -877,7 +877,7 @@ client.on('interactionCreate', async (i) => {
       );
     }
 
-    if (commandName === 'upgrade') {
+        if (commandName === 'upgrade') {
       const id = i.options.getString('equipment_id', true);
       const r = await equipment.upgradeEquipment(userId, id);
 
@@ -885,6 +885,41 @@ client.on('interactionCreate', async (i) => {
         r.success
           ? `✅ Upgrade successful. Equipment is now +${r.nextLevel}.`
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
+      );
+    }
+
+    if (commandName === 'admin-give-rolls') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({
+          content: 'Admin only.',
+          ephemeral: true
+        });
+      }
+
+      const target = i.options.getUser('user', true);
+      const amount = i.options.getInteger('amount', true);
+
+      if (amount <= 0) {
+        return i.reply({
+          content: 'Amount must be greater than 0.',
+          ephemeral: true
+        });
+      }
+
+      await ensureUser(target);
+
+      const updated = await prisma.user.update({
+        where: { id: target.id },
+        data: {
+          rolls: {
+            increment: amount
+          }
+        }
+      });
+
+      return i.reply(
+        `✅ Added **${amount} rolls** to **${target.username}**.\n` +
+        `New rolls balance: **${updated.rolls}**`
       );
     }
 
