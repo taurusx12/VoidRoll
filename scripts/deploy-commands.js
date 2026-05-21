@@ -75,8 +75,12 @@ const commands = [
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
 
-  new SlashCommandBuilder().setName('rarity')
-  .setDescription('Show normal roll rarity rates'),
+  new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Search for a character')
+    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
+
+  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
 
   new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give rolls to a player')
     .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
