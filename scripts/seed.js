@@ -6,7 +6,7 @@ const chars = [
   ['Madara Uchiha','Naruto','DIVINE','Shadow',2200,'https://i.imgur.com/4Q1bJ4V.png'],
   ['Monkey D. Luffy','One Piece','MYTHIC','Rubber',1600,'https://i.imgur.com/4AiXzf8.jpeg'],
   ['Roronoa Zoro','One Piece','LEGENDARY','Steel',1200,'https://i.imgur.com/eQp8WYM.jpeg'],
-  ['Shanks','One Piece','DIVINE','Haki',2500,'https://i.imgur.com/fDUFP7K.jpeg'],
+  ['Shanks','One Piece','DIVINE','Haki',2500,'https://static.wikia.nocookie.net/onepiece/images/3/35/Shanks_Anime_Infobox.png']
   ['Levi Ackerman','Attack on Titan','EPIC','Steel',900,'https://i.imgur.com/0y0y0y0.jpeg'],
   ['Eren Yeager','Attack on Titan','MYTHIC','Titan',1700,'https://i.imgur.com/1x1x1x1.jpeg'],
   ['Gojo Satoru','Jujutsu Kaisen','DIVINE','Infinity',2600,'https://i.imgur.com/2x2x2x2.jpeg'],
