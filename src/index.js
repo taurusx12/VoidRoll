@@ -84,45 +84,64 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (i.commandName === 'roll') {
-      await i.deferReply();
+  await i.deferReply();
 
-      const result = await rollCard(userId);
-      const aura = getAura(result.character);
+  const user = await prisma.user.findUnique({
+    where: { id: userId }
+  });
 
-      const embed = new EmbedBuilder()
-        .setTitle('🎴 New Roll!')
-        .setDescription(`${result.text}\n\n🌌 Aura: **${aura.name}**`)
-        .setColor(embedColor(aura.color))
-        .setFooter({ text: `Card ID: ${result.card.id}` });
+  if ((user.rolls ?? 0) <= 0) {
+    return i.editReply('You do not have any rolls left. Rolls refill over time.');
+  }
 
-      try {
-        const png = await renderCard({
-          card: result.card,
-          character: result.character
-        });
-
-        const file = new AttachmentBuilder(png, {
-          name: 'card.png'
-        });
-
-        embed.setImage('attachment://card.png');
-
-        return i.editReply({
-          embeds: [embed],
-          files: [file]
-        });
-      } catch (err) {
-        console.error(err);
-
-        if (result.character.imageUrl) {
-          embed.setImage(result.character.imageUrl);
-        }
-
-        return i.editReply({
-          embeds: [embed]
-        });
-      }
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      rolls: { decrement: 1 }
     }
+  });
+
+  const result = await rollCard(userId);
+  const aura = getAura(result.character);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎴 New Roll!')
+    .setDescription(
+      `${result.text}\n\n` +
+      `🌌 Aura: **${aura.name}**\n` +
+      `🎲 Rolls left: **${(user.rolls ?? 1) - 1}**`
+    )
+    .setColor(embedColor(aura.color))
+    .setFooter({ text: `Card ID: ${result.card.id}` });
+
+  try {
+    const png = await renderCard({
+      card: result.card,
+      character: result.character
+    });
+
+    const file = new AttachmentBuilder(png, {
+      name: 'card.png'
+    });
+
+    embed.setImage('attachment://card.png');
+
+    return i.editReply({
+      embeds: [embed],
+      files: [file]
+    });
+  } catch (err) {
+    console.error(err);
+
+    if (result.character.imageUrl) {
+      embed.setImage(result.character.imageUrl);
+    }
+
+    return i.editReply({
+      embeds: [embed]
+    });
+  }
+}
 
     if (i.commandName === 'inventory') {
       const cards = await prisma.userCard.findMany({
