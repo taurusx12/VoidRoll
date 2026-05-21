@@ -2,224 +2,497 @@ const { nanoid } = require('nanoid');
 const { prisma } = require('../lib/db');
 
 const RARITY_XP = {
-  COMMON: 50,
-  RARE: 120,
-  EPIC: 300,
-  LEGENDARY: 800,
-  MYTHIC: 2000,
-  DIVINE: 5000,
-  SECRET: 10000
+  COMMON: 80,
+  RARE: 180,
+  EPIC: 420,
+  LEGENDARY: 950,
+  MYTHIC: 2200,
+  DIVINE: 4500,
+  SECRET: 9000
 };
 
 const RARITY_FARM = {
-  COMMON: { gold: 18, tokens: 0.01, rolls: 0.01 },
-  RARE: { gold: 45, tokens: 0.03, rolls: 0.02 },
-  EPIC: { gold: 100, tokens: 0.08, rolls: 0.04 },
-  LEGENDARY: { gold: 260, tokens: 0.18, rolls: 0.08 },
-  MYTHIC: { gold: 650, tokens: 0.45, rolls: 0.15 },
-  DIVINE: { gold: 1400, tokens: 0.9, rolls: 0.3 },
-  SECRET: { gold: 2500, tokens: 1.5, rolls: 0.5 }
+  COMMON: { gold: 8, tokens: 0.01 },
+  RARE: { gold: 18, tokens: 0.03 },
+  EPIC: { gold: 40, tokens: 0.08 },
+  LEGENDARY: { gold: 100, tokens: 0.18 },
+  MYTHIC: { gold: 240, tokens: 0.45 },
+  DIVINE: { gold: 600, tokens: 1.0 },
+  SECRET: { gold: 1200, tokens: 2.0 }
 };
 
-function getStageInfo(chapter = 1, stage = 1) {
-  const safeChapter = Math.max(1, Math.min(60, chapter));
-  const safeStage = Math.max(1, Math.min(30, stage));
-  const isBoss = safeStage % 5 === 0;
-  const enemyPower = Math.floor((safeChapter * 900) + (safeStage * 220) + (isBoss ? safeChapter * 1400 : 0));
-  return { chapter: safeChapter, stage: safeStage, isBoss, enemyPower };
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function hpFromPower(power) {
+  return Math.max(100, Math.floor(power * 4.5));
+}
+
+function dmgFromPower(power) {
+  const low = Math.floor(power * 0.16);
+  const high = Math.floor(power * 0.24);
+  return low + Math.floor(Math.random() * Math.max(1, high - low));
+}
+
+function critChanceFromTeam(cards) {
+  const avg = cards.length ? cards.reduce((s, c) => s + c.power, 0) / cards.length : 0;
+  return clamp(0.05 + avg / 100000, 0.05, 0.25);
+}
+
+function rarityEmoji(r) {
+  return {
+    COMMON: '⚪',
+    RARE: '🔵',
+    EPIC: '🟣',
+    LEGENDARY: '🟡',
+    MYTHIC: '🔴',
+    DIVINE: '🌈',
+    SECRET: '🕳️'
+  }[r] || '🎴';
+}
+
+function shortCard(c) {
+  return `${rarityEmoji(c.character.rarity)} ${c.character.name} • ${c.character.rarity} • PWR ${c.power}`;
 }
 
 async function getTeam(userId) {
-  return prisma.teamSlot.findMany({
+  let slots = await prisma.teamSlot.findMany({
     where: { userId },
     include: { card: { include: { character: true } } },
     orderBy: { slot: 'asc' }
   });
+
+  if (!slots.length) {
+    await autoTeam(userId);
+    slots = await prisma.teamSlot.findMany({
+      where: { userId },
+      include: { card: { include: { character: true } } },
+      orderBy: { slot: 'asc' }
+    });
+  }
+
+  return slots.map(s => s.card);
 }
 
-async function getTeamPower(userId) {
-  const team = await getTeam(userId);
-  return team.reduce((sum, s) => sum + (s.card?.power || 0), 0);
+async function autoTeam(userId) {
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 5
+  });
+
+  await prisma.teamSlot.deleteMany({ where: { userId } });
+
+  for (let i = 0; i < cards.length; i++) {
+    await prisma.teamSlot.create({
+      data: {
+        id: nanoid(),
+        userId,
+        slot: i + 1,
+        cardId: cards[i].id
+      }
+    });
+  }
+
+  return cards;
 }
 
 async function setTeamSlot(userId, slot, cardId) {
   if (slot < 1 || slot > 5) throw new Error('Team slot must be between 1 and 5.');
 
-  const card = await prisma.userCard.findFirst({ where: { id: cardId, userId } });
+  const card = await prisma.userCard.findFirst({
+    where: { id: cardId, userId },
+    include: { character: true }
+  });
+
   if (!card) throw new Error('Card not found in your inventory.');
 
-  return prisma.teamSlot.upsert({
+  await prisma.teamSlot.upsert({
     where: { userId_slot: { userId, slot } },
     update: { cardId },
     create: { id: nanoid(), userId, slot, cardId }
   });
+
+  return card;
 }
 
-async function playStory(userId, chapterInput, stageInput) {
-  const chapter = Math.max(1, Math.min(60, chapterInput || 1));
-  const stage = Math.max(1, Math.min(30, stageInput || 1));
-  const info = getStageInfo(chapter, stage);
-  const teamPower = await getTeamPower(userId);
-
-  if (teamPower <= 0) {
-    return { ok: false, message: 'You need to set a team first. Use /team slot:1 card_id:YOUR_CARD_ID.' };
-  }
-
-  const winChance = Math.max(15, Math.min(95, Math.floor((teamPower / info.enemyPower) * 55)));
-  const won = Math.random() * 100 <= winChance;
-
-  if (!won) {
-    return {
-      ok: false,
-      message:
-        `📖 **Chapter ${chapter} - Stage ${stage}**\n` +
-        `Enemy Power: **${info.enemyPower.toLocaleString('en-US')}**\n` +
-        `Your Team Power: **${teamPower.toLocaleString('en-US')}**\n` +
-        `Result: **Defeat**\n\nUpgrade your cards/equipment and try again.`
-    };
-  }
-
-  const gold = Math.floor(500 + chapter * 90 + stage * 35 + (info.isBoss ? 1500 + chapter * 100 : 0));
-  const tokens = info.isBoss ? Math.max(2, Math.floor(chapter / 4) + 2) : Math.random() < 0.25 ? 1 : 0;
-  const rolls = info.isBoss ? 3 : Math.random() < 0.2 ? 1 : 0;
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      gold: { increment: gold },
-      tokens: { increment: tokens },
-      rolls: { increment: rolls }
-    }
-  });
-
-  await prisma.storyProgress.upsert({
+async function showTeam(userId) {
+  const slots = await prisma.teamSlot.findMany({
     where: { userId },
-    update: { chapter, stage },
-    create: { id: nanoid(), userId, chapter, stage }
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
   });
 
+  if (!slots.length) return { text: 'You do not have a team yet. Use /team auto or /team set.' };
+
+  const power = slots.reduce((s, x) => s + x.card.power, 0);
+  const text = slots.map(s => `Slot ${s.slot}: ${shortCard(s.card)}`).join('\n');
+
+  return { text, power };
+}
+
+function storyEnemy(user) {
+  const chapter = user.storyChapter || 1;
+  const stage = user.storyStage || 1;
+  const isBoss = stage % 5 === 0;
+  const isFinal = stage === 30;
+  const enemyPower = Math.floor(700 + chapter * 380 + stage * 95 + (isBoss ? chapter * 600 + stage * 70 : 0) + (isFinal ? chapter * 1200 : 0));
+  const enemyName = isFinal ? `Chapter ${chapter} Final Boss` : isBoss ? `Chapter ${chapter} Stage ${stage} Boss` : `Chapter ${chapter} Enemy Squad`;
+  return { chapter, stage, isBoss, isFinal, enemyPower, enemyName };
+}
+
+function dungeonEnemy(type, userLevel = 1) {
+  const table = {
+    fire: { name: 'Flame Dungeon', power: 3500, gold: 2800, tokens: 6 },
+    shadow: { name: 'Shadow Dungeon', power: 6500, gold: 5200, tokens: 12 },
+    ice: { name: 'Ice Dungeon', power: 9500, gold: 8000, tokens: 18 },
+    void: { name: 'Void Dungeon', power: 15000, gold: 14000, tokens: 32 }
+  };
+  const d = table[type] || table.fire;
+  return { ...d, power: d.power + userLevel * 80 };
+}
+
+function bossList() {
+  return [
+    { name: 'Shadow Beast', power: 2500, gold: 2000, tokens: 4 },
+    { name: 'Flame Tyrant', power: 5000, gold: 4500, tokens: 9 },
+    { name: 'Void King', power: 10000, gold: 10000, tokens: 20 }
+  ];
+}
+
+function limitedBoss() {
   return {
-    ok: true,
-    message:
-      `📖 **Chapter ${chapter} - Stage ${stage}${info.isBoss ? ' BOSS' : ''} Cleared!**\n` +
-      `Enemy Power: **${info.enemyPower.toLocaleString('en-US')}**\n` +
-      `Your Team Power: **${teamPower.toLocaleString('en-US')}**\n\n` +
-      `Rewards:\n` +
-      `• Gold: **${gold.toLocaleString('en-US')}**\n` +
-      `• Tokens: **${tokens}**\n` +
-      `• Rolls: **${rolls}**`
+    name: 'Sukuna, King of Curses',
+    power: 15000,
+    gold: 18000,
+    tokens: 35
   };
 }
 
-async function runDungeon(userId, type = 'void') {
-  const teamPower = await getTeamPower(userId);
-  if (teamPower <= 0) return 'You need a team first. Use /team.';
-
-  const difficulty = { fire: 3500, shadow: 6500, ice: 9000, void: 14000 }[type] || 5000;
-  const won = teamPower >= difficulty || Math.random() < Math.min(0.75, teamPower / difficulty / 2);
-
-  if (!won) return `🏰 **${type} Dungeon Failed**\nRequired Power: ${difficulty.toLocaleString('en-US')}\nYour Power: ${teamPower.toLocaleString('en-US')}`;
-
-  const gold = Math.floor(difficulty / 2 + Math.random() * 1500);
-  const tokens = Math.random() < 0.2 ? 0 : Math.floor(4 + difficulty / 2500 + Math.random() * 8);
-  const rolls = Math.random() < 0.35 ? 1 : 0;
-
-  await prisma.user.update({ where: { id: userId }, data: { gold: { increment: gold }, tokens: { increment: tokens }, rolls: { increment: rolls } } });
-
-  return `🏰 **${type} Dungeon Cleared!**\nRewards:\n• Gold: ${gold.toLocaleString('en-US')}\n• Tokens: ${tokens}\n• Rolls: ${rolls}`;
+function towerEnemy(floor) {
+  return {
+    name: `Tower Floor ${floor}`,
+    power: Math.floor(1200 + floor * 500 + Math.pow(floor, 1.35) * 120),
+    gold: Math.floor(1000 + floor * 350),
+    tokens: Math.floor(2 + floor / 3),
+    rolls: floor % 5 === 0 ? 5 : 1
+  };
 }
 
-async function fightBoss(userId, limited = false) {
-  const teamPower = await getTeamPower(userId);
-  const required = limited ? 18000 : 8000;
-  const name = limited ? 'Sukuna, King of Curses' : 'Void King';
+function simulateBattle(teamCards, enemy) {
+  const teamPower = teamCards.reduce((s, c) => s + c.power, 0);
+  let teamHp = teamCards.reduce((s, c) => s + hpFromPower(c.power), 0);
+  let enemyHp = hpFromPower(enemy.power || enemy.enemyPower);
+  const enemyPower = enemy.power || enemy.enemyPower;
+  const critChance = critChanceFromTeam(teamCards);
+  const lines = [];
 
-  if (teamPower <= 0) return 'You need a team first. Use /team.';
+  for (let turn = 1; turn <= 12; turn++) {
+    let teamDamage = 0;
 
-  const won = teamPower >= required || Math.random() < Math.min(0.6, teamPower / required / 2);
-  if (!won) return `👹 **${name} defeated you.**\nRequired Power: ${required.toLocaleString('en-US')}\nYour Power: ${teamPower.toLocaleString('en-US')}`;
+    for (const card of teamCards) {
+      let dmg = dmgFromPower(card.power);
+      if (Math.random() < critChance) {
+        dmg = Math.floor(dmg * 1.8);
+      }
+      teamDamage += dmg;
+    }
 
-  const gold = limited ? 8000 : 3500;
-  const tokens = limited ? 20 : 10;
-  const rolls = limited ? 8 : 3;
+    enemyHp -= teamDamage;
+    lines.push(`Turn ${turn}: Your team dealt **${teamDamage.toLocaleString('en-US')}** damage.`);
 
-  await prisma.user.update({ where: { id: userId }, data: { gold: { increment: gold }, tokens: { increment: tokens }, rolls: { increment: rolls } } });
+    if (enemyHp <= 0) {
+      return { win: true, teamPower, enemyPower, remainingHp: Math.max(0, teamHp), lines };
+    }
 
-  return `👑 **${name} Defeated!**\nRewards:\n• Gold: ${gold.toLocaleString('en-US')}\n• Tokens: ${tokens}\n• Rolls: ${rolls}`;
+    let enemyDamage = dmgFromPower(enemyPower);
+    teamHp -= enemyDamage;
+    lines.push(`Turn ${turn}: ${enemy.name || enemy.enemyName} dealt **${enemyDamage.toLocaleString('en-US')}** damage.`);
+
+    if (teamHp <= 0) {
+      return { win: false, teamPower, enemyPower, remainingHp: 0, lines };
+    }
+  }
+
+  return { win: enemyHp <= teamHp, teamPower, enemyPower, remainingHp: Math.max(0, teamHp), lines };
 }
 
-async function climbTower(userId) {
-  const teamPower = await getTeamPower(userId);
-  if (teamPower <= 0) return 'You need a team first. Use /team.';
+async function grantRewards(userId, rewards) {
+  const data = {};
 
-  const floor = Math.max(1, Math.floor(teamPower / 1300));
-  const rewardGold = floor * 450;
-  const rewardTokens = Math.floor(floor / 5);
-  const rewardRolls = Math.floor(floor / 8);
+  if (rewards.gold) data.gold = { increment: BigInt(rewards.gold) };
+  if (rewards.tokens) data.tokens = { increment: rewards.tokens };
+  if (rewards.rolls) data.rolls = { increment: rewards.rolls };
+  if (rewards.xp) data.xp = { increment: rewards.xp };
 
-  await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rewardGold }, tokens: { increment: rewardTokens }, rolls: { increment: rewardRolls } } });
+  if (Object.keys(data).length) {
+    await prisma.user.update({ where: { id: userId }, data });
+  }
 
-  return `🗼 **Tower Cleared**\nReached Floor: **${floor}**\nRewards:\n• Gold: ${rewardGold.toLocaleString('en-US')}\n• Tokens: ${rewardTokens}\n• Rolls: ${rewardRolls}`;
+  return rewards;
+}
+
+async function runStoryFight(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const team = await getTeam(userId);
+  if (!team.length) throw new Error('You need at least 1 card. Use /roll first.');
+
+  const enemy = storyEnemy(user);
+  const battle = simulateBattle(team, { name: enemy.enemyName, power: enemy.enemyPower });
+  let rewards = null;
+
+  if (battle.win) {
+    rewards = {
+      gold: 1000 + enemy.chapter * 250 + enemy.stage * 75 + (enemy.isBoss ? 1500 : 0),
+      tokens: enemy.isFinal ? 15 : enemy.isBoss ? 7 : 2,
+      rolls: enemy.isBoss ? 2 : 0,
+      xp: 80 + enemy.chapter * 10
+    };
+
+    let nextChapter = enemy.chapter;
+    let nextStage = enemy.stage + 1;
+
+    if (nextStage > 30) {
+      nextStage = 1;
+      nextChapter = Math.min(60, nextChapter + 1);
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        storyChapter: nextChapter,
+        storyStage: nextStage
+      }
+    });
+
+    await grantRewards(userId, rewards);
+  }
+
+  await prisma.battleLog.create({
+    data: {
+      id: nanoid(),
+      userId,
+      mode: 'story',
+      result: battle.win ? 'WIN' : 'LOSS',
+      enemyName: enemy.enemyName,
+      teamPower: battle.teamPower,
+      enemyPower: battle.enemyPower,
+      rewards: rewards || {}
+    }
+  });
+
+  return { enemy, battle, rewards };
+}
+
+async function runDungeon(userId, type) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const team = await getTeam(userId);
+  if (!team.length) throw new Error('You need at least 1 card. Use /roll first.');
+
+  const enemy = dungeonEnemy(type, user.level || 1);
+  const battle = simulateBattle(team, enemy);
+
+  let rewards = null;
+  if (battle.win) {
+    rewards = {
+      gold: enemy.gold,
+      tokens: enemy.tokens,
+      rolls: Math.random() < 0.35 ? 3 : 0,
+      xp: 120
+    };
+
+    await grantRewards(userId, rewards);
+  }
+
+  await prisma.battleLog.create({
+    data: {
+      id: nanoid(),
+      userId,
+      mode: `dungeon:${type}`,
+      result: battle.win ? 'WIN' : 'LOSS',
+      enemyName: enemy.name,
+      teamPower: battle.teamPower,
+      enemyPower: battle.enemyPower,
+      rewards: rewards || {}
+    }
+  });
+
+  return { enemy, battle, rewards };
+}
+
+async function runTower(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const team = await getTeam(userId);
+  if (!team.length) throw new Error('You need at least 1 card. Use /roll first.');
+
+  const enemy = towerEnemy(user.towerFloor || 1);
+  const battle = simulateBattle(team, enemy);
+
+  let rewards = null;
+  if (battle.win) {
+    rewards = {
+      gold: enemy.gold,
+      tokens: enemy.tokens,
+      rolls: enemy.rolls,
+      xp: 100 + (user.towerFloor || 1) * 8
+    };
+
+    await grantRewards(userId, rewards);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { towerFloor: { increment: 1 } }
+    });
+  }
+
+  await prisma.battleLog.create({
+    data: {
+      id: nanoid(),
+      userId,
+      mode: 'tower',
+      result: battle.win ? 'WIN' : 'LOSS',
+      enemyName: enemy.name,
+      teamPower: battle.teamPower,
+      enemyPower: battle.enemyPower,
+      rewards: rewards || {}
+    }
+  });
+
+  return { enemy, battle, rewards };
+}
+
+async function runLimitedBoss(userId) {
+  const team = await getTeam(userId);
+  if (!team.length) throw new Error('You need at least 1 card. Use /roll first.');
+
+  const enemy = limitedBoss();
+  const battle = simulateBattle(team, enemy);
+
+  let rewards = null;
+  if (battle.win) {
+    rewards = {
+      gold: enemy.gold,
+      tokens: enemy.tokens,
+      rolls: 10,
+      xp: 500
+    };
+
+    await grantRewards(userId, rewards);
+  }
+
+  await prisma.battleLog.create({
+    data: {
+      id: nanoid(),
+      userId,
+      mode: 'limited-boss',
+      result: battle.win ? 'WIN' : 'LOSS',
+      enemyName: enemy.name,
+      teamPower: battle.teamPower,
+      enemyPower: battle.enemyPower,
+      rewards: rewards || {}
+    }
+  });
+
+  return { enemy, battle, rewards };
 }
 
 async function sacrificeCard(userId, mainCardId, sacrificeCardId) {
-  if (mainCardId === sacrificeCardId) throw new Error('You cannot sacrifice the same card you are upgrading.');
+  if (mainCardId === sacrificeCardId) throw new Error('You cannot sacrifice the same card.');
 
-  const main = await prisma.userCard.findFirst({ where: { id: mainCardId, userId }, include: { character: true } });
-  const sacrifice = await prisma.userCard.findFirst({ where: { id: sacrificeCardId, userId }, include: { character: true } });
+  const main = await prisma.userCard.findFirst({
+    where: { id: mainCardId, userId },
+    include: { character: true }
+  });
 
   if (!main) throw new Error('Main card not found.');
-  if (!sacrifice) throw new Error('Sacrifice card not found.');
-  if (sacrifice.locked) throw new Error('This sacrifice card is locked.');
 
-  const gain = RARITY_XP[sacrifice.character.rarity] || 50;
-  const powerGain = Math.floor(gain / 4);
+  const food = await prisma.userCard.findFirst({
+    where: { id: sacrificeCardId, userId },
+    include: { character: true }
+  });
 
-  await prisma.$transaction([
-    prisma.userCard.update({ where: { id: main.id }, data: { xp: { increment: gain }, power: { increment: powerGain } } }),
-    prisma.userCard.delete({ where: { id: sacrifice.id } })
-  ]);
+  if (!food) throw new Error('Sacrifice card not found.');
 
-  return `🔥 **Sacrifice Complete**\n${sacrifice.character.name} was sacrificed.\n${main.character.name} gained **${gain} XP** and **+${powerGain} PWR**.`;
+  if (food.locked) throw new Error('This card is locked.');
+
+  const xpGain = RARITY_XP[food.character.rarity] || 50;
+  const powerGain = Math.floor(xpGain * 0.55);
+
+  await prisma.userCard.delete({ where: { id: food.id } });
+
+  const updated = await prisma.userCard.update({
+    where: { id: main.id },
+    data: {
+      xp: { increment: xpGain },
+      power: { increment: powerGain },
+      level: { increment: Math.max(1, Math.floor(xpGain / 1000)) }
+    },
+    include: { character: true }
+  });
+
+  return { main: updated, sacrificed: food, xpGain, powerGain };
 }
 
 async function claimPassiveFarm(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, include: { cards: { include: { character: true } } } });
-  if (!user || !user.cards.length) return { message: 'You do not have any cards farming yet. Roll cards first.' };
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true }
+  });
 
-  const now = new Date();
-  const last = user.lastPassiveClaimAt || user.createdAt || now;
-  const hours = Math.min(12, Math.max(0, Math.floor((now - last) / (1000 * 60 * 60))));
-
-  if (hours <= 0) return { message: 'Your cards are still farming. Come back later.' };
+  if (!cards.length) return { gold: 0, tokens: 0, count: 0 };
 
   let gold = 0;
   let tokenFloat = 0;
-  let rollFloat = 0;
 
-  for (const card of user.cards) {
-    const mult = RARITY_FARM[card.character.rarity] || RARITY_FARM.COMMON;
-    gold += Math.floor((mult.gold + card.power * 0.015) * hours);
-    tokenFloat += mult.tokens * hours;
-    rollFloat += mult.rolls * hours;
+  for (const card of cards) {
+    const rate = RARITY_FARM[card.character.rarity] || RARITY_FARM.COMMON;
+    gold += Math.floor(rate.gold + card.power / 250);
+    tokenFloat += rate.tokens;
   }
 
   const tokens = Math.floor(tokenFloat);
-  const rolls = Math.floor(rollFloat);
 
-  await prisma.user.update({ where: { id: userId }, data: { gold: { increment: gold }, tokens: { increment: tokens }, rolls: { increment: rolls }, lastPassiveClaimAt: now } });
+  await grantRewards(userId, { gold, tokens });
 
-  return { message: `📦 **Passive Farm Claimed**\nHours: ${hours}\nCards Farming: ${user.cards.length}\nRewards:\n• Gold: ${gold.toLocaleString('en-US')}\n• Tokens: ${tokens}\n• Rolls: ${rolls}` };
+  return { gold, tokens, count: cards.length };
+}
+
+function formatRewards(rewards) {
+  if (!rewards) return 'No rewards earned. Upgrade your team and try again.';
+
+  const parts = [];
+  if (rewards.gold) parts.push(`${rewards.gold.toLocaleString('en-US')} Gold`);
+  if (rewards.tokens) parts.push(`${rewards.tokens} Tokens`);
+  if (rewards.rolls) parts.push(`${rewards.rolls} Rolls`);
+  if (rewards.xp) parts.push(`${rewards.xp} XP`);
+
+  return parts.length ? parts.join(' • ') : 'No rewards.';
+}
+
+function battleText(result) {
+  const lines = result.battle.lines.slice(-6).join('\n');
+  return (
+    `Result: **${result.battle.win ? 'VICTORY' : 'DEFEAT'}**\n` +
+    `Your Team Power: **${result.battle.teamPower.toLocaleString('en-US')}**\n` +
+    `Enemy Power: **${result.battle.enemyPower.toLocaleString('en-US')}**\n\n` +
+    `${lines}\n\n` +
+    `Rewards: ${formatRewards(result.rewards)}`
+  );
 }
 
 module.exports = {
+  autoTeam,
   setTeamSlot,
-  getTeam,
-  getTeamPower,
-  playStory,
+  showTeam,
+  bossList,
+  limitedBoss,
+  runStoryFight,
   runDungeon,
-  fightBoss,
-  climbTower,
+  runTower,
+  runLimitedBoss,
   sacrificeCard,
-  claimPassiveFarm
+  claimPassiveFarm,
+  battleText
 };
