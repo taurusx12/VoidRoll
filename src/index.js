@@ -43,20 +43,24 @@ client.on('interactionCreate', async (i) => {
     const userId = i.user.id;
 
     if (i.commandName === 'profile') {
-      const u = await prisma.user.findUnique({
-        where: { id: userId }
-      });
+  const u = await prisma.user.findUnique({
+    where: { id: userId }
+  });
 
-      return i.reply(
-        `👤 ${i.user.username}\n` +
-        `Gold: ${money(u.gold)}\n` +
-        `Gems: ${u.gems}\n` +
-        `Rolls: ${u.rolls ?? 0}\n` +
-        `Tokens: ${u.tokens ?? 0}\n` +
-        `Level: ${u.level}\n` +
-        `Streak: ${u.dailyStreak}`
-      );
-    }
+  const last = new Date(u.lastRollRefillAt || Date.now());
+  const next = new Date(last.getTime() + (60 * 60 * 1000));
+
+  return i.reply(
+    `👤 ${i.user.username}\n` +
+    `Gold: ${money(u.gold)}\n` +
+    `Gems: ${u.gems}\n` +
+    `Rolls: ${u.rolls ?? 0}\n` +
+    `Next Refill: <t:${Math.floor(next.getTime() / 1000)}:R>\n` +
+    `Tokens: ${u.tokens ?? 0}\n` +
+    `Level: ${u.level}\n` +
+    `Streak: ${u.dailyStreak}`
+  );
+}
 
     if (i.commandName === 'daily') {
       const cd = await checkCooldown(userId, 'daily');
