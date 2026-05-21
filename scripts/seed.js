@@ -19,26 +19,87 @@ query ($page: Int, $perPage: Int) {
 }
 `;
 
-function rarityFromRank(index) {
-  if (index < 10) return 'DIVINE';
-  if (index < 40) return 'MYTHIC';
-  if (index < 120) return 'LEGENDARY';
-  if (index < 300) return 'EPIC';
+const divineNames = [
+  'sukuna', 'satoru gojo', 'gojo', 'yoriichi', 'goku', 'vegeta',
+  'madara', 'aizen', 'rimuru', 'anos', 'all might', 'all for one',
+  'shigaraki', 'star and stripe', 'whitebeard', 'gol d. roger',
+  'roger', 'shanks', 'kaido', 'muzan', 'meruem', 'netero',
+  'saitama', 'zeref', 'acnologia', 'escanor', 'meliodas'
+];
+
+const mythicNames = [
+  'naruto', 'sasuke', 'itachi', 'luffy', 'zoro', 'ichigo',
+  'tanjiro', 'rengoku', 'akaza', 'yoruichi', 'levi', 'eren',
+  'bakugou', 'bakugo', 'todoroki', 'deku', 'izuku', 'killua',
+  'gon', 'hisoka', 'kurapika', 'chrollo', 'pain', 'obito',
+  'minato', 'kakashi', 'ace', 'sabo', 'law', 'sanji'
+];
+
+const legendaryNames = [
+  'nezuko', 'inosuke', 'zenitsu', 'giyu', 'tengen', 'uzui',
+  'mitsuri', 'tokito', 'muichiro', 'shinobu', 'obanai', 'gyomei',
+  'mikasa', 'armin', 'endeavor', 'hawks', 'dabi', 'toga',
+  'megumi', 'yuji', 'itadori', 'nobara', 'toji', 'geto',
+  'yor', 'loid', 'anya'
+];
+
+function normalize(text = '') {
+  return text.toLowerCase();
+}
+
+function hasAny(text, list) {
+  return list.some(x => text.includes(x));
+}
+
+function rarityFromCharacter(character, index) {
+  const name = normalize(character.name);
+  const anime = normalize(character.anime);
+  const favs = character.favourites || 0;
+
+  if (
+    name.includes('gear 5') ||
+    name.includes('ultra instinct') ||
+    name.includes('baryon') ||
+    name.includes('six paths') ||
+    name.includes('founding titan') ||
+    name.includes('final getsuga') ||
+    name.includes('true bankai') ||
+    name.includes('demon king') ||
+    name.includes('god')
+  ) {
+    return 'DIVINE';
+  }
+
+  if (hasAny(name, divineNames)) return 'DIVINE';
+  if (hasAny(name, mythicNames)) return 'MYTHIC';
+  if (hasAny(name, legendaryNames)) return 'LEGENDARY';
+
+  if (favs >= 30000) return 'MYTHIC';
+  if (favs >= 15000) return 'LEGENDARY';
+  if (favs >= 6000) return 'EPIC';
+  if (favs >= 2000) return 'RARE';
+
+  if (index < 80) return 'LEGENDARY';
+  if (index < 250) return 'EPIC';
   if (index < 600) return 'RARE';
   return 'COMMON';
 }
 
 function powerFromRarity(rarity, favs = 0) {
   const base = {
-    COMMON: 120,
-    RARE: 260,
-    EPIC: 520,
-    LEGENDARY: 950,
-    MYTHIC: 1500,
-    DIVINE: 2400
+    COMMON: 150,
+    RARE: 350,
+    EPIC: 800,
+    LEGENDARY: 1600,
+    MYTHIC: 3200,
+    DIVINE: 6000,
+    SECRET: 10000
   }[rarity] || 100;
 
-  return base + Math.min(500, Math.floor((favs || 0) / 2000));
+  const favBonus = Math.min(1200, Math.floor((favs || 0) / 1200));
+  const randomBonus = Math.floor(Math.random() * 150);
+
+  return base + favBonus + randomBonus;
 }
 
 async function fetchPage(page) {
@@ -76,6 +137,7 @@ const eq = [
   console.log('Fetching anime characters from AniList...');
 
   const characters = [];
+  const seen = new Set();
 
   for (let page = 1; characters.length < TARGET_COUNT; page++) {
     const batch = await fetchPage(page);
@@ -88,8 +150,13 @@ const eq = [
         c.media?.nodes?.[0]?.title?.romaji ||
         'Unknown Anime';
 
+      const id = `anilist-${c.id}`;
+
+      if (seen.has(id)) continue;
+      seen.add(id);
+
       characters.push({
-        id: `anilist-${c.id}`,
+        id,
         name: c.name.full,
         anime,
         imageUrl: c.image.large,
@@ -107,7 +174,7 @@ const eq = [
 
   for (let i = 0; i < characters.length; i++) {
     const c = characters[i];
-    const rarity = rarityFromRank(i);
+    const rarity = rarityFromCharacter(c, i);
     const power = powerFromRarity(rarity, c.favourites);
 
     await prisma.character.upsert({
