@@ -875,8 +875,7 @@ client.on('interactionCreate', async (i) => {
 ` +
           `**Other results:**
 ` +
-          chars.slice(1).map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
-')
+          chars.slice(1).map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\\n')
         )
         .setImage(first.imageUrl)
         .setColor(embedColor(aura.color));
@@ -911,8 +910,7 @@ client.on('interactionCreate', async (i) => {
         '🕳️ **SECRET CHARACTERS**
 
 ' +
-        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
-')
+        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\\n')
       );
     }
 
