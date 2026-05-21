@@ -84,19 +84,10 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('search')
-    .setDescription('Search for a character')
-    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
-
-  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
+    .setDescription('Search for a character by name or anime')
+    .addStringOption(o => o.setName('name').setDescription('Character or anime name / letter').setRequired(true)),
 
   new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
-
-  new SlashCommandBuilder().setName('admin-spawn-boss').setDescription('Admin: spawn a boss event in a channel')
-    .addChannelOption(o => o.setName('channel').setDescription('Target channel').setRequired(false)),
-
-  new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give rolls to a player')
-    .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount').setRequired(true)),
 
   new SlashCommandBuilder().setName('admin-give-equipment').setDescription('Admin: give test equipment')
     .addStringOption(o => o.setName('rarity').setDescription('COMMON/RARE/EPIC/LEGENDARY/MYTHIC/DIVINE/SECRET'))

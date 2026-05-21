@@ -25,6 +25,7 @@ const transfer = require('./services/transferMarket');
 const { battle, sacrifice, setTeamSlot, showTeam, previewProgress } = require('./services/gameplay');
 const bossEvents = require('./services/events');
 const { ensureItemTemplates, getItemImagePath } = require('./services/itemCatalog');
+const { isSecretCandidate, SECRET_CHARACTER_KEYWORDS } = require('./lib/secretCharacters');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -129,11 +130,11 @@ async function rollRandomItem(userId, slotFilter = null) {
   if (pack === 'hxh') chars = allChars.filter(c => containsAny(c.anime, ['hunter x hunter', 'hunter×hunter']));
   if (pack === 'dbz') chars = allChars.filter(c => containsAny(c.anime, ['dragon ball']));
   if (pack === 'aot') chars = allChars.filter(c => containsAny(c.anime, ['attack on titan', 'shingeki']));
-  if (pack === 'villains') {
-    const villainKeys = ['sukuna', 'muzan', 'madara', 'aizen', 'yhwach', 'kaido', 'doflamingo', 'shigaraki', 'all for one', 'meruem', 'chrollo', 'hisoka'];
-    chars = allChars.filter(c => containsAny(c.name, villainKeys));
-  }
-  if (pack === 'secret') chars = allChars.filter(c => c.rarity === 'SECRET');
+  if (pack === 'villains') chars = allChars.filter(c => {
+    const text = `${c.name} ${c.anime}`.toLowerCase();
+    return ['sukuna', 'muzan', 'madara', 'aizen', 'yhwach', 'kaido', 'doflamingo', 'shigaraki', 'all for one', 'meruem', 'chrollo', 'hisoka', 'frieza', 'zeref', 'acnologia'].some(k => text.includes(k));
+  });
+  if (pack === 'secret') chars = allChars.filter(c => c.rarity === 'SECRET' || isSecretCandidate(c));
   if (pack === 'event') chars = allChars.filter(c => ['EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'].includes(c.rarity));
 
   if (!chars.length) chars = allChars;
@@ -387,6 +388,44 @@ async function postAutomaticBossEvent() {
   }
 }
 
+
+async function applySecretCharacterBoosts() {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      name: true,
+      anime: true,
+      rarity: true,
+      basePower: true,
+      baseFarm: true,
+      baseLuck: true
+    }
+  });
+
+  let updated = 0;
+
+  for (const c of chars) {
+    if (!isSecretCandidate(c)) continue;
+
+    const newPower = Math.max(c.basePower || 0, 10000);
+
+    await prisma.character.update({
+      where: { id: c.id },
+      data: {
+        rarity: 'SECRET',
+        basePower: newPower,
+        baseFarm: Math.max(c.baseFarm || 0, Math.floor(newPower / 8)),
+        baseLuck: Math.max(c.baseLuck || 0, Math.floor(newPower / 20))
+      }
+    });
+
+    updated++;
+  }
+
+  console.log(`Secret characters updated: ${updated}`);
+}
+
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -394,6 +433,7 @@ client.once('ready', () => {
     .then(() => console.log('Item templates synced'))
     .catch(console.error);
 
+  applySecretCharacterBoosts().catch(console.error);
 
   const firstDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 60) * 1000;
   const interval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
@@ -464,7 +504,6 @@ client.on('interactionCreate', async (i) => {
         `🗼 /tower - Status/start tower\n` +
         `👹 /boss-event - View automatic boss event\n` +
         `⚔️ /join-boss - Join boss event\n` +
-        `🚨 /admin-spawn-boss - Admin: spawn boss event in selected channel\n` +
         `🧬 /sacrifice - Sacrifice duplicate/weak cards to power up a main card\n` +
         `⚙️ /equipment - Show equipment\n` +
         `⬆️ /upgrade - Upgrade equipment\n` +
@@ -674,20 +713,40 @@ client.on('interactionCreate', async (i) => {
 
     if (commandName === 'shop') {
       return i.reply(
-        `🛒 **VOIDROLL SHOP**\n\n` +
-        `🔥 Jujutsu Pack - 10 Tokens\n` +
-        `🗡️ Demon Slayer Pack - 10 Tokens\n` +
-        `🍥 Naruto Pack - 10 Tokens\n` +
-        `🏴‍☠️ One Piece Pack - 10 Tokens\n` +
-        `🧿 Bleach Pack - 10 Tokens\n` +
-        `💥 My Hero Pack - 10 Tokens\n` +
-        `🎣 Hunter x Hunter Pack - 10 Tokens\n` +
-        `🐉 Dragon Ball Pack - 10 Tokens\n` +
-        `🧱 Attack on Titan Pack - 10 Tokens\n` +
-        `😈 Villains Pack - 18 Tokens\n` +
-        `🕳️ Secret Pack - 50 Tokens\n` +
-        `⚔️ Weapon Pack - 15 Tokens\n` +
-        `🌌 Event Pack - 25 Tokens\n\n` +
+        `🛒 **VOIDROLL SHOP**
+
+` +
+        `🔥 Jujutsu Pack - 10 Tokens
+` +
+        `🗡️ Demon Slayer Pack - 10 Tokens
+` +
+        `🍥 Naruto Pack - 10 Tokens
+` +
+        `🏴‍☠️ One Piece Pack - 10 Tokens
+` +
+        `🧿 Bleach Pack - 10 Tokens
+` +
+        `💥 My Hero Pack - 10 Tokens
+` +
+        `🎣 Hunter x Hunter Pack - 10 Tokens
+` +
+        `🐉 Dragon Ball Pack - 10 Tokens
+` +
+        `🧱 Attack on Titan Pack - 10 Tokens
+` +
+        `😈 Villains Pack - 18 Tokens
+` +
+        `🕳️ Secret Pack - 50 Tokens
+` +
+        `⚔️ Weapon Pack - 15 Tokens
+` +
+        `🛡️ Armor Pack - 15 Tokens
+` +
+        `💍 Ring Pack - 12 Tokens
+` +
+        `🌌 Event Pack - 25 Tokens
+
+` +
         `Use /pack type:<pack>.`
       );
     }
@@ -841,15 +900,19 @@ client.on('interactionCreate', async (i) => {
           : `💥 Upgrade failed. You lost ${money(r.cost)} gold.`
       );
     }
+
     if (commandName === 'search') {
-      const name = i.options.getString('name', true);
+      const name = i.options.getString('name', true).trim();
 
       const chars = await prisma.character.findMany({
         where: {
-          name: {
-            contains: name
-          }
+          OR: [
+            { name: { contains: name } },
+            { anime: { contains: name } }
+          ],
+          active: true
         },
+        orderBy: { basePower: 'desc' },
         take: 10
       });
 
@@ -859,20 +922,21 @@ client.on('interactionCreate', async (i) => {
 
       const first = chars[0];
       const aura = getAura(first);
+
       const otherResults = chars
-        .slice(1)
-        .map(c => `${rarityEmoji(c.rarity)} ${c.name} • ${c.anime} • PWR ${c.basePower}`)
+        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower}`)
         .join('\n');
 
       const embed = new EmbedBuilder()
-        .setTitle(`🔎 ${first.name}`)
+        .setTitle(`🔎 Search Results for "${name}"`)
         .setDescription(
+          `**Best Match Preview**\n` +
+          `${rarityEmoji(first.rarity)} **${first.name}**\n` +
           `🎌 Anime: **${first.anime}**\n` +
           `💎 Rarity: **${first.rarity}**\n` +
           `⚔️ Base Power: **${first.basePower}**\n` +
           `🌌 Technique: **${aura.name}**\n\n` +
-          `**Other results:**\n` +
-          (otherResults || 'No other results.')
+          `**Matches**\n${otherResults}`
         )
         .setImage(first.imageUrl)
         .setColor(embedColor(aura.color));
@@ -891,6 +955,7 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ embeds: [embed] });
       }
     }
+
     if (commandName === 'secrets') {
       const chars = await prisma.character.findMany({
         where: { rarity: 'SECRET' },
@@ -899,144 +964,37 @@ client.on('interactionCreate', async (i) => {
       });
 
       if (!chars.length) {
-        return i.reply('No SECRET characters found.');
+        return i.reply('No SECRET characters found yet. Wait for the bot to restart once so secret boosts can apply.');
       }
 
-      const list = chars
-        .map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`)
-        .join('\n');
-
-      return i.reply(`🕳️ **SECRET CHARACTERS**\n\n${list}`);
+      return i.reply(
+        `🕳️ **SECRET CHARACTERS**\n\n` +
+        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\n')
+      );
     }
 
     if (commandName === 'rarity') {
       return i.reply(
-        `🎲 **NORMAL ROLL RATES**
+        `🎲 **NORMAL ROLL RATES**\n\n` +
 
-` +
+        `🎴 **Character Roll**\n` +
+        `⚪ Common: 72%\n` +
+        `🔵 Rare: 22%\n` +
+        `🟣 Epic: 5.65%\n` +
+        `🟡 Legendary: 1%\n` +
+        `🔴 Mythic: 0.75%\n` +
+        `🌈 Divine: 0.5%\n` +
+        `🕳️ Secret: 0.1%\n\n` +
 
-        `🎴 **Character Roll**
-` +
-        `⚪ Common: 72%
-` +
-        `🔵 Rare: 22%
-` +
-        `🟣 Epic: 5.65%
-` +
-        `🟡 Legendary: 1%
-` +
-        `🔴 Mythic: 0.75%
-` +
-        `🌈 Divine: 0.5%
-` +
-        `🕳️ Secret: 0.1%
-
-` +
-
-        `⚔️ **Item Roll**
-` +
-        `⚪ Common: 65%
-` +
-        `🔵 Rare: 26%
-` +
-        `🟣 Epic: 7.65%
-` +
-        `🟡 Legendary: 1%
-` +
-        `🔴 Mythic: 0.75%
-` +
-        `🌈 Divine: 0.5%
-` +
+        `⚔️ **Item Roll**\n` +
+        `⚪ Common: 65%\n` +
+        `🔵 Rare: 26%\n` +
+        `🟣 Epic: 7.65%\n` +
+        `🟡 Legendary: 1%\n` +
+        `🔴 Mythic: 0.75%\n` +
+        `🌈 Divine: 0.5%\n` +
         `🕳️ Secret: 0.1%`
       );
-    }
-
-
-    if (commandName === 'admin-spawn-boss') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({
-          content: 'Admin only.',
-          ephemeral: true
-        });
-      }
-
-      const selectedChannel = i.options.getChannel('channel');
-      let targetChannel = selectedChannel || i.channel;
-
-      if (!targetChannel && process.env.BOSS_EVENT_CHANNEL_ID) {
-        targetChannel = await client.channels.fetch(process.env.BOSS_EVENT_CHANNEL_ID).catch(() => null);
-      }
-
-      if (!targetChannel || !targetChannel.isTextBased()) {
-        return i.reply({
-          content: 'I could not find a valid text channel for the boss event.',
-          ephemeral: true
-        });
-      }
-
-      const existing = await bossEvents.getActiveEvent();
-
-      if (existing) {
-        return i.reply({
-          content: `A boss event is already active: **${existing.bossName}**. Players can still join it.`,
-          ephemeral: true
-        });
-      }
-
-      const event = await bossEvents.createBossEvent();
-      const image = bossEvents.bossImage(event.bossName);
-
-      const embed = new EmbedBuilder()
-        .setTitle(`🚨 WORLD BOSS SPAWNED: ${event.bossName}`)
-        .setDescription(
-          `A massive boss has appeared suddenly.\n\n` +
-          `👹 Boss Power: **${money(event.bossPower)}**\n` +
-          `❤️ Boss HP: **${money(event.bossHp)}**\n` +
-          `🎁 Rewards: **${money(event.rewardGold)} gold**, **${event.rewardTokens} tokens**, rolls and rare drops.\n\n` +
-          `Click **Join Boss Event** before <t:${Math.floor(event.joinEndsAt.getTime() / 1000)}:R>.\n` +
-          `The fight starts automatically when the timer ends.`
-        )
-        .setColor(0x8b0000);
-
-      if (image) embed.setImage(image);
-
-      const msg = await targetChannel.send({
-        embeds: [embed],
-        components: [bossJoinRow(event.id)]
-      });
-
-      const delay = Math.max(1000, event.joinEndsAt.getTime() - Date.now() + 1500);
-
-      setTimeout(async () => {
-        try {
-          await msg.edit({ components: [] }).catch(() => {});
-
-          const result = await bossEvents.runEventBattle(event.id);
-
-          if (!result) return;
-          if (result.waiting) return;
-
-          const resultEmbed = new EmbedBuilder()
-            .setTitle(`👹 BOSS EVENT RESULT: ${event.bossName}`)
-            .setDescription(
-              `${result.statusText}\n\n` +
-              `${result.logs.join('\n').slice(0, 1600)}\n\n` +
-              `${result.won ? '✅ **Boss defeated! Rewards were distributed automatically.**' : '❌ **The boss survived. Upgrade your teams and try next event.**'}`
-            )
-            .setColor(result.won ? 0x22c55e : 0xef4444);
-
-          if (image) resultEmbed.setImage(image);
-
-          await targetChannel.send({ embeds: [resultEmbed] });
-        } catch (err) {
-          console.error('Manual boss resolve failed:', err);
-        }
-      }, delay);
-
-      return i.reply({
-        content: `✅ Boss event spawned in ${targetChannel}.`,
-        ephemeral: true
-      });
     }
 
     if (commandName === 'admin-give-rolls') {
