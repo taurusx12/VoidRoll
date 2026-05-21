@@ -7,6 +7,7 @@ const {
   EmbedBuilder,
   AttachmentBuilder,
   ActionRowBuilder,
+  ChannelType,
   ButtonBuilder,
   ButtonStyle
 } = require('discord.js');
@@ -284,6 +285,228 @@ async function inventoryEmbed(userId, index = 0) {
   return { embed, row };
 }
 
+
+const activeManualBosses = new Map();
+
+function getProgressField(mode) {
+  if (mode === 'story') return 'storyStage';
+  if (mode === 'tower') return 'towerFloor';
+  return 'dungeonStage';
+}
+
+function getProgressTitle(mode, value, user) {
+  if (mode === 'story') return `Chapter ${user.storyChapter || 1}, Stage ${value}/30`;
+  if (mode === 'tower') return `Tower Floor ${value}`;
+  return `Dungeon Stage ${value}`;
+}
+
+async function getTeamPower(userId) {
+  const team = await prisma.teamSlot.findMany({
+    where: { userId },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  if (team.length) return team.reduce((sum, s) => sum + (s.card?.power || 0), 0);
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    orderBy: { power: 'desc' },
+    take: 5
+  });
+
+  return cards.reduce((sum, c) => sum + (c.power || 0), 0);
+}
+
+async function runProgressBattle(interaction, mode) {
+  await interaction.deferReply();
+
+  const userId = interaction.user.id;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const field = getProgressField(mode);
+  const current = user[field] || 1;
+  const teamPower = await getTeamPower(userId);
+
+  const required = mode === 'story'
+    ? 700 + current * 260
+    : mode === 'tower'
+      ? 1200 + current * 420
+      : 900 + current * 330;
+
+  const enemyName = mode === 'story'
+    ? `Story Enemy Squad ${current}`
+    : mode === 'tower'
+      ? `Tower Guardian ${current}`
+      : `Dungeon Beast ${current}`;
+
+  let text =
+    `⚔️ **${mode.toUpperCase()} STARTED**\n` +
+    `📍 ${getProgressTitle(mode, current, user)}\n` +
+    `👥 Team Power: **${money(teamPower)}**\n` +
+    `👹 Required Power: **${money(required)}**\n\n`;
+
+  await interaction.editReply(text + 'Battle starting...');
+
+  for (let r = 1; r <= 5; r++) {
+    const hit = Math.max(50, Math.floor(teamPower / (8 + r) + Math.random() * 250));
+    const enemyHit = Math.max(30, Math.floor(required / (10 + r) + Math.random() * 160));
+    text += `⚔️ Round ${r}: Your team hit **${enemyName}** for **${money(hit)}**.\n`;
+    text += `💢 ${enemyName} hit back for **${money(enemyHit)}**.\n`;
+    await new Promise(resolve => setTimeout(resolve, 650));
+    await interaction.editReply(text.slice(-1900)).catch(() => {});
+  }
+
+  const won = teamPower >= required || Math.random() < Math.min(0.35, teamPower / Math.max(1, required) / 4);
+
+  if (!won) {
+    text += `\n❌ Defeat. Upgrade your team and try again.`;
+    return interaction.editReply(text.slice(-1900));
+  }
+
+  const gold = Math.floor(required * 0.55);
+  const tokens = mode === 'tower' ? 2 : mode === 'story' ? 3 : 2;
+  const rolls = mode === 'story' ? 2 : 1;
+
+  const data = {
+    gold: { increment: gold },
+    tokens: { increment: tokens },
+    rolls: { increment: rolls }
+  };
+
+  if (mode === 'story') {
+    let nextStage = current + 1;
+    let nextChapter = user.storyChapter || 1;
+    if (nextStage > 30) {
+      nextStage = 1;
+      nextChapter += 1;
+    }
+    data.storyStage = nextStage;
+    data.storyChapter = nextChapter;
+  } else {
+    data[field] = current + 1;
+  }
+
+  await prisma.user.update({ where: { id: userId }, data });
+
+  text += `\n✅ Victory!\n🎁 Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.\n➡️ Progress saved.`;
+  return interaction.editReply(text.slice(-1900));
+}
+
+async function sendBossAnnouncement(channel) {
+  const bossNames = [
+    'Sukuna, King of Curses',
+    'Madara Uchiha',
+    'Aizen, Lord of Illusions',
+    'Kaido, Beast Emperor',
+    'Muzan, Demon King',
+    'Meruem, Chimera King',
+    'Dio Brando',
+    'Frieza, Emperor of Evil'
+  ];
+
+  const bossName = bossNames[Math.floor(Math.random() * bossNames.length)];
+  const eventId = `${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+
+  const boss = {
+    id: eventId,
+    bossName,
+    hp: 750000 + Math.floor(Math.random() * 500000),
+    power: 250000 + Math.floor(Math.random() * 200000),
+    rewardGold: 250000,
+    rewardTokens: 50,
+    entries: new Set(),
+    channelId: channel.id
+  };
+
+  activeManualBosses.set(eventId, boss);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🚨 WORLD BOSS SPAWNED: ${bossName}`)
+    .setDescription(
+      `👹 Boss Power: **${money(boss.power)}**\n` +
+      `❤️ Boss HP: **${money(boss.hp)}**\n` +
+      `🎁 Rewards: **${money(boss.rewardGold)} gold**, **${boss.rewardTokens} tokens**, rare drops.\n\n` +
+      `اضغط الزر عشان تدخل البوس.\n` +
+      `القتال يبدأ تلقائيًا بعد دقيقتين.`
+    )
+    .setColor(0x8b0000);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`manual_boss_join_${eventId}`)
+      .setLabel('Join Boss')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const msg = await channel.send({ embeds: [embed], components: [row] });
+
+  setTimeout(async () => {
+    const latest = activeManualBosses.get(eventId);
+    if (!latest) return;
+
+    await msg.edit({ components: [] }).catch(() => {});
+
+    const players = Array.from(latest.entries);
+    if (!players.length) {
+      activeManualBosses.delete(eventId);
+      return channel.send(`👹 **${bossName}** disappeared. No one joined.`);
+    }
+
+    let totalPower = 0;
+    const lines = [];
+
+    for (const joinedUserId of players) {
+      const pwr = await getTeamPower(joinedUserId);
+      totalPower += pwr;
+      lines.push(`<@${joinedUserId}> team power: **${money(pwr)}**`);
+    }
+
+    const won = totalPower >= latest.power;
+    let result =
+      `👹 **BOSS RESULT: ${bossName}**\n\n` +
+      lines.join('\n').slice(0, 1200) +
+      `\n\nTotal Power: **${money(totalPower)}** / **${money(latest.power)}**\n`;
+
+    if (won) {
+      const goldEach = Math.floor(latest.rewardGold / players.length);
+      const tokensEach = Math.max(1, Math.floor(latest.rewardTokens / players.length));
+
+      for (const joinedUserId of players) {
+        await prisma.user.update({
+          where: { id: joinedUserId },
+          data: {
+            gold: { increment: goldEach },
+            tokens: { increment: tokensEach },
+            rolls: { increment: 5 }
+          }
+        }).catch(() => {});
+      }
+
+      result += `\n✅ Boss defeated! Each player got **${money(goldEach)} gold**, **${tokensEach} tokens**, **5 rolls**.`;
+    } else {
+      result += `\n❌ Boss survived. Upgrade your team.`;
+    }
+
+    activeManualBosses.delete(eventId);
+    return channel.send(result.slice(0, 1900));
+  }, 2 * 60 * 1000);
+
+  return boss;
+}
+
+async function autoBossLoop() {
+  const channelId = process.env.BOSS_EVENT_CHANNEL_ID;
+  if (!channelId) return;
+
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) {
+    console.log('Auto boss skipped: invalid BOSS_EVENT_CHANNEL_ID');
+    return;
+  }
+
+  await sendBossAnnouncement(channel);
+}
+
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -298,6 +521,11 @@ client.once('ready', async () => {
   } catch (e) {
     console.error('Secret boost failed:', e);
   }
+
+  const firstBossDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 90) * 1000;
+  const bossInterval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
+  setTimeout(autoBossLoop, firstBossDelay);
+  setInterval(autoBossLoop, bossInterval);
 });
 
 client.on('interactionCreate', async (i) => {
@@ -321,6 +549,26 @@ client.on('interactionCreate', async (i) => {
         return i.update({
           embeds: [data.embed],
           components: [data.row]
+        });
+      }
+
+
+      if (i.customId.startsWith('manual_boss_join_')) {
+        const eventId = i.customId.replace('manual_boss_join_', '');
+        const boss = activeManualBosses.get(eventId);
+
+        if (!boss) {
+          return i.reply({
+            content: 'This boss event is no longer active.',
+            ephemeral: true
+          });
+        }
+
+        boss.entries.add(i.user.id);
+
+        return i.reply({
+          content: `⚔️ دخلت البوس **${boss.bossName}**. عدد اللاعبين: **${boss.entries.size}**`,
+          ephemeral: true
         });
       }
 
@@ -767,6 +1015,58 @@ client.on('interactionCreate', async (i) => {
         `🚀 **Auto Team Equipped!**\n\n` +
         cards.map((c, idx) => `Slot ${idx + 1}: ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${c.power}`).join('\n')
       );
+    }
+
+
+    if (commandName === 'story' || commandName === 'dungeon' || commandName === 'tower') {
+      const action = i.options.getString('action') || 'info';
+      const mode = commandName;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const field = getProgressField(mode);
+      const current = user[field] || 1;
+      const teamPower = await getTeamPower(userId);
+      const required = mode === 'story'
+        ? 700 + current * 260
+        : mode === 'tower'
+          ? 1200 + current * 420
+          : 900 + current * 330;
+
+      if (action === 'start') {
+        return runProgressBattle(i, mode);
+      }
+
+      return i.reply(
+        `📍 **${mode.toUpperCase()}**\n` +
+        `Current: **${getProgressTitle(mode, current, user)}**\n` +
+        `Your Team Power: **${money(teamPower)}**\n` +
+        `Recommended Power: **${money(required)}**\n\n` +
+        `Use **/${mode} action:start** to fight.`
+      );
+    }
+
+    if (commandName === 'admin-spawn-boss') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({
+          content: 'Admin only.',
+          ephemeral: true
+        });
+      }
+
+      const channel = i.options.getChannel('channel', true);
+
+      if (!channel || !channel.isTextBased()) {
+        return i.reply({
+          content: 'Choose a text channel.',
+          ephemeral: true
+        });
+      }
+
+      const boss = await sendBossAnnouncement(channel);
+
+      return i.reply({
+        content: `✅ Boss spawned in ${channel}: **${boss.bossName}**`,
+        ephemeral: true
+      });
     }
 
     if (commandName === 'admin-give-rolls') {

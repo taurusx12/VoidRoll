@@ -131,6 +131,58 @@ const commands = [
 
   new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
 
+
+  new SlashCommandBuilder()
+    .setName('story')
+    .setDescription('Story mode progress')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('info/start')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Info', value: 'info' },
+          { name: 'Start', value: 'start' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('dungeon')
+    .setDescription('Dungeon progress')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('info/start')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Info', value: 'info' },
+          { name: 'Start', value: 'start' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('tower')
+    .setDescription('Tower progress')
+    .addStringOption(o =>
+      o.setName('action')
+        .setDescription('info/start')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Info', value: 'info' },
+          { name: 'Start', value: 'start' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('admin-spawn-boss')
+    .setDescription('Admin: spawn a boss event in a selected channel')
+    .addChannelOption(o =>
+      o.setName('channel')
+        .setDescription('Channel to send boss event')
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName('admin-give-rolls')
     .setDescription('Admin: give rolls to a player')
