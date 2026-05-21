@@ -91,6 +91,9 @@ const commands = [
 
   new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
 
+  new SlashCommandBuilder().setName('admin-spawn-boss').setDescription('Admin: spawn a boss event in a channel')
+    .addChannelOption(o => o.setName('channel').setDescription('Target channel').setRequired(false)),
+
   new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give rolls to a player')
     .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount').setRequired(true)),

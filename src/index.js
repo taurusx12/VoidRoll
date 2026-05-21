@@ -465,6 +465,7 @@ client.on('interactionCreate', async (i) => {
         `🗼 /tower - Status/start tower\n` +
         `👹 /boss-event - View automatic boss event\n` +
         `⚔️ /join-boss - Join boss event\n` +
+        `🚨 /admin-spawn-boss - Admin: spawn boss event in selected channel\n` +
         `🧬 /sacrifice - Sacrifice duplicate/weak cards to power up a main card\n` +
         `⚙️ /equipment - Show equipment\n` +
         `⬆️ /upgrade - Upgrade equipment\n` +
@@ -907,10 +908,11 @@ client.on('interactionCreate', async (i) => {
       }
 
       return i.reply(
-        '🕳️ **SECRET CHARACTERS**
+        `🕳️ **SECRET CHARACTERS**
 
-' +
-        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\\n')
+` +
+        chars.map(c => `🕳️ ${c.name} • ${c.anime} • PWR ${c.basePower}`).join('
+')
       );
     }
 
@@ -954,6 +956,94 @@ client.on('interactionCreate', async (i) => {
 ` +
         `🕳️ Secret: 0.1%`
       );
+    }
+
+
+    if (commandName === 'admin-spawn-boss') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({
+          content: 'Admin only.',
+          ephemeral: true
+        });
+      }
+
+      const selectedChannel = i.options.getChannel('channel');
+      let targetChannel = selectedChannel || i.channel;
+
+      if (!targetChannel && process.env.BOSS_EVENT_CHANNEL_ID) {
+        targetChannel = await client.channels.fetch(process.env.BOSS_EVENT_CHANNEL_ID).catch(() => null);
+      }
+
+      if (!targetChannel || !targetChannel.isTextBased()) {
+        return i.reply({
+          content: 'I could not find a valid text channel for the boss event.',
+          ephemeral: true
+        });
+      }
+
+      const existing = await bossEvents.getActiveEvent();
+
+      if (existing) {
+        return i.reply({
+          content: `A boss event is already active: **${existing.bossName}**. Players can still join it.`,
+          ephemeral: true
+        });
+      }
+
+      const event = await bossEvents.createBossEvent();
+      const image = bossEvents.bossImage(event.bossName);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🚨 WORLD BOSS SPAWNED: ${event.bossName}`)
+        .setDescription(
+          `A massive boss has appeared suddenly.\n\n` +
+          `👹 Boss Power: **${money(event.bossPower)}**\n` +
+          `❤️ Boss HP: **${money(event.bossHp)}**\n` +
+          `🎁 Rewards: **${money(event.rewardGold)} gold**, **${event.rewardTokens} tokens**, rolls and rare drops.\n\n` +
+          `Click **Join Boss Event** before <t:${Math.floor(event.joinEndsAt.getTime() / 1000)}:R>.\n` +
+          `The fight starts automatically when the timer ends.`
+        )
+        .setColor(0x8b0000);
+
+      if (image) embed.setImage(image);
+
+      const msg = await targetChannel.send({
+        embeds: [embed],
+        components: [bossJoinRow(event.id)]
+      });
+
+      const delay = Math.max(1000, event.joinEndsAt.getTime() - Date.now() + 1500);
+
+      setTimeout(async () => {
+        try {
+          await msg.edit({ components: [] }).catch(() => {});
+
+          const result = await bossEvents.runEventBattle(event.id);
+
+          if (!result) return;
+          if (result.waiting) return;
+
+          const resultEmbed = new EmbedBuilder()
+            .setTitle(`👹 BOSS EVENT RESULT: ${event.bossName}`)
+            .setDescription(
+              `${result.statusText}\n\n` +
+              `${result.logs.join('\n').slice(0, 1600)}\n\n` +
+              `${result.won ? '✅ **Boss defeated! Rewards were distributed automatically.**' : '❌ **The boss survived. Upgrade your teams and try next event.**'}`
+            )
+            .setColor(result.won ? 0x22c55e : 0xef4444);
+
+          if (image) resultEmbed.setImage(image);
+
+          await targetChannel.send({ embeds: [resultEmbed] });
+        } catch (err) {
+          console.error('Manual boss resolve failed:', err);
+        }
+      }, delay);
+
+      return i.reply({
+        content: `✅ Boss event spawned in ${targetChannel}.`,
+        ephemeral: true
+      });
     }
 
     if (commandName === 'admin-give-rolls') {
