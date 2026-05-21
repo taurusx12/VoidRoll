@@ -281,6 +281,7 @@ async function inventoryEmbed(userId, index = 0) {
 
 
 const activeManualBosses = new Map();
+const pendingTrades = new Map();
 
 function getProgressTitle(mode, value, user) {
   if (mode === 'story') return `Chapter ${user.storyChapter || 1}, Stage ${value}/30`;
@@ -854,6 +855,85 @@ client.on('interactionCreate', async (i) => {
         });
       }
 
+
+      if (i.customId.startsWith('trade_accept_') || i.customId.startsWith('trade_decline_')) {
+        const isAccept = i.customId.startsWith('trade_accept_');
+        const tradeId = i.customId.replace('trade_accept_', '').replace('trade_decline_', '');
+        const trade = pendingTrades.get(tradeId);
+
+        if (!trade) {
+          return i.reply({
+            content: 'This trade offer is expired or already completed.',
+            ephemeral: true
+          });
+        }
+
+        if (i.user.id !== trade.targetId) {
+          return i.reply({
+            content: 'Only the trade receiver can accept or decline this trade.',
+            ephemeral: true
+          });
+        }
+
+        if (!isAccept) {
+          pendingTrades.delete(tradeId);
+          return i.update({
+            content: `❌ Trade declined by <@${trade.targetId}>.`,
+            embeds: [],
+            components: []
+          }).catch(() => {});
+        }
+
+        const offerCard = await prisma.userCard.findFirst({
+          where: { id: trade.offerCardId, userId: trade.offerUserId },
+          include: { character: true }
+        });
+
+        const requestCard = await prisma.userCard.findFirst({
+          where: { id: trade.requestCardId, userId: trade.targetId },
+          include: { character: true }
+        });
+
+        if (!offerCard || !requestCard) {
+          pendingTrades.delete(tradeId);
+          return i.update({
+            content: '❌ Trade failed. One of the cards is no longer owned by the correct player.',
+            embeds: [],
+            components: []
+          }).catch(() => {});
+        }
+
+        await prisma.$transaction([
+          prisma.userCard.update({
+            where: { id: offerCard.id },
+            data: { userId: trade.targetId }
+          }),
+          prisma.userCard.update({
+            where: { id: requestCard.id },
+            data: { userId: trade.offerUserId }
+          }),
+          prisma.teamSlot.deleteMany({
+            where: {
+              OR: [
+                { cardId: offerCard.id },
+                { cardId: requestCard.id }
+              ]
+            }
+          })
+        ]);
+
+        pendingTrades.delete(tradeId);
+
+        return i.update({
+          content:
+            `✅ **TRADE COMPLETE**\n` +
+            `<@${trade.offerUserId}> gave **${offerCard.character.name}** to <@${trade.targetId}>.\n` +
+            `<@${trade.targetId}> gave **${requestCard.character.name}** to <@${trade.offerUserId}>.`,
+          embeds: [],
+          components: []
+        }).catch(() => {});
+      }
+
       return;
     }
 
@@ -881,6 +961,7 @@ client.on('interactionCreate', async (i) => {
         `🛒 /shop - Official packs and events\n` +
         `📦 /pack - Open an anime pack\n` +
         `🔁 /transfer - Transfer Market listings\n` +
+        `🤝 /trade - Trade cards with another player\n` +
         `💰 /list - List a card on Transfer Market\n` +
         `🛍️ /buy - Buy a listing\n` +
         `🌾 /farm-claim - Claim passive farm rewards\n` +
@@ -1542,6 +1623,84 @@ client.on('interactionCreate', async (i) => {
         `Cost: **${money(cost.gold)} Gold**\n` +
         `New Power: **${updated.power}**`
       );
+    }
+
+
+    if (commandName === 'trade') {
+      const target = i.options.getUser('user', true);
+      const offerCardId = i.options.getString('my_card', true);
+      const requestCardId = i.options.getString('their_card', true);
+
+      if (target.bot) {
+        return i.reply({ content: 'You cannot trade with bots.', ephemeral: true });
+      }
+
+      if (target.id === userId) {
+        return i.reply({ content: 'You cannot trade with yourself.', ephemeral: true });
+      }
+
+      const offerCard = await prisma.userCard.findFirst({
+        where: { id: offerCardId, userId },
+        include: { character: true }
+      });
+
+      if (!offerCard) {
+        return i.reply({ content: 'Your offered card was not found in your inventory.', ephemeral: true });
+      }
+
+      const requestCard = await prisma.userCard.findFirst({
+        where: { id: requestCardId, userId: target.id },
+        include: { character: true }
+      });
+
+      if (!requestCard) {
+        return i.reply({ content: 'The requested card was not found in that player inventory.', ephemeral: true });
+      }
+
+      const tradeId = require('nanoid').nanoid(10);
+
+      pendingTrades.set(tradeId, {
+        id: tradeId,
+        offerUserId: userId,
+        targetId: target.id,
+        offerCardId,
+        requestCardId,
+        createdAt: Date.now()
+      });
+
+      setTimeout(() => pendingTrades.delete(tradeId), 5 * 60 * 1000);
+
+      const embed = new EmbedBuilder()
+        .setTitle('🤝 Trade Offer')
+        .setDescription(
+          `<@${userId}> wants to trade with <@${target.id}>.\n\n` +
+          `**${i.user.username} gives:**\n` +
+          `${rarityEmoji(offerCard.character.rarity)} **${offerCard.character.name}** • ${offerCard.character.rarity} • PWR ${offerCard.power}\n\n` +
+          `**${target.username} gives:**\n` +
+          `${rarityEmoji(requestCard.character.rarity)} **${requestCard.character.name}** • ${requestCard.character.rarity} • PWR ${requestCard.power}\n\n` +
+          `Only <@${target.id}> can accept or decline.\n` +
+          `Expires in 5 minutes.`
+        )
+        .setColor(0x22c55e);
+
+      if (offerCard.character.imageUrl) embed.setThumbnail(offerCard.character.imageUrl);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`trade_accept_${tradeId}`)
+          .setLabel('Accept Trade')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`trade_decline_${tradeId}`)
+          .setLabel('Decline')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      return i.reply({
+        content: `<@${target.id}> عندك عرض مقايضة.`,
+        embeds: [embed],
+        components: [row]
+      });
     }
 
     if (commandName === 'admin-give-rolls') {
