@@ -50,10 +50,6 @@ model User {
   level Int @default(1)
   dailyStreak Int @default(0)
   lastDailyAt DateTime?
-  storyChapter Int @default(1)
-  storyStage Int @default(1)
-  dungeonStage Int @default(1)
-  towerFloor Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   cards UserCard[]
@@ -62,6 +58,7 @@ model User {
   deployments Deployment[]
   teamSlots TeamSlot[]
   storyProgress StoryProgress?
+  bossEntries BossEventEntry[]
 }
 
 model Character {
@@ -103,7 +100,6 @@ model UserCard {
   listings MarketListing[]
   deployments Deployment[]
   teamSlots TeamSlot[]
-  equipment UserEquipment[]
   @@index([userId])
   @@index([characterId, serial])
 }
@@ -116,9 +112,6 @@ model EquipmentTemplate {
   basePower Int
   imageUrl String?
   active Boolean @default(true)
-  bonusType String?
-  bonusValue Int @default(0)
-  characterHint String?
   userEquipments UserEquipment[]
 }
 
@@ -126,17 +119,12 @@ model UserEquipment {
   id String @id
   userId String
   templateId String
-  cardId String?
   level Int @default(1)
   power Int
   locked Boolean @default(false)
   createdAt DateTime @default(now())
-  equippedAt DateTime?
   user User @relation(fields:[userId], references:[id])
   template EquipmentTemplate @relation(fields:[templateId], references:[id])
-  card UserCard? @relation(fields:[cardId], references:[id])
-  @@index([userId])
-  @@index([cardId])
 }
 
 model MarketListing {
@@ -175,6 +163,56 @@ model Deployment {
   card UserCard @relation(fields:[cardId], references:[id])
 }
 
+model TeamSlot {
+  id String @id
+  userId String
+  slot Int
+  cardId String
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId], references:[id])
+  card UserCard @relation(fields:[cardId], references:[id])
+  @@unique([userId, slot])
+}
+
+model StoryProgress {
+  id String @id
+  userId String
+  chapter Int @default(1)
+  stage Int @default(1)
+  dungeonFloor Int @default(1)
+  towerFloor Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId], references:[id])
+  @@unique([userId])
+}
+
+model BossEvent {
+  id String @id
+  bossName String
+  bossPower Int
+  bossHp Int
+  status String @default("JOINING")
+  startedAt DateTime @default(now())
+  joinEndsAt DateTime
+  battleEndsAt DateTime?
+  rewardGold Int @default(0)
+  rewardTokens Int @default(0)
+  createdAt DateTime @default(now())
+  entries BossEventEntry[]
+}
+
+model BossEventEntry {
+  id String @id
+  eventId String
+  userId String
+  damage Int @default(0)
+  joinedAt DateTime @default(now())
+  event BossEvent @relation(fields:[eventId], references:[id])
+  user User @relation(fields:[userId], references:[id])
+  @@unique([eventId, userId])
+}
+
 model EconomyLog {
   id String @id
   userId String
@@ -190,34 +228,4 @@ model Cooldown {
   key String
   expiresAt DateTime
   @@id([userId, key])
-}
-
-model TeamSlot {
-  id String @id
-  userId String
-  slot Int
-  cardId String
-  createdAt DateTime @default(now())
-  user User @relation(fields:[userId], references:[id])
-  card UserCard @relation(fields:[cardId], references:[id])
-  @@unique([userId, slot])
-}
-
-model StoryProgress {
-  id String @id
-  userId String @unique
-  chapter Int @default(1)
-  stage Int @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user User @relation(fields:[userId], references:[id])
-}
-
-model BattleLog {
-  id String @id
-  userId String
-  mode String
-  text String
-  createdAt DateTime @default(now())
-  @@index([userId, createdAt])
 }
