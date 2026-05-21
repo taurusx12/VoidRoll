@@ -183,6 +183,47 @@ const commands = [
         .setRequired(true)
     ),
 
+
+  new SlashCommandBuilder().setName('farm-claim').setDescription('Claim passive farm rewards'),
+
+
+  new SlashCommandBuilder().setName('orb-shop').setDescription('Show guaranteed orb market'),
+
+
+  new SlashCommandBuilder()
+    .setName('orb-roll')
+    .setDescription('Use tokens for guaranteed rarity character')
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('legendary/mythic/divine/secret')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Legendary - 100 tokens', value: 'legendary' },
+          { name: 'Mythic - 250 tokens', value: 'mythic' },
+          { name: 'Divine - 350 tokens', value: 'divine' },
+          { name: 'Secret - 500 tokens', value: 'secret' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('ascend')
+    .setDescription('Upgrade a character rarity and power using gold/tokens')
+    .addStringOption(o => o.setName('card_id').setDescription('Card ID').setRequired(true))
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Target rarity')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Secret', value: 'SECRET' }
+        )
+    ),
+
   new SlashCommandBuilder()
     .setName('admin-give-rolls')
     .setDescription('Admin: give rolls to a player')
