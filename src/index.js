@@ -8,7 +8,8 @@ const {
   AttachmentBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType
 } = require('discord.js');
 const { nanoid } = require('nanoid');
 
@@ -44,21 +45,113 @@ async function createCardForUser(userId, character) {
   });
 }
 
+
+const CHARACTER_ROLL_WEIGHTS = {
+  COMMON: 720000,
+  RARE: 220000,
+  EPIC: 52000,
+  LEGENDARY: 7000,
+  MYTHIC: 850,
+  DIVINE: 90,
+  SECRET: 10
+};
+
+const ITEM_ROLL_WEIGHTS = {
+  COMMON: 650000,
+  RARE: 260000,
+  EPIC: 75000,
+  LEGENDARY: 12000,
+  MYTHIC: 2500,
+  DIVINE: 450,
+  SECRET: 50
+};
+
+function weightedPick(items, weightFn) {
+  let total = 0;
+  const rows = items.map(item => {
+    const weight = Math.max(1, Math.floor(weightFn(item)));
+    total += weight;
+    return { item, weight };
+  });
+
+  let roll = Math.floor(Math.random() * total);
+  for (const row of rows) {
+    roll -= row.weight;
+    if (roll <= 0) return row.item;
+  }
+  return rows[rows.length - 1]?.item;
+}
+
+async function rollRandomCharacter(userId) {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    take: 1000
+  });
+
+  if (!chars.length) throw new Error('No characters are available. Run seed first.');
+
+  const character = weightedPick(chars, c => CHARACTER_ROLL_WEIGHTS[c.rarity] || 1000);
+  const card = await createCardForUser(userId, character);
+  return { card, character };
+}
+
+async function rollRandomItem(userId, slotFilter = null) {
+  const where = { active: true };
+  if (slotFilter) where.slot = slotFilter;
+
+  let templates = await prisma.equipmentTemplate.findMany({ where });
+  if (!templates.length) {
+    templates = await prisma.equipmentTemplate.findMany({ where: { active: true } });
+  }
+
+  if (!templates.length) throw new Error('No item templates are available.');
+
+  const template = weightedPick(templates, t => ITEM_ROLL_WEIGHTS[t.rarity] || 1000);
+  const bonus = {
+    COMMON: 30,
+    RARE: 80,
+    EPIC: 160,
+    LEGENDARY: 320,
+    MYTHIC: 700,
+    DIVINE: 1400,
+    SECRET: 2600
+  }[template.rarity] || 30;
+
+  const item = await prisma.userEquipment.create({
+    data: {
+      id: nanoid(),
+      userId,
+      templateId: template.id,
+      power: template.basePower + Math.floor(Math.random() * bonus)
+    }
+  });
+
+  return { item, template };
+}
+
 async function openPack(userId, type) {
-  const pack = String(type || 'random').toLowerCase();
-  const costs = { random: { rolls: 1 }, jjk: { tokens: 10 }, demon: { tokens: 10 }, naruto: { tokens: 10 }, onepiece: { tokens: 10 }, event: { tokens: 25 }, weapon: { tokens: 15 } };
-  const cost = costs[pack] || costs.random;
+  const pack = String(type || '').toLowerCase();
+
+  const costs = {
+    jjk: { tokens: 10 },
+    demon: { tokens: 10 },
+    naruto: { tokens: 10 },
+    onepiece: { tokens: 10 },
+    weapon: { tokens: 15, slot: 'WEAPON' },
+    armor: { tokens: 15, slot: 'ARMOR' },
+    ring: { tokens: 12, slot: 'RING' },
+    event: { tokens: 25 }
+  };
+
+  const cost = costs[pack];
+  if (!cost) throw new Error('Invalid pack. Use /shop to see available packs.');
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (cost.rolls && user.rolls < cost.rolls) throw new Error('Not enough rolls.');
   if (cost.tokens && user.tokens < cost.tokens) throw new Error('Not enough tokens.');
 
-  if (pack === 'weapon') {
-    const templates = await prisma.equipmentTemplate.findMany({ where: { active: true } });
-    if (!templates.length) throw new Error('No weapon/equipment templates found.');
-    const t = templates[Math.floor(Math.random() * templates.length)];
-    const item = await prisma.userEquipment.create({ data: { id: nanoid(), userId, templateId: t.id, power: t.basePower + Math.floor(Math.random() * 80) } });
-    await prisma.user.update({ where: { id: userId }, data: cost.tokens ? { tokens: { decrement: cost.tokens } } : { rolls: { decrement: cost.rolls } } });
-    return { equipment: item, template: t, cost };
+  if (['weapon', 'armor', 'ring'].includes(pack)) {
+    await prisma.user.update({ where: { id: userId }, data: { tokens: { decrement: cost.tokens } } });
+    return { ...(await rollRandomItem(userId, cost.slot)), cost };
   }
 
   const where = { active: true };
@@ -66,22 +159,20 @@ async function openPack(userId, type) {
   if (pack === 'demon') where.OR = [{ anime: { contains: 'Demon Slayer', mode: 'insensitive' } }, { anime: { contains: 'Kimetsu', mode: 'insensitive' } }];
   if (pack === 'naruto') where.anime = { contains: 'Naruto', mode: 'insensitive' };
   if (pack === 'onepiece') where.OR = [{ anime: { contains: 'One Piece', mode: 'insensitive' } }, { anime: { contains: 'ONE PIECE', mode: 'insensitive' } }];
+  if (pack === 'event') where.rarity = { in: ['EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'] };
 
-  if (pack === 'random') where.rarity = { in: ['COMMON', 'RARE', 'EPIC'] }; // official random drops max Epic
-  if (pack === 'event') where.rarity = { in: ['EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE'] };
+  let chars = await prisma.character.findMany({ where, take: 500 });
+  if (!chars.length) chars = await prisma.character.findMany({ where: { active: true }, take: 500 });
 
-  let chars = await prisma.character.findMany({ where, take: 250 });
-  if (!chars.length) chars = await prisma.character.findMany({ where: { active: true }, take: 250 });
+  const character = weightedPick(chars, c => {
+    if (pack === 'event') {
+      return ({ EPIC: 900000, LEGENDARY: 85000, MYTHIC: 12000, DIVINE: 2500, SECRET: 500 })[c.rarity] || 100;
+    }
+    return CHARACTER_ROLL_WEIGHTS[c.rarity] || 1000;
+  });
 
-  // harder rates for high rarity
-  const weighted = [];
-  for (const c of chars) {
-    const w = { COMMON: 60, RARE: 28, EPIC: 10, LEGENDARY: 3, MYTHIC: 1, DIVINE: 0.15, SECRET: 0.05 }[c.rarity] || 10;
-    for (let i = 0; i < Math.max(1, Math.floor(w * 10)); i++) weighted.push(c);
-  }
-  const character = weighted[Math.floor(Math.random() * weighted.length)];
+  await prisma.user.update({ where: { id: userId }, data: { tokens: { decrement: cost.tokens } } });
   const card = await createCardForUser(userId, character);
-  await prisma.user.update({ where: { id: userId }, data: cost.tokens ? { tokens: { decrement: cost.tokens } } : { rolls: { decrement: cost.rolls } } });
   return { card, character, cost };
 }
 
@@ -115,16 +206,121 @@ async function showBattle(i, mode) {
     await i.editReply(text.slice(-1900)).catch(() => {});
   }
   text += `\n**Your Team**\n${result.allyStatus}\n\n**Enemies**\n${result.enemyStatus}\n\n`;
-  text += result.won ? `✅ Victory! Rewards: ${money(result.gold)} gold, ${result.tokens} tokens, ${result.rolls} rolls.` : '❌ Defeat. Upgrade your team and equipment.';
+  if (result.won) {
+    text += `✅ Victory! Rewards: ${money(result.gold)} gold, ${result.tokens} tokens, ${result.rolls} rolls.`;
+    if (result.itemDrop) {
+      text += `\n🎁 Item Drop: ${result.itemDrop.template.name} • ${result.itemDrop.template.rarity} • PWR ${result.itemDrop.item.power}`;
+    }
+  } else {
+    text += '❌ Defeat. Upgrade your team and equipment.';
+  }
   return i.editReply(text.slice(-1900));
 }
 
-client.once('ready', () => console.log(`Logged in as ${client.user.tag}`));
+
+async function findBossEventChannel() {
+  const configured = process.env.BOSS_EVENT_CHANNEL_ID;
+  if (configured) {
+    const ch = await client.channels.fetch(configured).catch(() => null);
+    if (ch && ch.isTextBased()) return ch;
+  }
+
+  for (const [, guild] of client.guilds.cache) {
+    if (guild.systemChannel && guild.systemChannel.isTextBased()) return guild.systemChannel;
+    const channels = await guild.channels.fetch().catch(() => null);
+    if (!channels) continue;
+    const textChannel = channels.find(ch => ch && ch.type === ChannelType.GuildText && ch.permissionsFor(guild.members.me)?.has('SendMessages'));
+    if (textChannel && textChannel.isTextBased()) return textChannel;
+  }
+
+  return null;
+}
+
+function bossJoinRow(eventId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`boss_join_${eventId}`)
+      .setLabel('Join Boss Event')
+      .setStyle(ButtonStyle.Danger)
+  );
+}
+
+async function postAutomaticBossEvent() {
+  try {
+    const channel = await findBossEventChannel();
+    if (!channel) {
+      console.log('Auto boss skipped: no boss channel found. Set BOSS_EVENT_CHANNEL_ID in Render Environment.');
+      return;
+    }
+
+    const existing = await bossEvents.getActiveEvent();
+    if (existing) return;
+
+    const event = await bossEvents.createBossEvent();
+    const image = bossEvents.bossImage(event.bossName);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🚨 WORLD BOSS SPAWNED: ${event.bossName}`)
+      .setDescription(
+        `A massive boss has appeared suddenly.\n\n` +
+        `👹 Boss Power: **${money(event.bossPower)}**\n` +
+        `❤️ Boss HP: **${money(event.bossHp)}**\n` +
+        `🎁 Rewards: **${money(event.rewardGold)} gold**, **${event.rewardTokens} tokens**, rolls and rare drops.\n\n` +
+        `Click **Join Boss Event** before <t:${Math.floor(event.joinEndsAt.getTime() / 1000)}:R>.\n` +
+        `The fight starts automatically when the timer ends.`
+      )
+      .setColor(0x8b0000);
+
+    if (image) embed.setImage(image);
+
+    const msg = await channel.send({ embeds: [embed], components: [bossJoinRow(event.id)] });
+
+    const delay = Math.max(1000, event.joinEndsAt.getTime() - Date.now() + 1500);
+    setTimeout(async () => {
+      try {
+        await msg.edit({ components: [] }).catch(() => {});
+        const result = await bossEvents.runEventBattle(event.id);
+        if (!result) return;
+        if (result.waiting) return;
+
+        const resultEmbed = new EmbedBuilder()
+          .setTitle(`👹 BOSS EVENT RESULT: ${event.bossName}`)
+          .setDescription(
+            `${result.statusText}\n\n` +
+            `${result.logs.join('\n').slice(0, 1600)}\n\n` +
+            `${result.won ? '✅ **Boss defeated! Rewards were distributed automatically.**' : '❌ **The boss survived. Upgrade your teams and try next event.**'}`
+          )
+          .setColor(result.won ? 0x22c55e : 0xef4444);
+
+        if (image) resultEmbed.setImage(image);
+        await channel.send({ embeds: [resultEmbed] });
+      } catch (err) {
+        console.error('Auto boss resolve failed:', err);
+      }
+    }, delay);
+  } catch (err) {
+    console.error('Auto boss event failed:', err);
+  }
+}
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  const firstDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 60) * 1000;
+  const interval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
+  setTimeout(postAutomaticBossEvent, firstDelay);
+  setInterval(postAutomaticBossEvent, interval);
+});
+
 
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
       await ensureUser(i.user);
+      if (i.customId.startsWith('boss_join_')) {
+        const eventId = i.customId.replace('boss_join_', '');
+        const event = await bossEvents.joinEvent(i.user.id, eventId);
+        return i.reply({ content: `⚔️ You joined the boss event against **${event.bossName}**. Current players: **${event.entries.length}**`, ephemeral: true });
+      }
       if (i.customId.startsWith('inv_')) {
         const [, dir, raw] = i.customId.split('_');
         const current = Number(raw || 0);
@@ -140,7 +336,7 @@ client.on('interactionCreate', async (i) => {
     const userId = i.user.id;
 
     if (i.commandName === 'help') {
-      return i.reply(`📘 **VOIDROLL HELP**\n\n🎴 /roll - Free random roll\n📦 /pack - Open official shop packs\n🛒 /shop - Official packs and event banners\n🔁 /transfer - Player Transfer Market\n💰 /list - List a card with FIFA-style price limits\n🛍️ /buy - Buy from Transfer Market\n🎒 /inventory - Image inventory with arrows\n👥 /team - Set/show your 5-card team\n📖 /story - Status/start your current story stage\n🏰 /dungeon - Status/start your current dungeon floor\n🗼 /tower - Status/start tower\n👹 /boss-event - View automatic boss event\n⚔️ /join-boss - Join boss event\n🔥 /start-boss - Resolve event after join timer\n🧬 /sacrifice - Sacrifice duplicate/weak cards to power up a main card\n⚙️ /equipment - Show equipment\n⬆️ /upgrade - Upgrade equipment\n📜 /quests - Show quests`);
+      return i.reply(`📘 **VOIDROLL HELP**\n\n🎴 /roll type:character - Free character roll\n⚔️ /roll type:item - Free item roll\n📦 /pack - Open official shop packs\n🛒 /shop - Official packs and event banners. No Random Pack.\n🔁 /transfer - Player Transfer Market\n💰 /list - List a card with FIFA-style price limits\n🛍️ /buy - Buy from Transfer Market\n🎒 /inventory - Image inventory with arrows\n👥 /team - Set/show your 5-card team\n📖 /story - Status/start your current story stage\n🏰 /dungeon - Status/start your current dungeon floor\n🗼 /tower - Status/start tower\n👹 /boss-event - View automatic boss event\n⚔️ /join-boss - Join boss event\n🔥 /start-boss - Resolve event after join timer\n🧬 /sacrifice - Sacrifice duplicate/weak cards to power up a main card\n⚙️ /equipment - Show equipment\n⬆️ /upgrade - Upgrade equipment\n📜 /quests - Show quests`);
     }
 
     if (i.commandName === 'profile') {
@@ -159,15 +355,44 @@ client.on('interactionCreate', async (i) => {
 
     if (i.commandName === 'roll') {
       await i.deferReply();
+      const type = i.options.getString('type') || 'character';
       const user = await prisma.user.findUnique({ where: { id: userId } });
+
       if ((user.rolls || 0) <= 0) {
         const next = new Date(new Date(user.lastRollRefillAt || Date.now()).getTime() + 60 * 60 * 1000);
         return i.editReply(`❌ You do not have any rolls left.\n⏳ Next refill: <t:${Math.floor(next.getTime()/1000)}:R>\n🎲 Refill amount: +15 Rolls`);
       }
+
       await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: 1 } } });
-      const result = await rollCard(userId);
+
+      if (type === 'item') {
+        const r = await rollRandomItem(userId);
+        return i.editReply(
+          `⚔️ **Item Roll!**\n` +
+          `Item: **${r.template.name}**\n` +
+          `Slot: **${r.template.slot}**\n` +
+          `Rarity: **${r.template.rarity}**\n` +
+          `Power: **${r.item.power}**\n` +
+          `Item ID: \`${r.item.id}\`\n` +
+          `🎲 Rolls left: **${user.rolls - 1}**`
+        );
+      }
+
+      const result = await rollRandomCharacter(userId);
       const aura = getAura(result.character);
-      const embed = new EmbedBuilder().setTitle('🎴 New Roll!').setDescription(`${result.text}\n\n🎌 Anime: **${result.character.anime}**\n🌌 Technique: **${aura.name}**\n🎲 Rolls left: **${user.rolls - 1}**`).setColor(embedColor(aura.color)).setFooter({ text: `Card ID: ${result.card.id}` });
+      const embed = new EmbedBuilder()
+        .setTitle('🎴 New Character Roll!')
+        .setDescription(
+          `${rarityEmoji(result.character.rarity)} **${result.character.name}**\n\n` +
+          `🎌 Anime: **${result.character.anime}**\n` +
+          `💎 Rarity: **${result.character.rarity}**\n` +
+          `🌌 Technique: **${aura.name}**\n` +
+          `⚔️ Power: **${result.card.power}**\n` +
+          `🎲 Rolls left: **${user.rolls - 1}**`
+        )
+        .setColor(embedColor(aura.color))
+        .setFooter({ text: `Card ID: ${result.card.id}` });
+
       try {
         const png = await renderCard({ card: result.card, character: result.character });
         const file = new AttachmentBuilder(png, { name: 'card.png' });
@@ -208,14 +433,15 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (i.commandName === 'events') {
-      return i.reply(`🌌 **ACTIVE EVENTS**\n\n🔥 Sukuna Raid Event\n• Boss event can appear anytime.\n• Use /boss-event and /join-boss.\n\n⚡ Mythic Rate-Up Event\n• Event Pack has better high-tier odds.\n\n🛒 Transfer Market Tax: 5%`);
+      return i.reply(`🌌 **ACTIVE EVENTS**\n\n🔥 Sukuna Raid Event\n• Boss event can appear anytime.\n• Use /boss-event and /join-boss.\n\n⚡ Limited Rate-Up Event\n• Event Pack has better high-tier odds. Mythic/Divine are still very rare.\n\n🛒 Transfer Market Tax: 5%`);
     }
 
     if (i.commandName === 'pack') {
       await i.deferReply();
       const type = i.options.getString('type', true);
       const r = await openPack(userId, type);
-      if (r.equipment) return i.editReply(`⚔️ Weapon Pack opened! You got **${r.template.name}**. Equipment ID: ${r.equipment.id}`);
+      if (r.item) return i.editReply(`⚔️ Item Pack opened! You got **${r.template.name}** (${r.template.slot}) • ${r.template.rarity} • PWR ${r.item.power}
+Item ID: ${r.item.id}`);
       const aura = getAura(r.character);
       const embed = new EmbedBuilder().setTitle(`📦 ${type.toUpperCase()} Pack`).setDescription(`${rarityEmoji(r.character.rarity)} **${r.character.name}**\n🎌 Anime: **${r.character.anime}**\n💎 Rarity: **${r.character.rarity}**\n⚔️ Power: **${r.card.power}**\n🌌 Technique: **${aura.name}**`).setImage(r.character.imageUrl).setColor(embedColor(aura.color)).setFooter({ text: `Card ID: ${r.card.id}` });
       return i.editReply({ embeds: [embed] });
@@ -239,7 +465,7 @@ client.on('interactionCreate', async (i) => {
 
     if (i.commandName === 'boss-event') {
       const event = await bossEvents.eventStatus();
-      return i.reply(`👹 **BOSS EVENT**\nBoss: **${event.bossName}**\nPower: **${money(event.bossPower)}**\nHP: **${money(event.bossHp)}**\nStatus: **${event.status}**\nJoin ends: <t:${Math.floor(event.joinEndsAt.getTime()/1000)}:R>\n\nUse /join-boss to enter.`);
+      return i.reply(`👹 **BOSS EVENT**\nBoss: **${event.bossName}**\nPower: **${money(event.bossPower)}**\nHP: **${money(event.bossHp)}**\nStatus: **${event.status}**\nJoin ends: <t:${Math.floor(event.joinEndsAt.getTime()/1000)}:R>\n\nYou can join from the automatic event button when it appears.`);
     }
 
     if (i.commandName === 'join-boss') {

@@ -6,7 +6,9 @@ const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show all VoidRoll commands'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
-  new SlashCommandBuilder().setName('roll').setDescription('Roll a random anime card'),
+  new SlashCommandBuilder().setName('roll').setDescription('Roll a card or item')
+    .addStringOption(o => o.setName('type').setDescription('character/item').setRequired(false)
+      .addChoices({ name: 'Character Roll', value: 'character' }, { name: 'Item Roll', value: 'item' })),
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('team').setDescription('Manage your 5-card team')
     .addStringOption(o => o.setName('action').setDescription('show/set').setRequired(true)
@@ -23,12 +25,21 @@ const commands = [
     .addStringOption(o => o.setName('action').setDescription('status/start').setRequired(false)
       .addChoices({ name: 'status', value: 'status' }, { name: 'start', value: 'start' })),
   new SlashCommandBuilder().setName('shop').setDescription('Show official VoidRoll shop packs'),
-  new SlashCommandBuilder().setName('pack').setDescription('Open a pack')
-    .addStringOption(o => o.setName('type').setDescription('random/jjk/demon/naruto/onepiece/weapon/event').setRequired(true)),
+  new SlashCommandBuilder().setName('pack').setDescription('Open an official pack')
+    .addStringOption(o => o.setName('type').setDescription('jjk/demon/naruto/onepiece/weapon/armor/ring/event').setRequired(true)
+      .addChoices(
+        { name: 'Jujutsu Pack', value: 'jjk' },
+        { name: 'Demon Slayer Pack', value: 'demon' },
+        { name: 'Naruto Pack', value: 'naruto' },
+        { name: 'One Piece Pack', value: 'onepiece' },
+        { name: 'Weapon Pack', value: 'weapon' },
+        { name: 'Armor Pack', value: 'armor' },
+        { name: 'Ring Pack', value: 'ring' },
+        { name: 'Event Pack', value: 'event' }
+      )),
   new SlashCommandBuilder().setName('events').setDescription('Show active banners and events'),
-  new SlashCommandBuilder().setName('boss-event').setDescription('Show current automatic boss event'),
+  new SlashCommandBuilder().setName('boss-event').setDescription('Show current automatic boss event status'),
   new SlashCommandBuilder().setName('join-boss').setDescription('Join the current boss event'),
-  new SlashCommandBuilder().setName('start-boss').setDescription('Start/resolve the current boss event after join time'),
   new SlashCommandBuilder().setName('transfer').setDescription('Show Transfer Market listings'),
   new SlashCommandBuilder().setName('list').setDescription('List a card on Transfer Market')
     .addStringOption(o => o.setName('card_id').setDescription('Card ID').setRequired(true))

@@ -90,6 +90,36 @@ async function showTeam(userId) {
   return team.map((c, i) => `${i + 1}. ${c.character.name} • ${c.character.rarity} • PWR ${c.power}`).join('\n');
 }
 
+
+async function maybeDropStageItem(userId, mode, difficulty) {
+  const chance = mode === 'story' ? 0.35 : mode === 'dungeon' ? 0.55 : 0.45;
+  if (Math.random() > chance) return null;
+
+  const rarityRoll = Math.random();
+  let rarity = 'COMMON';
+  if (difficulty > 25000 && rarityRoll > 0.985) rarity = 'DIVINE';
+  else if (difficulty > 14000 && rarityRoll > 0.955) rarity = 'MYTHIC';
+  else if (difficulty > 8000 && rarityRoll > 0.88) rarity = 'LEGENDARY';
+  else if (rarityRoll > 0.70) rarity = 'EPIC';
+  else if (rarityRoll > 0.40) rarity = 'RARE';
+
+  let templates = await prisma.equipmentTemplate.findMany({ where: { active: true, rarity } });
+  if (!templates.length) templates = await prisma.equipmentTemplate.findMany({ where: { active: true } });
+  if (!templates.length) return null;
+
+  const template = templates[Math.floor(Math.random() * templates.length)];
+  const item = await prisma.userEquipment.create({
+    data: {
+      id: nanoid(),
+      userId,
+      templateId: template.id,
+      power: template.basePower + Math.floor(difficulty / 50) + Math.floor(Math.random() * 120)
+    }
+  });
+
+  return { item, template };
+}
+
 async function battle(userId, mode = 'story') {
   const progress = await getOrCreateProgress(userId);
   const team = await getTeam(userId);
@@ -149,6 +179,7 @@ async function battle(userId, mode = 'story') {
   const gold = won ? 800 + baseDifficulty : 100;
   const tokens = won ? Math.max(2, Math.floor(baseDifficulty / 900)) : 0;
   const rolls = won ? 1 : 0;
+  const itemDrop = won ? await maybeDropStageItem(userId, mode, baseDifficulty) : null;
 
   if (won) {
     await prisma.user.update({ where: { id: userId }, data: { gold: { increment: gold }, tokens: { increment: tokens }, rolls: { increment: rolls } } });
@@ -167,7 +198,7 @@ async function battle(userId, mode = 'story') {
   const enemyStatus = enemies.map(e => `${e.name}: ${bar(Math.max(0, e.hp), e.maxHp)} ${Math.max(0, e.hp)}/${e.maxHp}`).join('\n');
   const allyStatus = allies.map(a => `${a.name}: ${bar(Math.max(0, a.hp), a.maxHp)} ${Math.max(0, a.hp)}/${a.maxHp}`).join('\n');
 
-  return { won, chapter, stage, logs: logs.slice(-12), enemyStatus, allyStatus, gold, tokens, rolls, power: teamPower(team), required: baseDifficulty };
+  return { won, chapter, stage, logs: logs.slice(-12), enemyStatus, allyStatus, gold, tokens, rolls, itemDrop, power: teamPower(team), required: baseDifficulty };
 }
 
 async function sacrifice(userId, mainCardId, sacrificeCardId) {
