@@ -41,18 +41,9 @@ client.on('interactionCreate', async (i) => {
 
     if (i.commandName === 'roll') {
 
-  const cd = await checkCooldown(userId, 'roll');
-
-  if (cd) {
-    return i.reply({
-      content: `الرول باقي له: <t:${Math.floor(cd.getTime()/1000)}:R>`,
-      ephemeral: true
-    });
-  }
 
   await i.deferReply();
 
-  await setCooldown(userId, 'roll', config.rollCooldownSeconds);
 
   const result = await rollCard(userId);
 
