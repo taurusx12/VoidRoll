@@ -107,10 +107,11 @@ client.on('interactionCreate', async (i) => {
   const embed = new EmbedBuilder()
     .setTitle('🎴 New Roll!')
     .setDescription(
-      `${result.text}\n\n` +
-      `🌌 Aura: **${aura.name}**\n` +
-      `🎲 Rolls left: **${(user.rolls ?? 1) - 1}**`
-    )
+  `${result.text}\n\n` +
+  `🎌 Anime: **${result.character.anime}**\n` +
+  `🌌 Technique: **${aura.name}**\n` +
+  `🎲 Rolls left: **${(user.rolls ?? 1) - 1}**`
+)
     .setColor(embedColor(aura.color))
     .setFooter({ text: `Card ID: ${result.card.id}` });
 
