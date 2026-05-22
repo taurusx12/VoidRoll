@@ -1,3 +1,4 @@
+const { syncAllCardPowers } = require('./powerSyncPatch');
 require('dotenv').config();
 
 const express = require('express');
