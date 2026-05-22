@@ -5,6 +5,7 @@ const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
+  new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
   new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
 

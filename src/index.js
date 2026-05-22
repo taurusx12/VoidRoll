@@ -33,6 +33,66 @@ function money(n) {
   return Number(n || 0).toLocaleString('en-US');
 }
 
+function xpForLevel(level) {
+  return 100 + ((level - 1) * 75);
+}
+
+function levelReward(level) {
+  return {
+    gold: 2500 * level,
+    tokens: Math.floor(level / 2) + 1,
+    rolls: Math.floor(level / 3) + 2
+  };
+}
+
+async function addUserXp(userId, amount, reason = 'activity') {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return { leveled: false, level: 1, rewards: [] };
+
+  let xp = (user.xp || 0) + amount;
+  let level = user.level || 1;
+  const rewards = [];
+
+  while (xp >= xpForLevel(level)) {
+    xp -= xpForLevel(level);
+    level += 1;
+    rewards.push({ level, ...levelReward(level) });
+  }
+
+  const rewardGold = rewards.reduce((sum, r) => sum + r.gold, 0);
+  const rewardTokens = rewards.reduce((sum, r) => sum + r.tokens, 0);
+  const rewardRolls = rewards.reduce((sum, r) => sum + r.rolls, 0);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      xp,
+      level,
+      gold: { increment: rewardGold },
+      tokens: { increment: rewardTokens },
+      rolls: { increment: rewardRolls }
+    }
+  });
+
+  return {
+    leveled: rewards.length > 0,
+    level,
+    xp,
+    gained: amount,
+    reason,
+    rewards
+  };
+}
+
+function levelUpText(result) {
+  if (!result || !result.leveled) return '';
+
+  return '\n\n🎉 **LEVEL UP!**\n' + result.rewards.map(r =>
+    `Level **${r.level}** Rewards: **${money(r.gold)} Gold**, **${r.tokens} Tokens**, **${r.rolls} Rolls**`
+  ).join('\n');
+}
+
+
 function rarityEmoji(rarity) {
   return {
     COMMON: '⚪',
@@ -534,11 +594,12 @@ async function runProgressBattle(interaction, mode) {
   });
 
   await updateProgressAfterWin(userId, mode, progress);
+  const xpResult = await addUserXp(userId, mode === 'story' ? 45 : mode === 'tower' ? 55 : 40, mode);
 
   text +=
     `\n**Victory!**\n` +
     `Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.\n` +
-    `Progress saved.`;
+    `Progress saved.` + levelUpText(xpResult);
 
   return interaction.editReply(text.slice(-1900));
 }
@@ -922,6 +983,20 @@ client.on('interactionCreate', async (i) => {
       );
     }
 
+
+    if (commandName === 'level') {
+      const u = await prisma.user.findUnique({ where: { id: userId } });
+      return i.reply(
+        `⭐ **LEVEL PROFILE**\n` +
+        `Level: **${u.level || 1}**\n` +
+        `XP: **${u.xp || 0}/${xpForLevel(u.level || 1)}**\n\n` +
+        `Next level reward:\n` +
+        `Gold: **${money(levelReward((u.level || 1) + 1).gold)}**\n` +
+        `Tokens: **${levelReward((u.level || 1) + 1).tokens}**\n` +
+        `Rolls: **${levelReward((u.level || 1) + 1).rolls}**`
+      );
+    }
+
     if (commandName === 'profile') {
       const u = await prisma.user.findUnique({ where: { id: userId } });
       const last = new Date(u.lastRollRefillAt || Date.now());
@@ -933,7 +1008,8 @@ client.on('interactionCreate', async (i) => {
         `Tokens: ${u.tokens ?? 0}\n` +
         `Rolls: ${u.rolls ?? 0}\n` +
         `Next Refill: <t:${Math.floor(next.getTime() / 1000)}:R>\n` +
-        `Level: ${u.level}`
+        `Level: ${u.level}
+XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       );
     }
 
@@ -955,7 +1031,8 @@ client.on('interactionCreate', async (i) => {
 
       await setCooldown(userId, 'daily', config.dailyCooldownHours * 3600);
 
-      return i.reply('Daily claimed: 1,500 gold + 3 tokens.');
+      const xpResult = await addUserXp(userId, 25, 'daily');
+      return i.reply('Daily claimed: 1,500 gold + 3 tokens.' + levelUpText(xpResult));
     }
 
     if (commandName === 'roll' || commandName === 'r' || commandName === 'i') {
@@ -983,7 +1060,8 @@ client.on('interactionCreate', async (i) => {
           const eq = await rollItem(userId);
           lines.push(`${x + 1}. ${eq.id} • ${eq.template.name} • ${eq.template.rarity} • PWR ${eq.power}`);
         }
-        return i.editReply((`**ITEM ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**`).slice(0, 1900));
+        const xpResult = await addUserXp(userId, amount * 5, 'item roll');
+        return i.editReply((`**ITEM ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + levelUpText(xpResult)).slice(0, 1900));
       }
 
       const results = [];
@@ -1011,7 +1089,8 @@ client.on('interactionCreate', async (i) => {
       const lines = results.map((result, idx) =>
         `${idx + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${result.card.power} • ID: \`${result.card.id}\``
       );
-      return i.editReply((`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**`).slice(0, 1900));
+      const xpResult = await addUserXp(userId, amount * 8, 'character roll');
+      return i.editReply((`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + levelUpText(xpResult)).slice(0, 1900));
     }
 
     if (commandName === 'search') {
@@ -1210,13 +1289,14 @@ client.on('interactionCreate', async (i) => {
     if (commandName === 'farm-claim') {
       await i.deferReply();
       const r = await passiveFarmClaim(userId);
+      const xpResult = await addUserXp(userId, r.hours * 10, 'passive farm');
       return i.editReply(
         `**Passive Farm Claimed**\n` +
         `Farmed Hours: **${r.hours}h**\n` +
         `Team Power: **${money(r.teamPower)}**\n` +
         `Gold: **${money(r.gold)}**\n` +
         `Tokens: **${r.tokens}**\n` +
-        `Rolls: **${r.rolls}**`
+        `Rolls: **${r.rolls}**` + levelUpText(xpResult)
       );
     }
 
@@ -1322,11 +1402,13 @@ client.on('interactionCreate', async (i) => {
 
       const capText = updated.power >= cap ? `\nPower cap reached. Use **/ascend** to continue.` : '';
 
+      const xpResult = await addUserXp(userId, Math.max(5, Math.floor(finalGain / 60)), 'training');
+
       return i.reply(
         `**TRAINING COMPLETE**\n` +
         `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${finalGain} Power**.\n` +
         `Cost: **${money(finalGold)} Gold**\n` +
-        `New Power: **${updated.power}/${cap}**${capText}`
+        `New Power: **${updated.power}/${cap}**${capText}` + levelUpText(xpResult)
       );
     }
 
