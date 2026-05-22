@@ -21,8 +21,14 @@ const commands = [
         )
     ),
 
-  new SlashCommandBuilder().setName('r').setDescription('Quick character roll'),
-  new SlashCommandBuilder().setName('i').setDescription('Quick item roll'),
+  new SlashCommandBuilder()
+    .setName('r')
+    .setDescription('Quick character roll')
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('i')
+    .setDescription('Quick item roll')
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('search')
@@ -120,6 +126,7 @@ const commands = [
           { name: '5 Rolls - 6,000 Gold', value: 'rolls_5' },
           { name: '10 Rolls - 10,000 Gold', value: 'rolls_10' },
           { name: '25 Rolls - 22,000 Gold', value: 'rolls_25' },
+          { name: '1 Token - 10,000 Gold', value: 'token_1' },
           { name: 'Legendary Orb - 300,000 Gold', value: 'legendary_orb' },
           { name: 'Mythic Orb - 900,000 Gold', value: 'mythic_orb' },
           { name: 'Divine Orb - 2,500,000 Gold', value: 'divine_orb' },
@@ -179,6 +186,18 @@ const commands = [
           { name: 'Secret', value: 'SECRET' }
         )
     ),
+
+
+  new SlashCommandBuilder()
+    .setName('inv-search')
+    .setDescription('Search your own inventory')
+    .addStringOption(o => o.setName('name').setDescription('Character/anime name or letter').setRequired(true)),
+
+
+  new SlashCommandBuilder()
+    .setName('pvp')
+    .setDescription('Battle another player for PVP rank')
+    .addUserOption(o => o.setName('user').setDescription('Player to battle').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('trade')

@@ -23,7 +23,7 @@ const equipment = require('./services/equipment');
 const { getAura, embedColor } = require('./lib/aura');
 const { renderCard } = require('./services/cardRender');
 const { rollItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
-const { isSecretCandidate } = require('./lib/secretCharacters');
+const { isSecretCandidate, classifyCharacter } = require('./lib/secretCharacters');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const activeBosses = new Map();
@@ -73,6 +73,7 @@ const GOLD_SHOP_ITEMS = {
   rolls_5: { name: '5 Rolls', gold: 6000, rolls: 5 },
   rolls_10: { name: '10 Rolls', gold: 10000, rolls: 10 },
   rolls_25: { name: '25 Rolls', gold: 22000, rolls: 25 },
+  token_1: { name: '1 Token', gold: 10000, tokens: 1 },
   legendary_orb: { name: 'Legendary Orb Roll', gold: 300000, rarity: 'LEGENDARY' },
   mythic_orb: { name: 'Mythic Orb Roll', gold: 900000, rarity: 'MYTHIC' },
   divine_orb: { name: 'Divine Orb Roll', gold: 2500000, rarity: 'DIVINE' },
@@ -85,6 +86,32 @@ const ORB_ROLL_COSTS = {
   divine: { tokens: 350, rarity: 'DIVINE' },
   secret: { tokens: 500, rarity: 'SECRET' }
 };
+
+const TRAIN_POWER_CAPS = {
+  COMMON: 1500,
+  RARE: 3000,
+  EPIC: 5500,
+  LEGENDARY: 9000,
+  MYTHIC: 13000,
+  DIVINE: 19000,
+  SECRET: 35000
+};
+
+const PVP_RANKS = [
+  { name: 'Bronze', min: 0 },
+  { name: 'Silver', min: 100 },
+  { name: 'Gold', min: 250 },
+  { name: 'Platinum', min: 500 },
+  { name: 'Diamond', min: 850 },
+  { name: 'Master', min: 1300 },
+  { name: 'Void King', min: 2000 }
+];
+
+function pvpRank(points = 0) {
+  let rank = PVP_RANKS[0].name;
+  for (const r of PVP_RANKS) if (points >= r.min) rank = r.name;
+  return rank;
+}
 
 const RARITY_UPGRADE_COSTS = {
   RARE: { gold: 25000, tokens: 5, power: 900 },
@@ -126,37 +153,44 @@ async function applySecretCharacterBoosts() {
   const chars = await prisma.character.findMany({
     where: { active: true },
     select: {
-      id: true,
-      name: true,
-      anime: true,
-      rarity: true,
-      basePower: true,
-      baseFarm: true,
-      baseLuck: true
+      id: true, name: true, anime: true, rarity: true,
+      basePower: true, baseFarm: true, baseLuck: true
     }
   });
 
   let updated = 0;
 
   for (const c of chars) {
-    if (!isSecretCandidate(c)) continue;
+    const cls = classifyCharacter(c);
 
-    const newPower = Math.max(c.basePower || 0, 10000);
+    if (!cls) {
+      if (c.rarity === 'SECRET') {
+        await prisma.character.update({
+          where: { id: c.id },
+          data: {
+            rarity: 'DIVINE',
+            basePower: Math.min(Math.max(c.basePower || 0, 12000), 16000)
+          }
+        });
+        updated++;
+      }
+      continue;
+    }
 
+    const newPower = Math.max(c.basePower || 0, cls.power);
     await prisma.character.update({
       where: { id: c.id },
       data: {
-        rarity: 'SECRET',
+        rarity: cls.rarity,
         basePower: newPower,
         baseFarm: Math.max(c.baseFarm || 0, Math.floor(newPower / 8)),
         baseLuck: Math.max(c.baseLuck || 0, Math.floor(newPower / 20))
       }
     });
-
     updated++;
   }
 
-  console.log(`Secret characters updated: ${updated}`);
+  console.log(`Rarity balance updated: ${updated}`);
 }
 
 async function createCardForUser(userId, character) {
@@ -932,52 +966,52 @@ client.on('interactionCreate', async (i) => {
       else if (commandName === 'r') type = 'character';
       else type = i.options.getString('type') || 'character';
 
+      const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
       const user = await prisma.user.findUnique({ where: { id: userId } });
 
-      if ((user.rolls ?? 0) <= 0) {
+      if ((user.rolls ?? 0) < amount) {
         const last = new Date(user.lastRollRefillAt || Date.now());
         const next = new Date(last.getTime() + (60 * 60 * 1000));
-        return i.editReply(`No rolls left. Next refill: <t:${Math.floor(next.getTime() / 1000)}:R>`);
+        return i.editReply(`You need **${amount} rolls** but you only have **${user.rolls ?? 0}**.\nNext refill: <t:${Math.floor(next.getTime() / 1000)}:R>`);
       }
 
-      await prisma.user.update({
-        where: { id: userId },
-        data: { rolls: { decrement: 1 } }
-      });
+      await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: amount } } });
 
       if (type === 'item') {
-        const eq = await rollItem(userId);
-        return i.editReply(
-          `**ITEM ROLL**\n` +
-          `${eq.id} • ${eq.template.name} • ${eq.template.slot} • ${eq.template.rarity} • PWR ${eq.power}\n` +
-          `Rolls left: **${(user.rolls ?? 1) - 1}**`
-        );
+        const lines = [];
+        for (let x = 0; x < amount; x++) {
+          const eq = await rollItem(userId);
+          lines.push(`${x + 1}. ${eq.id} • ${eq.template.name} • ${eq.template.rarity} • PWR ${eq.power}`);
+        }
+        return i.editReply((`**ITEM ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**`).slice(0, 1900));
       }
 
-      const result = await rollCard(userId);
-      const aura = getAura(result.character);
+      const results = [];
+      for (let x = 0; x < amount; x++) results.push(await rollCard(userId));
 
-      const embed = new EmbedBuilder()
-        .setTitle('New Character Roll!')
-        .setDescription(
-          `${result.text}\n\n` +
-          `Anime: **${result.character.anime}**\n` +
-          `Technique: **${aura.name}**\n` +
-          `Rolls left: **${(user.rolls ?? 1) - 1}**`
-        )
-        .setColor(embedColor(aura.color))
-        .setFooter({ text: `Card ID: ${result.card.id}` });
-
-      try {
-        const png = await renderCard({ card: result.card, character: result.character });
-        const file = new AttachmentBuilder(png, { name: 'card.png' });
-        embed.setImage('attachment://card.png');
-        return i.editReply({ embeds: [embed], files: [file] });
-      } catch (err) {
-        console.error(err);
-        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
-        return i.editReply({ embeds: [embed] });
+      if (amount === 1) {
+        const result = results[0];
+        const aura = getAura(result.character);
+        const embed = new EmbedBuilder()
+          .setTitle('New Character Roll!')
+          .setDescription(`${result.text}\n\nAnime: **${result.character.anime}**\nTechnique: **${aura.name}**\nRolls left: **${(user.rolls ?? 1) - 1}**`)
+          .setColor(embedColor(aura.color))
+          .setFooter({ text: `Card ID: ${result.card.id}` });
+        try {
+          const png = await renderCard({ card: result.card, character: result.character });
+          const file = new AttachmentBuilder(png, { name: 'card.png' });
+          embed.setImage('attachment://card.png');
+          return i.editReply({ embeds: [embed], files: [file] });
+        } catch (_) {
+          if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+          return i.editReply({ embeds: [embed] });
+        }
       }
+
+      const lines = results.map((result, idx) =>
+        `${idx + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${result.card.power} • ID: \`${result.card.id}\``
+      );
+      return i.editReply((`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**`).slice(0, 1900));
     }
 
     if (commandName === 'search') {
@@ -1050,6 +1084,36 @@ client.on('interactionCreate', async (i) => {
         `Item Roll\n` +
         `Common: 65%\nRare: 26%\nEpic: 7.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.5%\nSecret: 0.1%`
       );
+    }
+
+
+    if (commandName === 'inv-search') {
+      const query = i.options.getString('name', true).trim().toLowerCase();
+
+      const cards = await prisma.userCard.findMany({
+        where: { userId },
+        include: { character: true },
+        orderBy: { power: 'desc' },
+        take: 300
+      });
+
+      const matches = cards.filter(c => `${c.character.name} ${c.character.anime}`.toLowerCase().includes(query)).slice(0, 15);
+
+      if (!matches.length) return i.reply('No matching cards found in your inventory.');
+
+      const first = matches[0];
+      const aura = getAura(first.character);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`Inventory Search: "${query}"`)
+        .setDescription(matches.map((c, idx) =>
+          `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.rarity} • PWR ${c.power} • ID: \`${c.id}\``
+        ).join('\n'))
+        .setColor(embedColor(aura.color));
+
+      if (first.character.imageUrl) embed.setImage(first.character.imageUrl);
+
+      return i.reply({ embeds: [embed] });
     }
 
     if (commandName === 'inventory') {
@@ -1161,7 +1225,8 @@ client.on('interactionCreate', async (i) => {
         `**GOLD SHOP**\n\n` +
         `rolls_5 = 5 Rolls → **6,000 Gold**\n` +
         `rolls_10 = 10 Rolls → **10,000 Gold**\n` +
-        `rolls_25 = 25 Rolls → **22,000 Gold**\n\n` +
+        `rolls_25 = 25 Rolls → **22,000 Gold**\n` +
+        `token_1 = 1 Token → **10,000 Gold**\n\n` +
         `legendary_orb → **300,000 Gold**\n` +
         `mythic_orb → **900,000 Gold**\n` +
         `divine_orb → **2,500,000 Gold**\n` +
@@ -1188,6 +1253,11 @@ client.on('interactionCreate', async (i) => {
         where: { id: userId },
         data: { gold: { decrement: item.gold } }
       });
+
+      if (item.tokens) {
+        const updated = await prisma.user.update({ where: { id: userId }, data: { tokens: { increment: item.tokens } } });
+        return i.editReply(`Bought **${item.name}** for **${money(item.gold)} Gold**.\nNew Tokens: **${updated.tokens}**`);
+      }
 
       if (item.rolls) {
         const updated = await prisma.user.update({
@@ -1223,28 +1293,40 @@ client.on('interactionCreate', async (i) => {
 
       if (!card) return i.reply({ content: 'Card not found in your inventory.', ephemeral: true });
 
-      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const cap = TRAIN_POWER_CAPS[card.character.rarity] || 1500;
 
-      if ((user.gold || 0) < cost.gold) {
-        return i.reply(`You need **${money(cost.gold)} Gold** for this training.\nPower Gain: **+${cost.powerGain}**`);
+      if (card.power >= cap) {
+        return i.reply(
+          `**${card.character.name}** reached the power cap for **${card.character.rarity}**.\n` +
+          `Cap: **${cap} Power**\n` +
+          `Use **/ascend** to raise rarity and continue training.`
+        );
       }
 
-      await prisma.user.update({
-        where: { id: userId },
-        data: { gold: { decrement: cost.gold } }
-      });
+      const allowedGain = Math.max(0, cap - card.power);
+      const finalGain = Math.min(cost.powerGain, allowedGain);
+      const finalGold = Math.ceil(cost.gold * (finalGain / Math.max(1, cost.powerGain)));
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < finalGold) {
+        return i.reply(`You need **${money(finalGold)} Gold** for this training.\nPower Gain: **+${finalGain}**`);
+      }
+
+      await prisma.user.update({ where: { id: userId }, data: { gold: { decrement: finalGold } } });
 
       const updated = await prisma.userCard.update({
         where: { id: card.id },
-        data: { power: { increment: cost.powerGain } },
+        data: { power: { increment: finalGain } },
         include: { character: true }
       });
 
+      const capText = updated.power >= cap ? `\nPower cap reached. Use **/ascend** to continue.` : '';
+
       return i.reply(
         `**TRAINING COMPLETE**\n` +
-        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${cost.powerGain} Power**.\n` +
-        `Cost: **${money(cost.gold)} Gold**\n` +
-        `New Power: **${updated.power}**`
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${finalGain} Power**.\n` +
+        `Cost: **${money(finalGold)} Gold**\n` +
+        `New Power: **${updated.power}/${cap}**${capText}`
       );
     }
 
@@ -1359,6 +1441,49 @@ client.on('interactionCreate', async (i) => {
         `**Auto Team Equipped!**\n\n` +
         cards.map((c, idx) => `Slot ${idx + 1}: ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${c.power}`).join('\n')
       );
+    }
+
+
+    if (commandName === 'pvp') {
+      const target = i.options.getUser('user', true);
+      if (target.bot) return i.reply({ content: 'You cannot PVP bots.', ephemeral: true });
+      if (target.id === userId) return i.reply({ content: 'You cannot PVP yourself.', ephemeral: true });
+
+      await ensureUser(target);
+      const myPower = await getTeamPower(userId);
+      const theirPower = await getTeamPower(target.id);
+      if (myPower <= 0) return i.reply('You need cards to PVP.');
+
+      let text = `**PVP BATTLE**\n<@${userId}> vs <@${target.id}>\nYour Power: **${money(myPower)}**\n${target.username} Power: **${money(theirPower)}**\n\n`;
+      await i.reply(text + 'Battle starting...');
+      const msg = await i.fetchReply();
+
+      let myMana = 0;
+      let theirMana = 0;
+      for (let r = 1; r <= 5; r++) {
+        const myHit = Math.floor(myPower / (8 + r) + Math.random() * 250);
+        const theirHit = Math.floor(theirPower / (8 + r) + Math.random() * 250);
+        myMana += 25 + Math.floor(Math.random() * 20);
+        theirMana += 25 + Math.floor(Math.random() * 20);
+        text += `\n__Round ${r}__\n<@${userId}> hits for **${money(myHit)}**. Mana ${Math.min(100, myMana)}/100\n`;
+        if (myMana >= 100) { text += `<@${userId}> **ULTIMATE** for **${money(myHit * 2)}**!\n`; myMana = 0; }
+        text += `<@${target.id}> hits for **${money(theirHit)}**. Mana ${Math.min(100, theirMana)}/100\n`;
+        if (theirMana >= 100) { text += `<@${target.id}> **ULTIMATE** for **${money(theirHit * 2)}**!\n`; theirMana = 0; }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await msg.edit(text.slice(-1900)).catch(() => {});
+      }
+
+      const myScore = myPower * (0.85 + Math.random() * 0.35);
+      const theirScore = theirPower * (0.85 + Math.random() * 0.35);
+      const winnerId = myScore >= theirScore ? userId : target.id;
+      const loserId = winnerId === userId ? target.id : userId;
+
+      await prisma.user.update({ where: { id: winnerId }, data: { xp: { increment: 25 }, gold: { increment: 5000 } } }).catch(() => {});
+      await prisma.user.update({ where: { id: loserId }, data: { xp: { decrement: 10 } } }).catch(() => {});
+
+      const winner = await prisma.user.findUnique({ where: { id: winnerId } });
+      text += `\n**PVP RESULT**\nWinner: <@${winnerId}>\nRank: **${pvpRank(winner?.xp || 0)}**\nRewards: **5,000 Gold + 25 Rank Points**`;
+      return msg.edit(text.slice(-1900)).catch(() => {});
     }
 
     if (commandName === 'trade') {
