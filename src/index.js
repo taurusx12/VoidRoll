@@ -1236,6 +1236,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
     if (commandName === 'secrets') {
       await applySecretCharacterBoosts();
+      await syncAllCardPowers(prisma);
 
       const chars = await prisma.character.findMany({
         where: { rarity: 'SECRET' },
