@@ -213,8 +213,13 @@ async function applySecretCharacterBoosts() {
   const chars = await prisma.character.findMany({
     where: { active: true },
     select: {
-      id: true, name: true, anime: true, rarity: true,
-      basePower: true, baseFarm: true, baseLuck: true
+      id: true,
+      name: true,
+      anime: true,
+      rarity: true,
+      basePower: true,
+      baseFarm: true,
+      baseLuck: true
     }
   });
 
@@ -223,21 +228,10 @@ async function applySecretCharacterBoosts() {
   for (const c of chars) {
     const cls = classifyCharacter(c);
 
-    if (!cls) {
-      if (c.rarity === 'SECRET') {
-        await prisma.character.update({
-          where: { id: c.id },
-          data: {
-            rarity: 'DIVINE',
-            basePower: Math.min(Math.max(c.basePower || 0, 12000), 16000)
-          }
-        });
-        updated++;
-      }
-      continue;
-    }
+    if (!cls) continue;
 
     const newPower = Math.max(c.basePower || 0, cls.power);
+
     await prisma.character.update({
       where: { id: c.id },
       data: {
@@ -247,6 +241,7 @@ async function applySecretCharacterBoosts() {
         baseLuck: Math.max(c.baseLuck || 0, Math.floor(newPower / 20))
       }
     });
+
     updated++;
   }
 
@@ -1052,7 +1047,10 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         return i.editReply(`You need **${amount} rolls** but you only have **${user.rolls ?? 0}**.\nNext refill: <t:${Math.floor(next.getTime() / 1000)}:R>`);
       }
 
-      await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: amount } } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { rolls: { decrement: amount } }
+      });
 
       if (type === 'item') {
         const lines = [];
@@ -1060,37 +1058,91 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
           const eq = await rollItem(userId);
           lines.push(`${x + 1}. ${eq.id} • ${eq.template.name} • ${eq.template.rarity} • PWR ${eq.power}`);
         }
-        const xpResult = await addUserXp(userId, amount * 5, 'item roll');
-        return i.editReply((`**ITEM ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + levelUpText(xpResult)).slice(0, 1900));
+
+        const xpResult = typeof addUserXp === 'function'
+          ? await addUserXp(userId, amount * 5, 'item roll')
+          : null;
+
+        return i.editReply((`**ITEM ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + (typeof levelUpText === 'function' ? levelUpText(xpResult) : '')).slice(0, 1900));
       }
 
-      const results = [];
-      for (let x = 0; x < amount; x++) results.push(await rollCard(userId));
-
       if (amount === 1) {
-        const result = results[0];
+        const result = await rollCard(userId);
+        const xpResult = typeof addUserXp === 'function'
+          ? await addUserXp(userId, 8, 'character roll')
+          : null;
+
+        if (xpResult && xpResult.leveled && typeof levelUpText === 'function') {
+          result.text += levelUpText(xpResult);
+        }
+
         const aura = getAura(result.character);
+
         const embed = new EmbedBuilder()
           .setTitle('New Character Roll!')
-          .setDescription(`${result.text}\n\nAnime: **${result.character.anime}**\nTechnique: **${aura.name}**\nRolls left: **${(user.rolls ?? 1) - 1}**`)
+          .setDescription(
+            `${result.text}\n\n` +
+            `Anime: **${result.character.anime}**\n` +
+            `Technique: **${aura.name}**\n` +
+            `Rolls left: **${(user.rolls ?? 1) - 1}**`
+          )
           .setColor(embedColor(aura.color))
           .setFooter({ text: `Card ID: ${result.card.id}` });
+
         try {
           const png = await renderCard({ card: result.card, character: result.character });
           const file = new AttachmentBuilder(png, { name: 'card.png' });
           embed.setImage('attachment://card.png');
           return i.editReply({ embeds: [embed], files: [file] });
-        } catch (_) {
+        } catch (err) {
+          console.error(err);
           if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
           return i.editReply({ embeds: [embed] });
         }
       }
 
-      const lines = results.map((result, idx) =>
-        `${idx + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${result.card.power} • ID: \`${result.card.id}\``
-      );
-      const xpResult = await addUserXp(userId, amount * 8, 'character roll');
-      return i.editReply((`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + levelUpText(xpResult)).slice(0, 1900));
+      const embeds = [];
+      const files = [];
+      const lines = [];
+
+      for (let x = 0; x < amount; x++) {
+        const result = await rollCard(userId);
+        const aura = getAura(result.character);
+
+        lines.push(`${x + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.rarity} • PWR ${result.card.power}`);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`${x + 1}. ${rarityEmoji(result.character.rarity)} ${result.character.name}`)
+          .setDescription(
+            `Anime: **${result.character.anime}**\n` +
+            `Rarity: **${result.character.rarity}**\n` +
+            `Power: **${result.card.power}**\n` +
+            `Card ID: \`${result.card.id}\``
+          )
+          .setColor(embedColor(aura.color));
+
+        try {
+          const png = await renderCard({ card: result.card, character: result.character });
+          const fileName = `roll-${x + 1}.png`;
+          const file = new AttachmentBuilder(png, { name: fileName });
+          embed.setImage(`attachment://${fileName}`);
+          files.push(file);
+        } catch (_) {
+          if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+        }
+
+        embeds.push(embed);
+      }
+
+      const xpResult = typeof addUserXp === 'function'
+        ? await addUserXp(userId, amount * 8, 'character roll')
+        : null;
+
+      return i.editReply({
+        content: (`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + (typeof levelUpText === 'function' ? levelUpText(xpResult) : '')).slice(0, 1800),
+        embeds: embeds.slice(0, 10),
+        files: files.slice(0, 10)
+      });
     }
 
     if (commandName === 'search') {
@@ -1108,6 +1160,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       const first = chars[0];
       const aura = getAura(first);
+      const globalOwned = await prisma.userCard.count({ where: { characterId: first.id } });
       const matches = chars
         .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower}`)
         .join('\n');
@@ -1120,6 +1173,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
           `Anime: **${first.anime}**\n` +
           `Rarity: **${first.rarity}**\n` +
           `Base Power: **${first.basePower}**\n` +
+          `Global Owned: **${globalOwned}**\n` +
           `Technique: **${aura.name}**\n\n` +
           `**Matches**\n${matches}`
         )
