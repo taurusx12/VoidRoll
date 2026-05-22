@@ -1,4 +1,3 @@
-const { syncAllCardPowers } = require('./powerSyncPatch');
 require('dotenv').config();
 
 const express = require('express');
@@ -24,48 +23,13 @@ const equipment = require('./services/equipment');
 const { getAura, embedColor } = require('./lib/aura');
 const { renderCard } = require('./services/cardRender');
 const { rollItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
+const { autoFuseDuplicates, fusionText, starLabel } = require('./services/duplicateFusion');
 const { isSecretCandidate, classifyCharacter } = require('./lib/secretCharacters');
+const { syncAllCardPowers } = require('./powerSyncPatch');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const activeBosses = new Map();
 const pendingTrades = new Map();
-
-function isUnknownInteractionError(err) {
-  return err && (err.code === 10062 || String(err.message || '').includes('Unknown interaction'));
-}
-
-async function safeDefer(interaction) {
-  try {
-    if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferReply();
-    }
-    return true;
-  } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      console.log('Ignored expired interaction during deferReply.');
-      return false;
-    }
-    throw err;
-  }
-}
-
-process.on('unhandledRejection', err => {
-  if (isUnknownInteractionError(err)) {
-    console.log('Ignored expired Discord interaction.');
-    return;
-  }
-  console.error('Unhandled rejection:', err);
-});
-
-process.on('uncaughtException', err => {
-  if (isUnknownInteractionError(err)) {
-    console.log('Ignored expired Discord interaction.');
-    return;
-  }
-  console.error('Uncaught exception:', err);
-  process.exit(1);
-});
-
 
 function money(n) {
   return Number(n || 0).toLocaleString('en-US');
@@ -266,24 +230,41 @@ async function applySecretCharacterBoosts() {
   for (const c of chars) {
     const cls = classifyCharacter(c);
 
-    if (!cls) continue;
+    if (!cls) {
+      // لو كان متصنف SECRET بالغلط من باتش قديم، نزله DIVINE بقوة منطقية.
+      if (c.rarity === 'SECRET') {
+        const fixedPower = Math.min(Math.max(c.basePower || 12000, 12000), 16000);
+        await prisma.character.update({
+          where: { id: c.id },
+          data: {
+            rarity: 'DIVINE',
+            basePower: fixedPower,
+            baseFarm: Math.floor(fixedPower / 8),
+            baseLuck: Math.floor(fixedPower / 20)
+          }
+        });
+        updated++;
+      }
+      continue;
+    }
 
-    const newPower = Math.max(c.basePower || 0, cls.power);
+    // مهم: لا تستخدم Math.max هنا. لازم القوة تصير EXACT عشان كاكاشي ينزل من 30000 إلى 14000.
+    const newPower = cls.power;
 
     await prisma.character.update({
       where: { id: c.id },
       data: {
         rarity: cls.rarity,
         basePower: newPower,
-        baseFarm: Math.max(c.baseFarm || 0, Math.floor(newPower / 8)),
-        baseLuck: Math.max(c.baseLuck || 0, Math.floor(newPower / 20))
+        baseFarm: Math.floor(newPower / 8),
+        baseLuck: Math.floor(newPower / 20)
       }
     });
 
     updated++;
   }
 
-  console.log(`Rarity balance updated: ${updated}`);
+  console.log(`Full rarity/power balance updated: ${updated}`);
 }
 
 async function createCardForUser(userId, character) {
@@ -431,12 +412,13 @@ async function inventoryEmbed(userId, index = 0) {
   const aura = getAura(c.character);
 
   const embed = new EmbedBuilder()
-    .setTitle(`${rarityEmoji(c.character.rarity)} ${c.character.name}`)
+    .setTitle(`${rarityEmoji(c.character.rarity)} ${c.character.name}${starLabel(c)}`)
     .setDescription(
       `Anime: **${c.character.anime}**\n` +
       `Rarity: **${c.character.rarity}**\n` +
       `Power: **${c.power}**\n` +
       `Technique: **${aura.name}**\n` +
+      `Stars: **${starLabel(c) || 'No Star'}**\n` +
       `Card ID: \`${c.id}\``
     )
     .setColor(embedColor(aura.color))
@@ -551,8 +533,7 @@ async function getAnimeEnemies(count = 5, minPower = 0) {
 }
 
 async function runProgressBattle(interaction, mode) {
-  const canReply = await safeDefer(interaction);
-  if (!canReply) return;
+  await interaction.deferReply();
 
   const userId = interaction.user.id;
   const progress = await getOrCreateProgress(userId);
@@ -864,6 +845,7 @@ client.once('ready', async () => {
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
+  await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
 
   const firstBossDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 90) * 1000;
   const bossInterval = Number(process.env.BOSS_EVENT_INTERVAL_MINUTES || 60) * 60 * 1000;
@@ -875,6 +857,7 @@ client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
       await ensureUser(i.user);
+      await autoFuseDuplicates(prisma, i.user.id).catch(() => []);
 
       if (i.customId.startsWith('inv_')) {
         const [, dir, raw] = i.customId.split('_');
@@ -991,11 +974,11 @@ client.on('interactionCreate', async (i) => {
     await ensureUser(i.user);
 
     const userId = i.user.id;
+    const fusionResultsAtStart = await autoFuseDuplicates(prisma, userId).catch(() => []);
     const commandName = i.commandName;
 
     if (commandName === 'help') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply({ ephemeral: true });
       return i.editReply(
         `**VOIDROLL COMMANDS**\n` +
         `/r - Quick character roll\n` +
@@ -1071,8 +1054,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'roll' || commandName === 'r' || commandName === 'i') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply();
 
       let type = 'character';
       if (commandName === 'i') type = 'item';
@@ -1116,6 +1098,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         if (xpResult && xpResult.leveled && typeof levelUpText === 'function') {
           result.text += levelUpText(xpResult);
         }
+        const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
+        result.text += fusionText(fusionResults);
 
         const aura = getAura(result.character);
 
@@ -1158,7 +1142,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `Anime: **${result.character.anime}**\n` +
             `Rarity: **${result.character.rarity}**\n` +
             `Power: **${result.card.power}**\n` +
-            `Card ID: \`${result.card.id}\``
+            `Card ID: \`${result.card.id}\`` + fusionText(fusionResults) + fusionText(fusionResults)
           )
           .setColor(embedColor(aura.color));
 
@@ -1178,9 +1162,10 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       const xpResult = typeof addUserXp === 'function'
         ? await addUserXp(userId, amount * 8, 'character roll')
         : null;
+      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
 
       return i.editReply({
-        content: (`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + (typeof levelUpText === 'function' ? levelUpText(xpResult) : '')).slice(0, 1800),
+        content: (`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + (typeof levelUpText === 'function' ? levelUpText(xpResult) : '') + fusionText(fusionResults)).slice(0, 1800),
         embeds: embeds.slice(0, 10),
         files: files.slice(0, 10)
       });
@@ -1237,7 +1222,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
     if (commandName === 'secrets') {
       await applySecretCharacterBoosts();
-      await syncAllCardPowers(prisma);
+    await syncAllCardPowers(prisma);
 
       const chars = await prisma.character.findMany({
         where: { rarity: 'SECRET' },
@@ -1282,7 +1267,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       const embed = new EmbedBuilder()
         .setTitle(`Inventory Search: "${query}"`)
         .setDescription(matches.map((c, idx) =>
-          `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.rarity} • PWR ${c.power} • ID: \`${c.id}\``
+          `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}${starLabel(c)}** • ${c.character.rarity} • PWR ${c.power} • ID: \`${c.id}\``
         ).join('\n'))
         .setColor(embedColor(aura.color));
 
@@ -1329,11 +1314,11 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'pack') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply();
 
       const type = i.options.getString('type', true);
       const result = await openPack(userId, type);
+      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
       const aura = getAura(result.character);
 
       const embed = new EmbedBuilder()
@@ -1343,7 +1328,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
           `Anime: **${result.character.anime}**\n` +
           `Rarity: **${result.character.rarity}**\n` +
           `Power: **${result.card.power}**\n` +
-          `Technique: **${aura.name}**`
+          `Technique: **${aura.name}**` + fusionText(fusionResults)
         )
         .setColor(embedColor(aura.color))
         .setFooter({ text: `Card ID: ${result.card.id}` });
@@ -1372,7 +1357,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
           ? 1200 + progress.towerFloor * 420
           : 900 + progress.dungeonFloor * 330;
 
-      if (action === 'start') return await runProgressBattle(i, mode);
+      if (action === 'start') return runProgressBattle(i, mode);
 
       return i.reply(
         `**${mode.toUpperCase()}**\n` +
@@ -1384,8 +1369,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'farm-claim') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply();
       const r = await passiveFarmClaim(userId);
       const xpResult = await addUserXp(userId, r.hours * 10, 'passive farm');
       return i.editReply(
@@ -1414,8 +1398,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'gold-buy') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply();
 
       const itemKey = i.options.getString('item', true);
       const item = GOLD_SHOP_ITEMS[itemKey];
@@ -1449,6 +1432,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       if (item.rarity) {
         const result = await guaranteedCharacterRoll(userId, item.rarity);
+        const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
         return i.editReply(
           `**Gold Shop ${item.rarity} Roll**\n` +
           `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
@@ -1523,8 +1507,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'orb-roll') {
-      const canReply = await safeDefer(i);
-      if (!canReply) return;
+      await i.deferReply();
 
       const rarityKey = i.options.getString('rarity', true);
       const cfg = ORB_ROLL_COSTS[rarityKey];
@@ -1543,6 +1526,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       const result = await guaranteedCharacterRoll(userId, cfg.rarity);
+      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
       return i.editReply(
         `**Guaranteed ${cfg.rarity} Orb Roll**\n` +
         `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
@@ -1842,11 +1826,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       );
     }
   } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      console.log('Ignored expired interaction in handler.');
-      return;
-    }
-
     console.error(err);
 
     if (i.deferred || i.replied) {
