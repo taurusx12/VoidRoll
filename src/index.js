@@ -29,6 +29,43 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const activeBosses = new Map();
 const pendingTrades = new Map();
 
+function isUnknownInteractionError(err) {
+  return err && (err.code === 10062 || String(err.message || '').includes('Unknown interaction'));
+}
+
+async function safeDefer(interaction) {
+  try {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply();
+    }
+    return true;
+  } catch (err) {
+    if (isUnknownInteractionError(err)) {
+      console.log('Ignored expired interaction during deferReply.');
+      return false;
+    }
+    throw err;
+  }
+}
+
+process.on('unhandledRejection', err => {
+  if (isUnknownInteractionError(err)) {
+    console.log('Ignored expired Discord interaction.');
+    return;
+  }
+  console.error('Unhandled rejection:', err);
+});
+
+process.on('uncaughtException', err => {
+  if (isUnknownInteractionError(err)) {
+    console.log('Ignored expired Discord interaction.');
+    return;
+  }
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
+
+
 function money(n) {
   return Number(n || 0).toLocaleString('en-US');
 }
@@ -513,7 +550,8 @@ async function getAnimeEnemies(count = 5, minPower = 0) {
 }
 
 async function runProgressBattle(interaction, mode) {
-  await interaction.deferReply();
+  const canReply = await safeDefer(interaction);
+  if (!canReply) return;
 
   const userId = interaction.user.id;
   const progress = await getOrCreateProgress(userId);
@@ -955,7 +993,8 @@ client.on('interactionCreate', async (i) => {
     const commandName = i.commandName;
 
     if (commandName === 'help') {
-      await i.deferReply({ ephemeral: true });
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
       return i.editReply(
         `**VOIDROLL COMMANDS**\n` +
         `/r - Quick character roll\n` +
@@ -1031,7 +1070,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'roll' || commandName === 'r' || commandName === 'i') {
-      await i.deferReply();
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
 
       let type = 'character';
       if (commandName === 'i') type = 'item';
@@ -1287,7 +1327,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'pack') {
-      await i.deferReply();
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
 
       const type = i.options.getString('type', true);
       const result = await openPack(userId, type);
@@ -1329,7 +1370,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
           ? 1200 + progress.towerFloor * 420
           : 900 + progress.dungeonFloor * 330;
 
-      if (action === 'start') return runProgressBattle(i, mode);
+      if (action === 'start') return await runProgressBattle(i, mode);
 
       return i.reply(
         `**${mode.toUpperCase()}**\n` +
@@ -1341,7 +1382,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'farm-claim') {
-      await i.deferReply();
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
       const r = await passiveFarmClaim(userId);
       const xpResult = await addUserXp(userId, r.hours * 10, 'passive farm');
       return i.editReply(
@@ -1370,7 +1412,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'gold-buy') {
-      await i.deferReply();
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
 
       const itemKey = i.options.getString('item', true);
       const item = GOLD_SHOP_ITEMS[itemKey];
@@ -1478,7 +1521,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'orb-roll') {
-      await i.deferReply();
+      const canReply = await safeDefer(i);
+      if (!canReply) return;
 
       const rarityKey = i.options.getString('rarity', true);
       const cfg = ORB_ROLL_COSTS[rarityKey];
@@ -1796,6 +1840,11 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       );
     }
   } catch (err) {
+    if (isUnknownInteractionError(err)) {
+      console.log('Ignored expired interaction in handler.');
+      return;
+    }
+
     console.error(err);
 
     if (i.deferred || i.replied) {
