@@ -153,60 +153,49 @@ function rosterFixForName(name = '') {
 }
 
 
-async function findAniListImage(query) {
-  try {
-    const gql = `
-      query ($search: String) {
-        Character(search: $search) {
-          name { full native }
-          image { large medium }
-        }
-      }
-    `;
-
-    const res = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'VoidRollBot/1.0'
-      },
-      body: JSON.stringify({
-        query: gql,
-        variables: { search: query }
-      })
-    });
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.data?.Character?.image?.large || data?.data?.Character?.image?.medium || null;
-  } catch (e) {
-    console.error('[AniListImage] lookup failed:', e.message);
-    return null;
-  }
+async function findMyAnimeListImage(query) {
+  // Disabled: images now use MyAnimeList/Jikan only.
+  return null;
 }
 
 async function findAnimeImage(query) {
-  const ani = await findAniListImage(query);
-  if (ani) return ani;
-
   try {
     const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=10`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'VoidRollBot/1.0' } });
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'VoidRollBot/1.0'
+      }
+    });
+
     if (!res.ok) return null;
+
     const data = await res.json();
     const rows = data?.data || [];
     if (!rows.length) return null;
 
     const q = phase2Normalize(query);
+
     const picked = rows.find(r => {
       const name = phase2Normalize(r.name || '');
-      if (q.includes('artoria')) return name.includes('artoria') || name.includes('saber');
-      return q.split(' ').some(part => part.length > 2 && name.includes(part));
+      const nicknames = (r.nicknames || []).map(x => phase2Normalize(x)).join(' ');
+      const full = `${name} ${nicknames}`;
+
+      if (q.includes('artoria')) {
+        return full.includes('artoria') || full.includes('saber');
+      }
+
+      if (q.includes('saber')) {
+        return full.includes('artoria') || full.includes('saber');
+      }
+
+      return q.split(' ').some(part => part.length > 2 && full.includes(part));
     }) || rows[0];
 
-    return picked?.images?.jpg?.image_url || picked?.images?.webp?.image_url || null;
+    return picked?.images?.jpg?.image_url
+      || picked?.images?.webp?.image_url
+      || null;
   } catch (e) {
-    console.error('[JikanImage] lookup failed:', e.message);
+    console.error('[MAL/JikanImage] lookup failed:', e.message);
     return null;
   }
 }
@@ -268,10 +257,9 @@ async function ensureCanonicalCharacter(fix) {
 
 
 async function getCorrectSaberImage() {
-  return await findAniListImage('Artoria Pendragon')
-    || await findAniListImage('Saber Fate stay night')
-    || await findAnimeImage('Artoria Pendragon')
+  return await findAnimeImage('Artoria Pendragon')
     || await findAnimeImage('Saber Fate stay night')
+    || await findAnimeImage('Saber Fate Zero')
     || null;
 }
 
