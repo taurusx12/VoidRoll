@@ -174,7 +174,7 @@ function characterPassive(character) {
 
 function characterStatsText(card, character) {
   const level = Number(card?.level || 1);
-  const ascension = Number(card?.ascension || 0);
+  const ascension = getAscension(card);
   const stats = calculateDetailedStats(character, level, ascension);
 
   return (
@@ -201,7 +201,9 @@ async function ascendCard(cardId) {
 
   if (!card) throw new Error('Card not found.');
 
-  const nextAsc = Math.min(15, Number(card.ascension || 0) + 1);
+  const currentAsc = getAscension(card);
+  const nextAsc = Math.min(15, currentAsc + 1);
+
   const rarityBonus = {
     COMMON: 15,
     RARE: 35,
@@ -217,7 +219,7 @@ async function ascendCard(cardId) {
   return prisma.userCard.update({
     where: { id: card.id },
     data: {
-      ascension: nextAsc,
+      trait: setAscensionTrait(card.trait, nextAsc),
       power: { increment: powerGain }
     },
     include: { character: true }
@@ -277,6 +279,18 @@ function phase2RaritySellValue(rarity, power = 0) {
   }[rarity] || 100;
 
   return base + Math.floor(Number(power || 0) * 0.08);
+}
+
+
+function getAscension(card) {
+  const trait = String(card?.trait || '');
+  const match = trait.match(/ASC:(\d+)/);
+  return Math.max(0, Number(match?.[1] || 0));
+}
+
+function setAscensionTrait(oldTrait, ascension) {
+  const clean = String(oldTrait || '').replace(/ASC:\d+/g, '').trim();
+  return `${clean} ASC:${Math.max(0, ascension)}`.trim();
 }
 
 function phase2GetStars(card) {
@@ -2749,7 +2763,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
 
     if (commandName === 'lvl') {
-      const name = i.options.getString('name', true);
+      const name = i.options.getString('name') || i.options.getString('card_id');
       const amount = i.options.getInteger('amount') || 1;
       const card = await phase2FindUserCardByName(userId, name);
       const cost = Math.max(1, amount) * 2500;

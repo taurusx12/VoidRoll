@@ -151,24 +151,11 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('ascend')
-    .setDescription('Upgrade a character rarity and power using gold/tokens')
+    .setDescription('Ascend a character by name using resources')
     .addStringOption(o =>
-      o.setName('card_id')
-        .setDescription('Card ID')
+      o.setName('name')
+        .setDescription('Character name')
         .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('rarity')
-        .setDescription('Target rarity')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Rare', value: 'RARE' },
-          { name: 'Epic', value: 'EPIC' },
-          { name: 'Legendary', value: 'LEGENDARY' },
-          { name: 'Mythic', value: 'MYTHIC' },
-          { name: 'Divine', value: 'DIVINE' },
-          { name: 'Secret', value: 'SECRET' }
-        )
     ),
 
 
