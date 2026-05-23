@@ -106,6 +106,167 @@ async function addCardLevel(cardId, amount) {
 }
 
 
+
+const CANONICAL_ROSTER_FIXES = [
+  { key: 'sung jin', name: 'Sung Jin-Woo', anime: 'Solo Leveling', rarity: 'SECRET', power: 9664, element: 'Shadow', q: 'Sung Jin-Woo' },
+  { key: 'gojo', name: 'Satoru Gojo', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 9400, element: 'Void', q: 'Satoru Gojo' },
+  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Saber Fate' },
+  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Saber Fate' },
+  { key: 'makima', name: 'Makima', anime: 'Chainsaw Man', rarity: 'SECRET', power: 7600, element: 'Dark', q: 'Makima' },
+  { key: 'lelouch', name: 'Lelouch Lamperouge', anime: 'Code Geass', rarity: 'SECRET', power: 8800, element: 'Dark', q: 'Lelouch Lamperouge' },
+  { key: 'madara', name: 'Madara Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 9000, element: 'Dark', q: 'Madara Uchiha' },
+  { key: 'aizen', name: 'Sosuke Aizen', anime: 'Bleach', rarity: 'SECRET', power: 9200, element: 'Void', q: 'Sosuke Aizen' },
+  { key: 'sukuna', name: 'Ryomen Sukuna', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 8900, element: 'Dark', q: 'Ryomen Sukuna' },
+  { key: 'rimuru', name: 'Rimuru Tempest', anime: 'That Time I Got Reincarnated as a Slime', rarity: 'SECRET', power: 9700, element: 'Void', q: 'Rimuru Tempest' },
+  { key: 'luffy', name: 'Monkey D. Luffy', anime: 'One Piece', rarity: 'SECRET', power: 8200, element: 'Light', q: 'Monkey D Luffy' },
+  { key: 'ichigo', name: 'Ichigo Kurosaki', anime: 'Bleach', rarity: 'SECRET', power: 8800, element: 'Soul', q: 'Ichigo Kurosaki' },
+  { key: 'naruto', name: 'Naruto Uzumaki', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 8500, element: 'Light', q: 'Naruto Uzumaki' },
+  { key: 'sasuke', name: 'Sasuke Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 8400, element: 'Dark', q: 'Sasuke Uchiha' },
+  { key: 'gon', name: 'Gon Freecss', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Light', q: 'Gon Freecss' },
+  { key: 'killua', name: 'Killua Zoldyck', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Lightning', q: 'Killua Zoldyck' },
+  { key: 'kurapika', name: 'Kurapika', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Light', q: 'Kurapika' },
+  { key: 'toji', name: 'Toji Fushiguro', anime: 'Jujutsu Kaisen', rarity: 'DIVINE', power: 5200, element: 'Dark', q: 'Toji Fushiguro' },
+  { key: 'kakashi', name: 'Kakashi Hatake', anime: 'Naruto: Shippuden', rarity: 'DIVINE', power: 4800, element: 'Lightning', q: 'Kakashi Hatake' }
+];
+
+function canonicalBaseName(name = '') {
+  return phase2Normalize(
+    String(name)
+      .replace(/\s+\((.*?)\)$/g, '')
+      .replace(/\b(base|secret form|true power|final form|divine form|mythic form|royal variant|raid variant|festival variant|battle ready|domain form|early arc|light variant|dark variant|shadow variant|hero variant|demon variant|legendary variant)\b/ig, '')
+      .trim()
+  );
+}
+
+function rosterFixForName(name = '') {
+  const clean = canonicalBaseName(name);
+  return CANONICAL_ROSTER_FIXES.find(r => clean.includes(phase2Normalize(r.key)));
+}
+
+async function findAnimeImage(query) {
+  try {
+    const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=1`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'VoidRollBot/1.0' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.data?.[0]?.images?.jpg?.image_url || data?.data?.[0]?.images?.webp?.image_url || null;
+  } catch (e) {
+    console.error('[ImageFix] image lookup failed:', e.message);
+    return null;
+  }
+}
+
+async function ensureCanonicalCharacter(fix) {
+  let existing = await prisma.character.findFirst({
+    where: {
+      OR: [
+        { name: { equals: fix.name, mode: 'insensitive' } },
+        { name: { contains: fix.key, mode: 'insensitive' } }
+      ]
+    },
+    orderBy: { basePower: 'desc' }
+  }).catch(() => null);
+
+  const imageUrl = existing?.imageUrl || await findAnimeImage(fix.q || fix.name);
+
+  if (!existing) {
+    existing = await prisma.character.create({
+      data: {
+        id: `canon_${phase2Normalize(fix.name).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`,
+        name: fix.name,
+        anime: fix.anime,
+        rarity: fix.rarity,
+        element: fix.element,
+        imageUrl,
+        auraName: `${fix.name} Aura`,
+        auraColor: fix.rarity === 'SECRET' ? '#111827' : fix.rarity === 'DIVINE' ? '#f472b6' : '#3b82f6',
+        auraSecondary: '#ffffff',
+        auraIntensity: fix.rarity === 'SECRET' ? 1.8 : 1.4,
+        basePower: fix.power,
+        baseFarm: Math.floor(fix.power / 8),
+        baseLuck: Math.floor(fix.power / 20),
+        limited: fix.rarity === 'SECRET',
+        banner: null,
+        active: true
+      }
+    });
+  } else {
+    existing = await prisma.character.update({
+      where: { id: existing.id },
+      data: {
+        name: fix.name,
+        anime: fix.anime,
+        rarity: fix.rarity,
+        element: fix.element,
+        imageUrl: imageUrl || existing.imageUrl,
+        basePower: fix.power,
+        baseFarm: Math.floor(fix.power / 8),
+        baseLuck: Math.floor(fix.power / 20),
+        active: true
+      }
+    });
+  }
+
+  return existing;
+}
+
+async function collapseRosterVariants() {
+  let movedCards = 0;
+  let inactiveCharacters = 0;
+  let fixedCanon = 0;
+
+  for (const fix of CANONICAL_ROSTER_FIXES) {
+    const canonical = await ensureCanonicalCharacter(fix);
+    fixedCanon++;
+
+    const duplicates = await prisma.character.findMany({
+      where: {
+        active: true,
+        id: { not: canonical.id },
+        name: { contains: fix.key, mode: 'insensitive' }
+      }
+    }).catch(() => []);
+
+    for (const dupe of duplicates) {
+      const move = await prisma.userCard.updateMany({
+        where: { characterId: dupe.id },
+        data: { characterId: canonical.id }
+      }).catch(() => ({ count: 0 }));
+
+      movedCards += move.count || 0;
+
+      await prisma.character.update({
+        where: { id: dupe.id },
+        data: { active: false }
+      }).catch(() => {});
+
+      inactiveCharacters++;
+    }
+  }
+
+  // Hide ugly generated variant names from active search results.
+  const ugly = await prisma.character.findMany({
+    where: {
+      active: true,
+      OR: [
+        { id: { startsWith: 'gen_' } },
+        { id: { startsWith: 'real_' } }
+      ]
+    },
+    take: 5000
+  }).catch(() => []);
+
+  for (const c of ugly) {
+    const fix = rosterFixForName(c.name);
+    if (fix) continue;
+    await prisma.character.update({ where: { id: c.id }, data: { active: false } }).catch(() => {});
+    inactiveCharacters++;
+  }
+
+  console.log(`[RosterClean] Canon ${fixedCanon}, moved cards ${movedCards}, inactive ${inactiveCharacters}`);
+  return { fixedCanon, movedCards, inactiveCharacters };
+}
+
 const IMPORTANT_RARITY_FIXES = [
   { keys: ['sung jin-woo', 'sung jin woo', 'jin-woo', 'jin woo'], rarity: 'SECRET', power: 9664, element: 'Shadow' },
   { keys: ['satoru gojo', 'satoru gojou', 'gojo'], rarity: 'SECRET', power: 9400, element: 'Void' },
@@ -2919,6 +3080,23 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       return i.reply(`Added **${amount} tokens** to **${target.username}**. New tokens: **${updated.tokens}**`);
     }
 
+
+
+    if (commandName === 'admin-collapse-variants') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      await i.deferReply({ ephemeral: true });
+      const result = await collapseRosterVariants();
+
+      return i.editReply(
+        `✅ Roster cleaned.\n` +
+        `Canonical fixed: **${result.fixedCanon}**\n` +
+        `Cards moved: **${result.movedCards}**\n` +
+        `Duplicate/ugly characters hidden: **${result.inactiveCharacters}**`
+      );
+    }
 
     if (commandName === 'admin-fix-variants') {
       if (!config.adminIds.includes(userId)) {

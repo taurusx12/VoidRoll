@@ -46,7 +46,18 @@ async function renderCard({ card, character }) {
 
   const base = sharp(Buffer.from(svg)).png();
 
-  if (!img) return await base.toBuffer();
+  if (!img) {
+    const initials = String(character.name || '?').split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase();
+    const fallbackSvg = `
+      <svg width="560" height="640" xmlns="http://www.w3.org/2000/svg">
+        <rect width="560" height="640" rx="32" fill="#0f172a"/>
+        <circle cx="280" cy="240" r="130" fill="${color}" opacity="0.35"/>
+        <text x="280" y="285" text-anchor="middle" font-size="118" font-weight="900" fill="#ffffff">${initials}</text>
+        <text x="280" y="440" text-anchor="middle" font-size="34" font-weight="800" fill="#ffffff">${character.rarity}</text>
+      </svg>`;
+    const fallbackImage = await sharp(Buffer.from(fallbackSvg)).png().toBuffer();
+    return await base.composite([{ input: fallbackImage, left: 80, top: 90 }]).png().toBuffer();
+  }
 
   try {
     const response = await fetch(img);
