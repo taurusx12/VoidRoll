@@ -1,0 +1,11 @@
+{
+  "live_events": true,
+  "guilds": true,
+  "coop": true,
+  "ranked_pvp": true,
+  "crafting": true,
+  "skins": true,
+  "battle_animations": true,
+  "dynamic_meta": true,
+  "target_characters": 5000
+}
