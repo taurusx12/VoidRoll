@@ -1,7 +1,7 @@
 const { nanoid } = require('nanoid');
-const BANNER_PULL_COST = 10;
-const BANNER_PITY_PULLS = 20;
-const ACTIVE_BANNER_COUNT = 3;
+const BANNER_PULL_COST = 1000;
+const BANNER_PITY_PULLS = 50;
+const ACTIVE_BANNER_COUNT = 4;
 const ROTATION_HOURS = 72;
 const BANNERS = [
   { id: 'toji_hunt', name: 'Toji Hunt', featured: 'toji', featuredDisplay: 'Toji Fushiguro', pool: ['toji', 'maki', 'megumi', 'nanami', 'naobito', 'panda', 'inumaki', 'mai'], note: 'No Gojo or Sukuna in this banner.' },
