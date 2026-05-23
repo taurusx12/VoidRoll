@@ -1749,7 +1749,7 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
-  await ensureSaberAnd5000Characters().catch(e => console.error('Big pool seed failed:', e));
+  setTimeout(() => ensureSaberAnd5000Characters().catch(e => console.error('Big pool seed failed:', e)), 5000);
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
   await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
@@ -1889,29 +1889,23 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ content: 'Admin only.', ephemeral: true });
       }
 
-      await i.deferReply({ ephemeral: true });
-      await ensureSaberAnd5000Characters();
-      const total = await prisma.character.count({ where: { active: true } });
-      const saber = await prisma.character.findFirst({
-        where: { name: { contains: 'Saber', mode: 'insensitive' } }
+      await i.reply({
+        content: '✅ Started cleaning generated character names in the background. Check Render logs, then use /characters-count.',
+        ephemeral: true
       });
 
-      return i.editReply(
-        `Clean done.\n` +
-        `Active characters: **${total}**\n` +
-        `Saber: **${saber ? `${saber.rarity} • ${saber.name} • PWR ${saber.basePower}` : 'Missing'}**`
-      );
+      setTimeout(() => {
+        ensureSaberAnd5000Characters()
+          .then(() => console.log('[CleanNames] Background clean completed.'))
+          .catch(e => console.error('[CleanNames] Background clean failed:', e));
+      }, 100);
+
+      return;
     }
 
     if (commandName === 'characters-count') {
       const total = await prisma.character.count({ where: { active: true } });
-      const saber = await prisma.character.findFirst({
-        where: { name: { contains: 'Saber', mode: 'insensitive' } }
-      });
-      return i.reply(
-        `📚 Active characters: **${total}**\n` +
-        `Saber: **${saber ? `${saber.rarity} • PWR ${money(saber.basePower)}` : 'Missing'}**`
-      );
+      return i.reply(`📚 Active characters: **${total}**`);
     }
 
     if (commandName === 'help') {
