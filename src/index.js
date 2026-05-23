@@ -794,6 +794,93 @@ async function inventoryEmbed(userId, index = 0) {
 }
 
 
+
+const RESOURCE_TYPES = ['essence','crystal','shadow_core','ascension_flame','dungeon_key','raid_ticket','trait_reroll','evolution_gem','weapon_shard'];
+
+async function getResourceAmount(userId, resource) {
+  const key = `res:${resource}`;
+  const row = await prisma.cooldown.findUnique({
+    where: { userId_key: { userId, key } }
+  }).catch(() => null);
+  return Number(row?.expiresAt?.getTime?.() || 0);
+}
+
+async function setResourceAmount(userId, resource, amount) {
+  const key = `res:${resource}`;
+  const safe = Math.max(0, Number(amount || 0));
+  await prisma.cooldown.upsert({
+    where: { userId_key: { userId, key } },
+    update: { expiresAt: new Date(safe) },
+    create: { userId, key, expiresAt: new Date(safe) }
+  }).catch(() => {});
+  return safe;
+}
+
+async function addResource(userId, resource, amount) {
+  const current = await getResourceAmount(userId, resource);
+  return setResourceAmount(userId, resource, current + Number(amount || 0));
+}
+
+async function spendResource(userId, resource, amount) {
+  const current = await getResourceAmount(userId, resource);
+  if (current < amount) return false;
+  await setResourceAmount(userId, resource, current - amount);
+  return true;
+}
+
+async function resourceSummary(userId) {
+  const rows = [];
+  for (const r of RESOURCE_TYPES) {
+    rows.push([r, await getResourceAmount(userId, r)]);
+  }
+  return rows;
+}
+
+function bossRushRewards(damage) {
+  const gold = Math.floor(damage * 0.18);
+  const tokens = Math.floor(damage / 50000);
+  const essence = Math.floor(damage / 25000);
+  const crystals = Math.floor(damage / 150000);
+  return { gold, tokens, essence, crystals };
+}
+
+function gearSetBonusText(cards) {
+  const roles = cards.map(c => characterRole(c.character));
+  const elements = cards.map(c => characterElement(c.character));
+  const bonuses = [];
+
+  const tanks = roles.filter(r => r === 'Tank').length;
+  const supports = roles.filter(r => r === 'Support' || r === 'Control').length;
+  const dps = roles.filter(r => r === 'DPS' || r === 'Mage' || r === 'Assassin').length;
+
+  if (tanks >= 1) bonuses.push('Tank Wall: team takes 12% less damage');
+  if (supports >= 2) bonuses.push('Support Core: +20% ultimate charge');
+  if (dps >= 3) bonuses.push('Damage Core: +18% attack');
+
+  const elementCounts = {};
+  for (const e of elements) elementCounts[e] = (elementCounts[e] || 0) + 1;
+  for (const [element, count] of Object.entries(elementCounts)) {
+    if (count >= 3) bonuses.push(`${element} Aura: +15% ${element} damage`);
+  }
+
+  return bonuses;
+}
+
+function ultimateComboText(cards) {
+  const names = cardNameList(cards);
+  const combos = [];
+
+  if (names.includes('gon') && names.includes('killua')) combos.push('Thunder Jajanken: Killua charges Gon ultimate faster.');
+  if (names.includes('naruto') && names.includes('sasuke')) combos.push('Six Paths Rival Combo: huge AoE finisher.');
+  if (names.includes('luffy') && names.includes('zoro') && names.includes('sanji')) combos.push('Monster Trio Rush: chain ultimate combo.');
+  if (names.includes('gojo') && names.includes('yuji')) combos.push('Infinite Black Flash: stun + curse damage.');
+  if (names.includes('lelouch') && names.includes('suzaku')) combos.push('Knight of Zero: speed + control burst.');
+  if (names.includes('sung jin') && (names.includes('igris') || names.includes('beru'))) combos.push('Shadow Monarch Army: summon shadow strike.');
+  if (names.includes('ainz') && names.includes('saber')) combos.push('Overlord Oath: shield + magic burst.');
+
+  return combos;
+}
+
 function teamRequirementFor(mode, progress) {
   const value = mode === 'story'
     ? progress.chapter
@@ -1048,6 +1135,8 @@ async function runProgressBattle(interaction, mode) {
     `Enemy Teams: **${requiredTeams}**\n` +
     `Required Power: **${money(required)}**\n` +
     (teamData.synergies.length ? `Synergies: **${teamData.synergies.join(', ')}**\n` : '') +
+    (gearSetBonusText(teamData.teams.flat()).length ? `Gear/Role Bonus: **${gearSetBonusText(teamData.teams.flat()).join(', ')}**\n` : '') +
+    (ultimateComboText(teamData.teams.flat()).length ? `Ultimate Combos: **${ultimateComboText(teamData.teams.flat()).join(', ')}**\n` : '') +
     `Enemies: **${enemies.join(', ')}**\n\n`;
 
   await interaction.editReply(text + 'Battle is starting...');
@@ -1109,12 +1198,18 @@ async function runProgressBattle(interaction, mode) {
     }
   });
 
+  const essenceGain = mode === 'dungeon' ? 8 : 3;
+  const shardGain = mode === 'tower' ? 4 : 2;
+  await addResource(userId, 'essence', essenceGain);
+  await addResource(userId, 'weapon_shard', shardGain);
+  if (mode === 'dungeon') await addResource(userId, 'dungeon_key', 1);
+
   await updateProgressAfterWin(userId, mode, progress);
   const xpResult = await addUserXp(userId, mode === 'story' ? 45 : mode === 'tower' ? 55 : 40, mode);
 
   text +=
     `\n**Victory!**\n` +
-    `Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.\n` +
+    `Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**, **${essenceGain} Essence**, **${shardGain} Weapon Shards**.\n` +
     `Progress saved.` + levelUpText(xpResult);
 
   return interaction.editReply(text.slice(-1900));
@@ -1868,6 +1963,87 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
 
+
+
+    if (commandName === 'resources') {
+      const rows = await resourceSummary(userId);
+      return i.reply(
+        '**Your Resources**\n' +
+        rows.map(([r, v]) => `• **${r}**: ${v}`).join('\n')
+      );
+    }
+
+    if (commandName === 'gear-set') {
+      const cards = await getUserBattleTeam(userId);
+      const bonuses = gearSetBonusText(cards);
+      if (!bonuses.length) return i.reply('No active gear/role set bonuses in your main team.');
+      return i.reply('**Active Gear/Role Bonuses**\n' + bonuses.map(x => `• ${x}`).join('\n'));
+    }
+
+    if (commandName === 'ult-combo') {
+      const cards = await getUserBattleTeam(userId);
+      const combos = ultimateComboText(cards);
+      if (!combos.length) return i.reply('No active ultimate combos in your main team.');
+      return i.reply('**Active Ultimate Combos**\n' + combos.map(x => `• ${x}`).join('\n'));
+    }
+
+    if (commandName === 'boss-rush') {
+      await i.deferReply();
+
+      const teamData = await getMultiTeamPower(userId, 1);
+      const cards = teamData.teams.flat();
+      const combos = ultimateComboText(cards);
+      const gear = gearSetBonusText(cards);
+      const comboBonus = combos.length * 0.18;
+      const gearBonus = gear.length * 0.10;
+
+      let totalDamage = 0;
+      let text = `**BOSS RUSH STARTED**\n`;
+      text += `Power: **${money(teamData.power)}**\n`;
+      if (combos.length) text += `Ultimate Combos: **${combos.join(', ')}**\n`;
+      if (gear.length) text += `Gear/Role Bonuses: **${gear.join(', ')}**\n`;
+
+      for (let r = 1; r <= 6; r++) {
+        const damage = Math.floor((teamData.power / (4 + r)) * (1 + comboBonus + gearBonus) + Math.random() * 5000);
+        totalDamage += damage;
+        text += `\nRound ${r}: dealt **${money(damage)}** damage`;
+        if (r % 2 === 0) await i.editReply(text.slice(-1900)).catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+
+      const reward = bossRushRewards(totalDamage);
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { increment: reward.gold },
+          tokens: { increment: reward.tokens }
+        }
+      });
+      await addResource(userId, 'essence', reward.essence);
+      await addResource(userId, 'crystal', reward.crystals);
+      await addResource(userId, 'raid_ticket', 1);
+
+      text += `\n\n**Boss Rush Finished**\nTotal Damage: **${money(totalDamage)}**\nRewards: **${money(reward.gold)} Gold**, **${reward.tokens} Tokens**, **${reward.essence} Essence**, **${reward.crystals} Crystals**, **1 Raid Ticket**`;
+      return i.editReply(text.slice(-1900));
+    }
+
+    if (commandName === 'admin-give-resource') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const target = i.options.getUser('user', true);
+      const resource = i.options.getString('resource', true);
+      const amount = i.options.getInteger('amount', true);
+
+      if (!RESOURCE_TYPES.includes(resource)) {
+        return i.reply({ content: `Invalid resource. Use: ${RESOURCE_TYPES.join(', ')}`, ephemeral: true });
+      }
+
+      await ensureUser(target);
+      const total = await addResource(target.id, resource, amount);
+      return i.reply(`Added **${amount} ${resource}** to **${target.username}**. New total: **${total}**`);
+    }
 
     if (commandName === 'class-tower') {
       await i.deferReply();
