@@ -33,8 +33,8 @@ async function ensureUser(discordUser) {
 
     newRolls += hoursPassed * 15;
 
-    if (newRolls > 500) {
-      newRolls = 500;
+    if (newRolls > 999999) {
+      newRolls = 999999;
     }
 
     user = await prisma.user.update({

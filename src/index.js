@@ -24,7 +24,7 @@ const { getAura, embedColor } = require('./lib/aura');
 const { renderCard } = require('./services/cardRender');
 const { rollItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
 const bannerSystem = require('./services/bannerSystem');
-const { autoFuseDuplicates, fusionText, starLabel } = require('./services/duplicateFusion');
+const { fusionText, starLabel } = require('./services/duplicateFusion');
 const { isSecretCandidate, classifyCharacter } = require('./lib/secretCharacters');
 const { syncAllCardPowers } = require('./powerSyncPatch');
 
@@ -859,7 +859,7 @@ async function runProgressBattle(interaction, mode) {
     enemyMana += 17 + Math.floor(Math.random() * 18);
 
     text += `\n__Round ${r}__\n`;
-    text += `Your team hit **${enemy}** for **${money(hit)}**. Mana: ${Math.min(100, allyMana)}/100\n`;
+    text += `🩸 Your team hit **${enemy}** for **${money(hit)}**. Mana: ${Math.min(100, allyMana)}/100\n`;
 
     if (allyMana >= 100) {
       const ult = Math.floor(hit * 2.6);
@@ -867,7 +867,7 @@ async function runProgressBattle(interaction, mode) {
       allyMana = 0;
     }
 
-    text += `**${enemy}** hit back for **${money(enemyHit)}**. Enemy Mana: ${Math.min(100, enemyMana)}/100\n`;
+    text += `🩸 **${enemy}** hit back for **${money(enemyHit)}**. Enemy Mana: ${Math.min(100, enemyMana)}/100\n`;
 
     if (enemyMana >= 100) {
       const enemyUlt = Math.floor(enemyHit * 2.1);
@@ -887,7 +887,15 @@ async function runProgressBattle(interaction, mode) {
   }
 
   const gold = Math.floor(required * 0.75);
-  const tokens = mode === 'tower' ? 3 : mode === 'story' ? 4 : 3;
+  const progressNumber = mode === 'story'
+    ? (((progress.chapter - 1) * 30) + progress.stage)
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+
+  const tokens = progressNumber % 5 === 0
+    ? Math.max(1, Math.floor(progressNumber / 5)) * (mode === 'story' ? 5 : 4)
+    : 0;
   const rolls = mode === 'story' ? 3 : 2;
 
   await prisma.user.update({
@@ -1149,8 +1157,6 @@ client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
       await ensureUser(i.user);
-      await autoFuseDuplicates(prisma, i.user.id).catch(() => []);
-
       if (i.customId.startsWith('inv_')) {
         const [, dir, raw] = i.customId.split('_');
         const current = Number(raw || 0);
@@ -1266,9 +1272,8 @@ client.on('interactionCreate', async (i) => {
     await ensureUser(i.user);
 
     const userId = i.user.id;
-    const fusionResultsAtStart = await autoFuseDuplicates(prisma, userId).catch(() => []);
     const commandName = i.commandName;
-    const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
+    const fusionResults = [];
 
     if (commandName === 'help') {
       await i.deferReply({ ephemeral: true });
@@ -1594,8 +1599,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         lines.push(
           `**${b.name}** \`${b.id}\`\n` +
           `Featured: **${b.featuredDisplay}**\n` +
-          `Cost: **10 Tokens** per pull • Guaranteed: **20 pulls / 200 tokens**\n` +
-          `Your pity: **${pity}/20**\n` +
+          `Cost: **1000 Tokens** per 10-pull • Guaranteed SECRET: **50 multis**\n` +
+          `Your pity: **${pity}/50**\n` +
           `Ends: <t:${Math.floor(b.endsAt.getTime() / 1000)}:R>\n` +
           `Pool: ${b.pool.join(', ')}\n`
         );
@@ -1604,7 +1609,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       return i.reply(
         `🎯 **ACTIVE LIMITED BANNERS**\n\n` +
         lines.join('\n') +
-        `\nUse **/pack banner:<id> amount:<1-10>**. Anime packs and Secret Pack are removed.`
+        `\nUse **/pack banner:<id>**. Anime packs and Secret Pack are removed.`
       );
     }
 
@@ -1612,8 +1617,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       await i.deferReply();
 
       const bannerId = i.options.getString('banner', true);
-      const amount = i.options.getInteger('amount') || 1;
-      const pull = await bannerSystem.rollBanner(prisma, userId, bannerId, amount);
+      const pull = await bannerSystem.rollBanner(prisma, userId, bannerId);
 
       const embeds = [];
       const files = [];
@@ -1631,7 +1635,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `Anime: **${result.character.anime}**\n` +
             `Rarity: **${result.character.rarity}**\n` +
             `Power: **${result.card.power}**\n` +
-            `${result.guaranteed ? '✅ **Guaranteed featured triggered!**' : ''}`
+            `${result.guaranteed ? '✅ **Guaranteed SECRET triggered!**' : ''}`
           )
           .setColor(embedColor(aura.color));
 
@@ -2428,7 +2432,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         prisma.userEquipment.deleteMany({}),
         prisma.userCard.deleteMany({}),
         prisma.storyProgress.deleteMany({}),
-        prisma.bossEventEntry.deleteMany({}).catch(() => prisma.$executeRaw`SELECT 1`),
         prisma.user.updateMany({
           data: {
             gold: 0,

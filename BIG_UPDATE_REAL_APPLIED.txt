@@ -1,0 +1,10 @@
+REAL WORKING PATCH APPLIED
+- 4 active banners rotate every 3 days
+- /pack banner:<id> = 10 cards for 1000 tokens
+- every 10-pull: 5 Rare, 3 Epic, 1 Mythic, 1 Divine
+- no Common in banner
+- 50 multis guaranteed Secret featured
+- manual fusion only, auto fusion disabled
+- admin-reset-all deployed
+- token rewards only every 5 stages
+- blood battle logs added

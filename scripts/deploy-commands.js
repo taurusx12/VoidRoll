@@ -52,16 +52,11 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('pack')
-    .setDescription('Pull from a selected active limited banner')
+    .setDescription('10-pull from selected active limited banner (1000 tokens)')
     .addStringOption(o =>
       o.setName('banner')
         .setDescription('Banner id from /banner')
         .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('amount')
-        .setDescription('Pull amount 1-10')
-        .setRequired(false)
     ),
 
   new SlashCommandBuilder().setName('events').setDescription('Show active events'),
@@ -390,6 +385,16 @@ const commands = [
     .addStringOption(o =>
       o.setName('name')
         .setDescription('Character name')
+        .setRequired(true)
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('admin-reset-all')
+    .setDescription('Admin: reset all players')
+    .addStringOption(o =>
+      o.setName('confirm')
+        .setDescription('Type YES')
         .setRequired(true)
     ),
 
