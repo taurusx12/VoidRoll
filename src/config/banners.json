@@ -1,0 +1,72 @@
+{
+  "pullCostTokens": 10,
+  "pityPulls": 20,
+  "pityTokens": 200,
+  "activeBannerCount": 3,
+  "rotationHours": 72,
+  "banners": [
+    {
+      "id": "toji_hunt",
+      "name": "Toji Hunt Banner",
+      "featured": "Toji Fushiguro",
+      "pool": [
+        "Toji Fushiguro",
+        "Maki Zenin",
+        "Megumi Fushiguro",
+        "Nanami",
+        "Naobito",
+        "Panda",
+        "Inumaki"
+      ],
+      "note": "No Gojo/Sukuna here because they are stronger than featured."
+    },
+    {
+      "id": "shadow_monarch",
+      "name": "Shadow Monarch Banner",
+      "featured": "Sung Jin-Woo",
+      "pool": [
+        "Sung Jin-Woo",
+        "Igris",
+        "Beru",
+        "Cha Hae-In",
+        "Thomas Andre"
+      ]
+    },
+    {
+      "id": "saber_oath",
+      "name": "Saber Oath Banner",
+      "featured": "Saber",
+      "pool": [
+        "Saber",
+        "Archer EMIYA",
+        "Rin Tohsaka",
+        "Lancer",
+        "Rider"
+      ]
+    },
+    {
+      "id": "overlord_throne",
+      "name": "Overlord Throne Banner",
+      "featured": "Ainz Ooal Gown",
+      "pool": [
+        "Ainz Ooal Gown",
+        "Albedo",
+        "Demiurge",
+        "Shalltear",
+        "Cocytus"
+      ]
+    },
+    {
+      "id": "hunter_oath",
+      "name": "Hunter Oath Banner",
+      "featured": "Kurapika",
+      "pool": [
+        "Kurapika",
+        "Gon",
+        "Killua",
+        "Leorio",
+        "Hisoka"
+      ]
+    }
+  ]
+}

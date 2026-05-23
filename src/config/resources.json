@@ -1,0 +1,14 @@
+{
+  "resources": [
+    "Essence Stones",
+    "Divine Crystals",
+    "Shadow Cores",
+    "Ascension Flames",
+    "Dungeon Keys",
+    "Raid Tickets",
+    "Trait Rerolls",
+    "Evolution Gems",
+    "Weapon Shards"
+  ],
+  "tokenRewardRule": "Tokens only every 5 stages, scaling with progress."
+}

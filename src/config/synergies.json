@@ -1,0 +1,71 @@
+{
+  "examples": [
+    {
+      "name": "Hunter Bond",
+      "requires": [
+        "Gon",
+        "Killua"
+      ],
+      "buff": "+15% Speed, +10% Crit Rate"
+    },
+    {
+      "name": "Kurta Revenge",
+      "requires": [
+        "Kurapika",
+        "Leorio"
+      ],
+      "buff": "+20% DEF Break"
+    },
+    {
+      "name": "Rival Bond",
+      "requires": [
+        "Naruto",
+        "Sasuke"
+      ],
+      "buff": "+20% ATK"
+    },
+    {
+      "name": "Monster Trio",
+      "requires": [
+        "Luffy",
+        "Zoro",
+        "Sanji"
+      ],
+      "buff": "+20% ATK, +15% HP"
+    },
+    {
+      "name": "Jujutsu Core",
+      "requires": [
+        "Yuji",
+        "Megumi",
+        "Nobara"
+      ],
+      "buff": "+20% Curse Damage"
+    },
+    {
+      "name": "Strongest Duo",
+      "requires": [
+        "Gojo",
+        "Geto"
+      ],
+      "buff": "+25% Ult Charge"
+    },
+    {
+      "name": "Saiyan Rivalry",
+      "requires": [
+        "Goku",
+        "Vegeta"
+      ],
+      "buff": "+25% ATK"
+    },
+    {
+      "name": "Master Student",
+      "requires": [
+        "Gohan",
+        "Piccolo"
+      ],
+      "buff": "+20% DEF, +15% Ult Charge"
+    }
+  ],
+  "rule": "Add all canon/lore relationships across anime: crews, rivals, families, organizations, master/student, villain groups."
+}

@@ -1,0 +1,46 @@
+{
+  "teamRequirementByFloor": [
+    {
+      "from": 1,
+      "to": 20,
+      "teams": 1
+    },
+    {
+      "from": 21,
+      "to": 50,
+      "teams": 2
+    },
+    {
+      "from": 51,
+      "to": 100,
+      "teams": 3
+    },
+    {
+      "from": 101,
+      "to": 150,
+      "teams": 4
+    },
+    {
+      "from": 151,
+      "to": 200,
+      "teams": 5
+    },
+    {
+      "from": 201,
+      "to": 99999,
+      "teams": 6
+    }
+  ],
+  "towers": [
+    "Dark",
+    "Light",
+    "Fire",
+    "Ice",
+    "Shadow",
+    "Curse",
+    "Hero",
+    "Demon",
+    "Void",
+    "Lightning"
+  ]
+}
