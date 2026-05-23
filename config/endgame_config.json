@@ -1,0 +1,25 @@
+{
+  "dungeons": {
+    "random_paths": true,
+    "secret_rooms": true,
+    "boss_rooms": true
+  },
+  "boss_rush": {
+    "solo": true,
+    "global": true
+  },
+  "equipment": {
+    "weapon": true,
+    "armor": true,
+    "rings": true,
+    "relics": true
+  },
+  "pvp": {
+    "arena": true,
+    "ranked": true
+  },
+  "raids": {
+    "max_players": 5
+  },
+  "character_target": 5000
+}

@@ -1,0 +1,92 @@
+
+VOIDROLL PHASE 5 — ENDGAME UPDATE
+
+1. REAL DUNGEON SYSTEM
+- Trap Rooms
+- Treasure Rooms
+- Heal Rooms
+- Elite Rooms
+- Secret Rooms
+- Final Boss Rooms
+- Random dungeon paths
+- Dungeon Keys required
+
+2. BOSS RUSH
+SOLO:
+- Personal score
+- Time attack
+- Milestone rewards
+
+GLOBAL:
+- Entire server attacks same boss
+- Damage leaderboard
+- Last hit rewards
+- Limited time events
+
+3. EQUIPMENT SYSTEM
+Equipment Types:
+- Weapons
+- Armor
+- Rings
+- Relics
+
+Passives:
+- Crit
+- Dodge
+- Shield
+- Counter
+- Lifesteal
+- Ult Charge
+- Element Boost
+- Defense Break
+
+4. RESOURCE ECONOMY
+Resources:
+- Divine Crystals
+- Essence Stones
+- Shadow Cores
+- Ascension Flames
+- Evolution Gems
+- Raid Tickets
+- Trait Rerolls
+- Weapon Shards
+
+5. TRAIT SYSTEM
+Random Traits:
+- Berserker
+- Genius
+- Guardian
+- Bloodlust
+- Swift
+- Divine Body
+- Shadowborn
+- Cursed Soul
+
+6. PVP FOUNDATION
+- Arena
+- Ranked
+- Defense Teams
+- Replay Logs
+- Meta Rankings
+
+7. RAID SYSTEM
+- 5 Player raids
+- Shared bosses
+- Multi-phase fights
+- Guild-style rewards
+
+8. CHARACTER AI
+AI behaviors:
+- Protect carries
+- Focus supports
+- Heal lowest HP
+- Combo ultimates
+- Counter elements
+- Target priority
+
+9. ENDGAME SCALING
+Supports:
+- 5000+ characters
+- Full rarity scaling
+- Synergy scaling
+- Late game balancing
