@@ -1749,7 +1749,7 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
-  setTimeout(() => ensureSaberAnd5000Characters().catch(e => console.error('Big pool seed failed:', e)), 5000);
+  console.log('[BigPool] Auto clean disabled.');
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
   await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
@@ -1889,23 +1889,15 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ content: 'Admin only.', ephemeral: true });
       }
 
-      await i.reply({
-        content: '✅ Started cleaning generated character names in the background. Check Render logs, then use /characters-count.',
+      return i.reply({
+        content: '✅ Clean command received. Heavy cleaning is disabled now to prevent Discord timeout. I will send a lighter batch cleaner next.',
         ephemeral: true
       });
-
-      setTimeout(() => {
-        ensureSaberAnd5000Characters()
-          .then(() => console.log('[CleanNames] Background clean completed.'))
-          .catch(e => console.error('[CleanNames] Background clean failed:', e));
-      }, 100);
-
-      return;
     }
 
     if (commandName === 'characters-count') {
       const total = await prisma.character.count({ where: { active: true } });
-      return i.reply(`📚 Active characters: **${total}**`);
+      return i.reply(`📚 **${total}**`);
     }
 
     if (commandName === 'help') {
