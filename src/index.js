@@ -105,6 +105,128 @@ async function addCardLevel(cardId, amount) {
   });
 }
 
+
+const IMPORTANT_RARITY_FIXES = [
+  { keys: ['sung jin-woo', 'sung jin woo', 'jin-woo', 'jin woo'], rarity: 'SECRET', power: 9664, element: 'Shadow' },
+  { keys: ['satoru gojo', 'satoru gojou', 'gojo'], rarity: 'SECRET', power: 9400, element: 'Void' },
+  { keys: ['lelouch'], rarity: 'SECRET', power: 8800, element: 'Dark' },
+  { keys: ['saber', 'artoria'], rarity: 'SECRET', power: 9000, element: 'Light' },
+  { keys: ['madara'], rarity: 'SECRET', power: 9000, element: 'Dark' },
+  { keys: ['aizen'], rarity: 'SECRET', power: 9200, element: 'Void' },
+  { keys: ['sukuna'], rarity: 'SECRET', power: 8900, element: 'Dark' },
+  { keys: ['rimuru'], rarity: 'SECRET', power: 9700, element: 'Void' },
+  { keys: ['saitama'], rarity: 'SECRET', power: 10000, element: 'Light' },
+  { keys: ['gilgamesh'], rarity: 'SECRET', power: 9100, element: 'Light' },
+  { keys: ['makima'], rarity: 'SECRET', power: 7600, element: 'Dark' },
+  { keys: ['cid kagenou'], rarity: 'SECRET', power: 8800, element: 'Shadow' },
+  { keys: ['ainz'], rarity: 'SECRET', power: 8900, element: 'Dark' },
+
+  { keys: ['gon'], rarity: 'DIVINE', power: 5200, element: 'Light' },
+  { keys: ['killua'], rarity: 'DIVINE', power: 5200, element: 'Lightning' },
+  { keys: ['kurapika'], rarity: 'DIVINE', power: 5200, element: 'Light' },
+  { keys: ['kakashi'], rarity: 'DIVINE', power: 4800, element: 'Lightning' },
+  { keys: ['toji'], rarity: 'DIVINE', power: 5200, element: 'Dark' }
+];
+
+function cleanVariantName(name = '') {
+  return phase2Normalize(String(name).replace(/\((base|secret form|true power|final form|divine form|mythic form|royal variant|raid variant|festival variant|battle ready|domain form|early arc|light variant|dark variant|shadow variant|hero variant|demon variant|legendary variant)\)/ig, '').trim());
+}
+
+function importantFixFor(character) {
+  const clean = cleanVariantName(character?.name || '');
+  return IMPORTANT_RARITY_FIXES.find(f => f.keys.some(k => clean.includes(phase2Normalize(k))));
+}
+
+function vrRole(character) {
+  const n = cleanVariantName(character?.name || '');
+  if (['lelouch','aizen','makima','kurapika','shikamaru'].some(x => n.includes(x))) return 'Control';
+  if (['rimuru','megumi','kakashi','sakura','orihime'].some(x => n.includes(x))) return 'Support';
+  if (['saber','ainz','whitebeard','kaido','all might','escanor'].some(x => n.includes(x))) return 'Tank';
+  if (['killua','toji','levi','hisoka','zenitsu'].some(x => n.includes(x))) return 'Assassin';
+  if (['gojo','madara','gilgamesh','sukuna'].some(x => n.includes(x))) return 'Mage';
+  return 'DPS';
+}
+
+function vrElement(character) {
+  const fix = importantFixFor(character);
+  if (fix?.element) return fix.element;
+  return character?.element || 'Neutral';
+}
+
+function vrPassive(character) {
+  const n = cleanVariantName(character?.name || '');
+  if (n.includes('sung jin')) return 'Shadow Monarch: gains power after every defeated enemy.';
+  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
+  if (n.includes('lelouch')) return 'Geass: control enemy actions and boost team ultimate charge.';
+  if (n.includes('saber')) return 'Avalon: shield and damage reduction for the team.';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.';
+  if (n.includes('madara')) return 'Uchiha Dominion: boosts AoE ultimate damage.';
+  if (n.includes('sukuna')) return 'King of Curses: executes low HP enemies.';
+  if (n.includes('rimuru')) return 'Predator: absorbs buffs and scales during battle.';
+  if (n.includes('killua')) return 'Godspeed: high speed and crit burst.';
+  if (n.includes('gon')) return 'Jajanken: heavy single target ultimate.';
+  return 'Battle Instinct: small ATK and ultimate charge bonus.';
+}
+
+function vrStatsLine(card, character) {
+  const p = Number(card?.power || character?.basePower || 100);
+  const role = vrRole(character);
+  let atk = Math.floor(p * 0.9), def = Math.floor(p * 0.5), hp = Math.floor(p * 8), spd = 100, crit = 12;
+
+  if (role === 'Tank') { atk = Math.floor(p * 0.65); def = Math.floor(p * 1.2); hp = Math.floor(p * 14); crit = 8; }
+  if (role === 'Support') { atk = Math.floor(p * 0.7); def = Math.floor(p * 0.8); hp = Math.floor(p * 10); spd = 115; crit = 10; }
+  if (role === 'Control') { atk = Math.floor(p * 0.8); def = Math.floor(p * 0.7); hp = Math.floor(p * 9); spd = 120; crit = 12; }
+  if (role === 'Assassin') { atk = Math.floor(p * 1.25); def = Math.floor(p * 0.35); hp = Math.floor(p * 6); spd = 145; crit = 30; }
+  if (role === 'Mage') { atk = Math.floor(p * 1.35); def = Math.floor(p * 0.45); hp = Math.floor(p * 7); spd = 110; crit = 18; }
+  if (role === 'DPS') { atk = Math.floor(p * 1.1); def = Math.floor(p * 0.55); hp = Math.floor(p * 8); spd = 105; crit = 18; }
+
+  return (
+    `Class: **${role}** | Element: **${vrElement(character)}**\n` +
+    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
+    `CRIT **${crit}%**\n` +
+    `Passive: ${vrPassive(character)}`
+  );
+}
+
+async function fixImportantVariants() {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    select: { id: true, name: true, anime: true, rarity: true, basePower: true, element: true }
+  });
+
+  let fixed = 0;
+  const seen = new Set();
+
+  for (const c of chars) {
+    const fix = importantFixFor(c);
+    if (!fix) continue;
+
+    let newName = c.name
+      .replace(/\s+\((Base|Secret Form|True Power|Final Form|Divine Form|Mythic Form)\)$/i, '')
+      .trim();
+
+    // keep one clean named version, variants become readable but same rarity
+    if (!newName) newName = c.name;
+
+    await prisma.character.update({
+      where: { id: c.id },
+      data: {
+        name: newName,
+        rarity: fix.rarity,
+        basePower: Math.max(Number(c.basePower || 0), fix.power),
+        baseFarm: Math.floor(fix.power / 8),
+        baseLuck: Math.floor(fix.power / 20),
+        element: fix.element || c.element || 'Neutral',
+        active: true
+      }
+    }).catch(() => {});
+
+    fixed++;
+  }
+
+  console.log(`[ImportantFix] Fixed variants: ${fixed}`);
+}
+
 function phase2Normalize(value = '') {
   return String(value || '').toLowerCase().replace(/[^\w\s.-]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -1347,6 +1469,7 @@ client.once('ready', async () => {
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
   await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
+  await fixImportantVariants().catch(e => console.error('Important variants fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
 
   const firstBossDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 90) * 1000;
@@ -1479,6 +1602,16 @@ client.on('interactionCreate', async (i) => {
 
     if (commandName === 'bot-check') {
       return i.reply('✅ VoidRoll is responding.');
+    }
+
+
+    if (commandName === 'stats') {
+      const name = i.options.getString('name', true);
+      const card = await phase2FindUserCardByName(userId, name);
+      return i.reply(
+        `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
+        vrStatsLine(card, card.character)
+      );
     }
 
     if (commandName === 'help') {
@@ -1724,19 +1857,18 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'secrets') {
-      await applySecretCharacterBoosts();
-    await syncAllCardPowers(prisma);
-
       const chars = await prisma.character.findMany({
-        where: { rarity: 'SECRET' },
+        where: { rarity: 'SECRET', active: true },
         orderBy: { basePower: 'desc' },
-        take: 25
+        take: 50
       });
 
-      if (!chars.length) return i.reply('No SECRET characters found yet.');
+      if (!chars.length) return i.reply('No SECRET characters found.');
 
-      const content = (`**SECRET CHARACTERS**\n\n` + chars.map(c => `${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\n')).slice(0, 1900);
-      return i.reply(content);
+      return i.reply(
+        ('**SECRET Characters**\n' +
+        chars.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)}\n${vrStatsLine({ power: c.basePower, level: 1 }, c)}`).join('\n\n')).slice(0, 1900)
+      );
     }
 
     if (commandName === 'rarity') {
@@ -2785,6 +2917,16 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       return i.reply(`Added **${amount} tokens** to **${target.username}**. New tokens: **${updated.tokens}**`);
+    }
+
+
+    if (commandName === 'admin-fix-variants') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      await fixImportantVariants();
+      return i.reply({ content: '✅ Important duplicate variants fixed.', ephemeral: true });
     }
 
     if (commandName === 'admin-reset-all') {

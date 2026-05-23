@@ -42,6 +42,8 @@ const commands = [
     ),
 
   new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
+  new SlashCommandBuilder().setName('stats').setDescription('Show character stats').addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
+  new SlashCommandBuilder().setName('admin-fix-variants').setDescription('Admin: fix important duplicated variants'),
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
   new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest teams').addIntegerOption(o => o.setName('teams').setDescription('Team count 1-6').setRequired(false)),
 
