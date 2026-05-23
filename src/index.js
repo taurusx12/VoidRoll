@@ -34,112 +34,10 @@ const pendingTrades = new Map();
 
 
 
-
-const RARITY_BASE_RANGES = {
-  COMMON: { min: 50, max: 150 },
-  RARE: { min: 150, max: 400 },
-  EPIC: { min: 400, max: 900 },
-  LEGENDARY: { min: 900, max: 1800 },
-  MYTHIC: { min: 1800, max: 3500 },
-  DIVINE: { min: 3500, max: 6000 },
-  SECRET: { min: 6000, max: 10000 }
-};
-
-function rarityBasePower(rarity, seed = 1) {
-  const range = RARITY_BASE_RANGES[rarity] || RARITY_BASE_RANGES.COMMON;
-  const spread = Math.max(1, range.max - range.min);
-  return range.min + (Math.abs(seed * 97) % spread);
-}
-
-function calculateDetailedStats(character, level = 1, ascension = 0) {
-  const rarity = character?.rarity || 'COMMON';
-  const role = characterRole(character);
-  const basePower = Number(character?.basePower || rarityBasePower(rarity, level));
-  const growth = 1 + ((level - 1) * 0.085) + (ascension * 0.18);
-
-  let atkScale = 1;
-  let hpScale = 1;
-  let defScale = 1;
-  let speedScale = 1;
-  let critRate = 5;
-  let critDmg = 150;
-  let energyRegen = 100;
-  let pen = 0;
-  let lifesteal = 0;
-  let shield = 0;
-  let controlResist = 0;
-  let ultCharge = 100;
-
-  switch (role) {
-    case 'Tank':
-      hpScale = 2.4;
-      defScale = 2.1;
-      atkScale = 0.85;
-      shield = 22;
-      controlResist = 25;
-      break;
-    case 'Support':
-      hpScale = 1.6;
-      defScale = 1.3;
-      energyRegen = 145;
-      ultCharge = 135;
-      shield = 12;
-      break;
-    case 'Control':
-      hpScale = 1.4;
-      defScale = 1.2;
-      speedScale = 1.15;
-      ultCharge = 125;
-      controlResist = 15;
-      break;
-    case 'Assassin':
-      atkScale = 1.45;
-      speedScale = 1.4;
-      critRate = 28;
-      critDmg = 210;
-      pen = 18;
-      lifesteal = 8;
-      break;
-    case 'Mage':
-      atkScale = 1.55;
-      speedScale = 1.1;
-      pen = 25;
-      ultCharge = 120;
-      break;
-    default:
-      atkScale = 1.3;
-      hpScale = 1.3;
-      critRate = 15;
-      critDmg = 180;
-      break;
-  }
-
-  const atk = Math.floor(basePower * atkScale * growth);
-  const hp = Math.floor(basePower * 10 * hpScale * growth);
-  const def = Math.floor(basePower * 0.85 * defScale * growth);
-  const speed = Math.floor((100 + (basePower / 55)) * speedScale + (level * 0.8));
-
-  return {
-    atk,
-    hp,
-    def,
-    speed,
-    critRate,
-    critDmg,
-    energyRegen,
-    pen,
-    lifesteal,
-    shield,
-    controlResist,
-    ultCharge
-  };
-}
-
 function characterRole(character) {
   const n = phase2Normalize(character?.name || '');
   if (['lelouch','aizen','makima','kurapika'].some(x => n.includes(x))) return 'Control';
-  if (['rimuru','megumi','kakashi'].some(x => n.includes(x))) return 'Support';
-  if (['saber','artoria'].some(x => n.includes(x))) return 'Tank';
+  if (['rimuru','megumi','saber','kakashi'].some(x => n.includes(x))) return 'Support';
   if (['whitebeard','kaido','all might','escanor','ainz'].some(x => n.includes(x))) return 'Tank';
   if (['killua','toji','levi','hisoka'].some(x => n.includes(x))) return 'Assassin';
   if (['gojo','madara','gilgamesh','sukuna'].some(x => n.includes(x))) return 'Mage';
@@ -151,7 +49,7 @@ function characterElement(character) {
   if (['sukuna','toji','lelouch','makima','ainz'].some(x => n.includes(x))) return 'Dark';
   if (['sung jin','igris','beru'].some(x => n.includes(x))) return 'Shadow';
   if (['gojo','rimuru','gilgamesh'].some(x => n.includes(x))) return 'Void';
-  if (['saber','artoria','goku','naruto','luffy'].some(x => n.includes(x))) return 'Light';
+  if (['saber','goku','naruto','luffy'].some(x => n.includes(x))) return 'Light';
   if (['ace','rengoku','natsu'].some(x => n.includes(x))) return 'Fire';
   if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
   if (['aizen','ichigo'].some(x => n.includes(x))) return 'Soul';
@@ -173,57 +71,23 @@ function characterPassive(character) {
 }
 
 function characterStatsText(card, character) {
-  const level = Number(card?.level || 1);
-  const ascension = getAscension(card);
-  const stats = calculateDetailedStats(character, level, ascension);
-
+  const p = Number(card?.power || character?.basePower || 100);
+  const role = characterRole(character);
+  const atk = Math.floor(p * (role === 'Tank' ? 0.38 : role === 'Support' ? 0.42 : 0.55));
+  const def = Math.floor(p * (role === 'Tank' ? 0.45 : role === 'Assassin' ? 0.20 : 0.30));
+  const hp = Math.floor(p * (role === 'Tank' ? 9.5 : role === 'Support' ? 7.2 : 6.0));
+  const spd = Math.floor(100 + p / 250 + (role === 'Assassin' ? 45 : role === 'Support' ? 25 : 0));
+  const crit = role === 'Assassin' ? 35 : role === 'DPS' ? 25 : 15;
   return (
-    `Level: **${level}/99** | Ascension: **${ascension}**\n` +
-    `Class: **${characterRole(character)}** | Element: **${characterElement(character)}**\n` +
-    `ATK **${money(stats.atk)}** • HP **${money(stats.hp)}** • DEF **${money(stats.def)}** • SPD **${stats.speed}**\n` +
-    `CRIT ${stats.critRate}% • CRIT DMG ${stats.critDmg}% • PEN ${stats.pen}%\n` +
-    `Energy Regen ${stats.energyRegen}% • Ult Charge ${stats.ultCharge}%\n` +
-    `Lifesteal ${stats.lifesteal}% • Shield ${stats.shield}% • Control Resist ${stats.controlResist}%\n` +
+    `Class: **${role}** | Element: **${characterElement(character)}**\n` +
+    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
+    `CRIT **${crit}%**\n` +
     `Passive: ${characterPassive(character)}`
   );
 }
 
 function levelCapForCard() {
   return 99;
-}
-
-
-async function ascendCard(cardId) {
-  const card = await prisma.userCard.findUnique({
-    where: { id: cardId },
-    include: { character: true }
-  });
-
-  if (!card) throw new Error('Card not found.');
-
-  const currentAsc = getAscension(card);
-  const nextAsc = Math.min(15, currentAsc + 1);
-
-  const rarityBonus = {
-    COMMON: 15,
-    RARE: 35,
-    EPIC: 80,
-    LEGENDARY: 150,
-    MYTHIC: 280,
-    DIVINE: 520,
-    SECRET: 900
-  }[card.character.rarity] || 10;
-
-  const powerGain = rarityBonus * nextAsc;
-
-  return prisma.userCard.update({
-    where: { id: card.id },
-    data: {
-      trait: setAscensionTrait(card.trait, nextAsc),
-      power: { increment: powerGain }
-    },
-    include: { character: true }
-  });
 }
 
 async function addCardLevel(cardId, amount) {
@@ -239,6 +103,74 @@ async function addCardLevel(cardId, amount) {
     data: { level: newLevel, power: { increment: powerGain } },
     include: { character: true }
   });
+}
+
+
+function statRole(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (['lelouch','aizen','makima','kurapika','shikamaru'].some(x => n.includes(x))) return 'Control';
+  if (['rimuru','megumi','kakashi','shoko','orihime','sakura'].some(x => n.includes(x))) return 'Support';
+  if (['saber','ainz','whitebeard','kaido','all might','escanor'].some(x => n.includes(x))) return 'Tank';
+  if (['killua','toji','levi','hisoka','zenitsu'].some(x => n.includes(x))) return 'Assassin';
+  if (['gojo','madara','gilgamesh','sukuna','aizen'].some(x => n.includes(x))) return 'Mage';
+  return 'DPS';
+}
+
+function statElement(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (['sukuna','toji','lelouch','makima','ainz'].some(x => n.includes(x))) return 'Dark';
+  if (['sung jin','igris','beru'].some(x => n.includes(x))) return 'Shadow';
+  if (['gojo','rimuru','gilgamesh','aizen'].some(x => n.includes(x))) return 'Void';
+  if (['saber','goku','naruto','luffy','all might'].some(x => n.includes(x))) return 'Light';
+  if (['ace','rengoku','natsu','shinra'].some(x => n.includes(x))) return 'Fire';
+  if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
+  if (['ichigo','rukia','yhwach'].some(x => n.includes(x))) return 'Soul';
+  return character?.element || 'Neutral';
+}
+
+function statPassive(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (n.includes('lelouch')) return 'Geass: enemy control + team ultimate charge.';
+  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
+  if (n.includes('sung jin')) return 'Shadow Monarch: gains damage after enemy defeat.';
+  if (n.includes('saber')) return 'Avalon: shield and damage reduction for team.';
+  if (n.includes('ainz')) return 'Overlord: boosts Dark allies and weakens enemies.';
+  if (n.includes('gon') || n.includes('killua')) return 'Hunter Bond: speed and crit with Hunter allies.';
+  if (n.includes('kurapika')) return 'Chain Judgment: bonus damage against villain teams.';
+  if (n.includes('madara')) return 'Uchiha Dominion: AoE ultimate damage.';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy.';
+  return 'Battle Instinct: small ATK and ultimate charge bonus.';
+}
+
+function statBlock(card, character) {
+  const level = Number(card?.level || 1);
+  const base = Number(card?.power || character?.basePower || 100);
+  const role = statRole(character);
+  const rarity = character?.rarity || 'COMMON';
+  const rarityMult = { COMMON: 0.8, RARE: 1, EPIC: 1.25, LEGENDARY: 1.6, MYTHIC: 2.2, DIVINE: 3.0, SECRET: 4.0 }[rarity] || 1;
+  const levelMult = 1 + ((level - 1) * 0.045);
+
+  let atkScale = 1.0, hpScale = 6.0, defScale = 0.65, speedBonus = 0, crit = 10, critDmg = 150, energy = 100, shield = 0, lifesteal = 0, pen = 0;
+
+  if (role === 'Tank') { hpScale = 10; defScale = 1.25; atkScale = 0.75; shield = 20; }
+  if (role === 'Support') { hpScale = 7; defScale = 0.85; atkScale = 0.8; energy = 135; shield = 10; }
+  if (role === 'Control') { hpScale = 6.8; defScale = 0.8; atkScale = 0.9; energy = 125; speedBonus = 20; }
+  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.2; defScale = 0.45; speedBonus = 45; crit = 30; critDmg = 210; lifesteal = 8; pen = 15; }
+  if (role === 'Mage') { atkScale = 1.45; hpScale = 5.6; defScale = 0.55; energy = 120; pen = 25; critDmg = 190; }
+  if (role === 'DPS') { atkScale = 1.25; hpScale = 6.0; defScale = 0.6; crit = 18; critDmg = 180; }
+
+  const atk = Math.floor(base * atkScale * rarityMult * levelMult);
+  const hp = Math.floor(base * hpScale * rarityMult * levelMult);
+  const def = Math.floor(base * defScale * rarityMult * levelMult);
+  const spd = Math.floor(100 + base / 120 + speedBonus + level * 0.5);
+
+  return (
+    `Class: **${role}** | Element: **${statElement(character)}**\n` +
+    `Lv **${level}/99** | ATK **${money(atk)}** | HP **${money(hp)}** | DEF **${money(def)}** | SPD **${spd}**\n` +
+    `CRIT **${crit}%** | CRIT DMG **${critDmg}%** | PEN **${pen}%**\n` +
+    `Energy **${energy}%** | Shield **${shield}%** | Lifesteal **${lifesteal}%**\n` +
+    `Passive: ${statPassive(character)}`
+  );
 }
 
 function phase2Normalize(value = '') {
@@ -279,18 +211,6 @@ function phase2RaritySellValue(rarity, power = 0) {
   }[rarity] || 100;
 
   return base + Math.floor(Number(power || 0) * 0.08);
-}
-
-
-function getAscension(card) {
-  const trait = String(card?.trait || '');
-  const match = trait.match(/ASC:(\d+)/);
-  return Math.max(0, Number(match?.[1] || 0));
-}
-
-function setAscensionTrait(oldTrait, ascension) {
-  const clean = String(oldTrait || '').replace(/ASC:\d+/g, '').trim();
-  return `${clean} ASC:${Math.max(0, ascension)}`.trim();
 }
 
 function phase2GetStars(card) {
@@ -737,244 +657,6 @@ function weightedPick(items, weightFn) {
   return rows[rows.length - 1]?.item;
 }
 
-
-async function ensureSaberAnd5000Characters() {
-  const baseRoster = [
-    ['Naruto Uzumaki','Naruto'], ['Sasuke Uchiha','Naruto'], ['Sakura Haruno','Naruto'], ['Kakashi Hatake','Naruto'],
-    ['Itachi Uchiha','Naruto'], ['Madara Uchiha','Naruto'], ['Obito Uchiha','Naruto'], ['Pain','Naruto'],
-    ['Minato Namikaze','Naruto'], ['Rock Lee','Naruto'], ['Neji Hyuga','Naruto'], ['Shikamaru Nara','Naruto'],
-
-    ['Monkey D. Luffy','One Piece'], ['Roronoa Zoro','One Piece'], ['Sanji','One Piece'], ['Nami','One Piece'],
-    ['Nico Robin','One Piece'], ['Franky','One Piece'], ['Brook','One Piece'], ['Jinbe','One Piece'],
-    ['Shanks','One Piece'], ['Kaido','One Piece'], ['Whitebeard','One Piece'], ['Gol D. Roger','One Piece'],
-    ['Trafalgar Law','One Piece'], ['Portgas D. Ace','One Piece'], ['Dracule Mihawk','One Piece'],
-
-    ['Ichigo Kurosaki','Bleach'], ['Rukia Kuchiki','Bleach'], ['Byakuya Kuchiki','Bleach'], ['Kenpachi Zaraki','Bleach'],
-    ['Sosuke Aizen','Bleach'], ['Yhwach','Bleach'], ['Ulquiorra Cifer','Bleach'], ['Genryusai Yamamoto','Bleach'],
-
-    ['Goku','Dragon Ball'], ['Vegeta','Dragon Ball'], ['Gohan','Dragon Ball'], ['Piccolo','Dragon Ball'],
-    ['Frieza','Dragon Ball'], ['Broly','Dragon Ball'], ['Beerus','Dragon Ball'], ['Whis','Dragon Ball'],
-
-    ['Satoru Gojo','Jujutsu Kaisen'], ['Ryomen Sukuna','Jujutsu Kaisen'], ['Yuji Itadori','Jujutsu Kaisen'],
-    ['Megumi Fushiguro','Jujutsu Kaisen'], ['Nobara Kugisaki','Jujutsu Kaisen'], ['Toji Fushiguro','Jujutsu Kaisen'],
-    ['Maki Zenin','Jujutsu Kaisen'], ['Kento Nanami','Jujutsu Kaisen'], ['Suguru Geto','Jujutsu Kaisen'],
-
-    ['Tanjiro Kamado','Demon Slayer'], ['Nezuko Kamado','Demon Slayer'], ['Zenitsu Agatsuma','Demon Slayer'],
-    ['Inosuke Hashibira','Demon Slayer'], ['Kyojuro Rengoku','Demon Slayer'], ['Giyu Tomioka','Demon Slayer'],
-    ['Shinobu Kocho','Demon Slayer'], ['Tengen Uzui','Demon Slayer'], ['Akaza','Demon Slayer'], ['Muzan Kibutsuji','Demon Slayer'],
-
-    ['Gon Freecss','Hunter x Hunter'], ['Killua Zoldyck','Hunter x Hunter'], ['Kurapika','Hunter x Hunter'],
-    ['Leorio','Hunter x Hunter'], ['Hisoka Morow','Hunter x Hunter'], ['Chrollo Lucilfer','Hunter x Hunter'],
-    ['Meruem','Hunter x Hunter'], ['Isaac Netero','Hunter x Hunter'],
-
-    ['Saber','Fate Series'], ['Artoria Pendragon','Fate Series'], ['Saber Alter','Fate Series'],
-    ['Gilgamesh','Fate Series'], ['Archer EMIYA','Fate Series'], ['Rin Tohsaka','Fate Series'],
-
-    ['Ainz Ooal Gown','Overlord'], ['Albedo','Overlord'], ['Demiurge','Overlord'], ['Shalltear Bloodfallen','Overlord'],
-
-    ['Sung Jin-Woo','Solo Leveling'], ['Igris','Solo Leveling'], ['Beru','Solo Leveling'], ['Cha Hae-In','Solo Leveling'],
-
-    ['Denji','Chainsaw Man'], ['Power','Chainsaw Man'], ['Makima','Chainsaw Man'], ['Aki Hayakawa','Chainsaw Man'],
-
-    ['Eren Yeager','Attack on Titan'], ['Mikasa Ackerman','Attack on Titan'], ['Levi Ackerman','Attack on Titan'], ['Armin Arlert','Attack on Titan'],
-
-    ['Asta','Black Clover'], ['Yuno','Black Clover'], ['Yami Sukehiro','Black Clover'], ['Julius Novachrono','Black Clover'],
-
-    ['Izuku Midoriya','My Hero Academia'], ['Katsuki Bakugo','My Hero Academia'], ['Shoto Todoroki','My Hero Academia'], ['All Might','My Hero Academia'],
-
-    ['Saitama','One Punch Man'], ['Genos','One Punch Man'], ['Garou','One Punch Man'], ['Tatsumaki','One Punch Man'],
-
-    ['Natsu Dragneel','Fairy Tail'], ['Lucy Heartfilia','Fairy Tail'], ['Erza Scarlet','Fairy Tail'], ['Gray Fullbuster','Fairy Tail'],
-
-    ['Kaneki Ken','Tokyo Ghoul'], ['Touka Kirishima','Tokyo Ghoul'], ['Rize Kamishiro','Tokyo Ghoul'],
-
-    ['Lelouch Lamperouge','Code Geass'], ['Suzaku Kururugi','Code Geass'], ['C.C.','Code Geass'], ['Kallen Kozuki','Code Geass'],
-
-    ['Edward Elric','Fullmetal Alchemist'], ['Alphonse Elric','Fullmetal Alchemist'], ['Roy Mustang','Fullmetal Alchemist'],
-
-    ['Jotaro Kujo','JoJo'], ['Dio Brando','JoJo'], ['Giorno Giovanna','JoJo'],
-
-    ['Rin Itoshi','Blue Lock'], ['Yoichi Isagi','Blue Lock'], ['Seishiro Nagi','Blue Lock'],
-
-    ['Thorfinn','Vinland Saga'], ['Askeladd','Vinland Saga'], ['Canute','Vinland Saga'],
-
-    ['Shinra Kusakabe','Fire Force'], ['Benimaru Shinmon','Fire Force'], ['Arthur Boyle','Fire Force'],
-
-    ['Kirito','Sword Art Online'], ['Asuna','Sword Art Online'], ['Sinon','Sword Art Online'],
-
-    ['Rimuru Tempest','That Time I Got Reincarnated as a Slime'], ['Benimaru','That Time I Got Reincarnated as a Slime'],
-    ['Diablo','That Time I Got Reincarnated as a Slime'], ['Veldora Tempest','That Time I Got Reincarnated as a Slime'],
-
-    ['Cid Kagenou','The Eminence in Shadow'], ['Alpha','The Eminence in Shadow'], ['Delta','The Eminence in Shadow'],
-    ['Kusuo Saiki','The Disastrous Life of Saiki K.'], ['Mob','Mob Psycho 100'], ['Reigen Arataka','Mob Psycho 100']
-  ];
-
-  const forms = [
-    ['Base','COMMON'], ['Training','COMMON'], ['Early Arc','COMMON'], ['Support','RARE'], ['Battle Ready','RARE'],
-    ['Awakened','EPIC'], ['Limit Break','EPIC'], ['Elite','EPIC'], ['Commander','LEGENDARY'], ['Prime','LEGENDARY'],
-    ['Final Arc','LEGENDARY'], ['Mythic Form','MYTHIC'], ['True Power','MYTHIC'], ['Domain Form','MYTHIC'],
-    ['Divine Form','DIVINE'], ['Transcendent','DIVINE'], ['Ultimate','DIVINE'], ['Secret Form','SECRET'],
-    ['Final Form','SECRET'], ['Legendary Variant','LEGENDARY'], ['Raid Variant','MYTHIC'], ['Festival Variant','EPIC'],
-    ['Dark Variant','EPIC'], ['Light Variant','EPIC'], ['Shadow Variant','MYTHIC'], ['Demon Variant','MYTHIC'],
-    ['Hero Variant','RARE'], ['Royal Variant','LEGENDARY'], ['Cursed Variant','MYTHIC'], ['Void Variant','DIVINE'],
-    ['Berserk Mode','LEGENDARY'], ['Spirit Mode','EPIC'], ['Heavenly Form','DIVINE'], ['Godspeed Form','DIVINE'],
-    ['Full Power','SECRET'], ['Overdrive','MYTHIC'], ['War Arc','LEGENDARY'], ['Time Skip','EPIC'],
-    ['Armored','RARE'], ['Black Outfit','RARE'], ['White Outfit','RARE'], ['Captain Form','LEGENDARY'],
-    ['Monarch Form','SECRET'], ['King Form','DIVINE'], ['Queen Form','DIVINE'], ['Zero Form','SECRET'],
-    ['Avalon Form','SECRET'], ['Hollow Form','MYTHIC'], ['Bankai Form','DIVINE'], ['Sage Form','DIVINE'],
-    ['Baryon Form','SECRET'], ['Gear Form','DIVINE'], ['Ultra Form','SECRET'], ['Limitless Form','SECRET'],
-    ['Chain Form','DIVINE'], ['Assassin Form','MYTHIC'], ['Hunter Form','EPIC'], ['Guardian Form','RARE'],
-    ['Vanguard Form','RARE'], ['Phantom Form','EPIC']
-  ];
-
-  const elementByForm = (form, fallbackIndex) => {
-    const f = phase2Normalize(form);
-    if (f.includes('dark') || f.includes('cursed') || f.includes('demon')) return 'Dark';
-    if (f.includes('light') || f.includes('heaven') || f.includes('avalon')) return 'Light';
-    if (f.includes('shadow') || f.includes('monarch')) return 'Shadow';
-    if (f.includes('void') || f.includes('limitless') || f.includes('zero')) return 'Void';
-    if (f.includes('godspeed') || f.includes('ultra')) return 'Lightning';
-    return ['Neutral','Fire','Ice','Curse','Light','Dark','Shadow','Void','Lightning'][fallbackIndex % 9];
-  };
-
-  const powerFor = (rarity, seed) => {
-    const ranges = {
-      COMMON: [50, 150],
-      RARE: [150, 400],
-      EPIC: [400, 900],
-      LEGENDARY: [900, 1800],
-      MYTHIC: [1800, 3500],
-      DIVINE: [3500, 6000],
-      SECRET: [6000, 10000]
-    };
-    const [min, max] = ranges[rarity] || ranges.COMMON;
-    return min + (seed * 97 % Math.max(1, max - min));
-  };
-
-  // Saber must exist as SECRET.
-  const saber = await prisma.character.findFirst({
-    where: {
-      OR: [
-        { name: { contains: 'Saber', mode: 'insensitive' } },
-        { name: { contains: 'Artoria', mode: 'insensitive' } }
-      ]
-    }
-  }).catch(() => null);
-
-  if (saber) {
-    await prisma.character.update({
-      where: { id: saber.id },
-      data: { name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', basePower: 9000, baseFarm: 1125, baseLuck: 450, element: 'Light', active: true }
-    }).catch(() => {});
-  } else {
-    await prisma.character.create({
-      data: {
-        id: 'secret_saber_artoria',
-        name: 'Saber',
-        anime: 'Fate Series',
-        rarity: 'SECRET',
-        element: 'Light',
-        imageUrl: null,
-        auraName: 'Avalon Oath',
-        auraColor: '#f8fafc',
-        auraSecondary: '#fbbf24',
-        auraIntensity: 1.7,
-        basePower: 9000,
-        baseFarm: 1125,
-        baseLuck: 450,
-        limited: true,
-        banner: 'saber_oath',
-        active: true
-      }
-    }).catch(() => {});
-  }
-
-  const badPatterns = ['Guardian ', 'Beast ', 'Frost ', 'Void ', 'Saint ', 'Blade ', 'Shadow ', 'Flame ', 'Thunder ', 'Spirit ', 'Dragon ', 'Demon ', 'Hunter ', 'Knight ', 'Monarch ', 'Reaper ', 'Oracle ', 'Phantom ', 'Breaker ', 'Vanguard ', 'Sage ', 'Titan ', 'Rogue ', 'Captain '];
-
-  const generated = await prisma.character.findMany({
-    where: {
-      OR: [
-        { id: { startsWith: 'gen_' } },
-        ...badPatterns.map(p => ({ name: { contains: p, mode: 'insensitive' } }))
-      ]
-    },
-    orderBy: { id: 'asc' }
-  }).catch(() => []);
-
-  let renameIndex = 0;
-
-  for (const c of generated) {
-    const base = baseRoster[renameIndex % baseRoster.length];
-    const form = forms[Math.floor(renameIndex / baseRoster.length) % forms.length];
-    const name = `${base[0]} (${form[0]})`;
-    const rarity = form[1];
-    const power = powerFor(rarity, renameIndex + 1);
-
-    await prisma.character.update({
-      where: { id: c.id },
-      data: {
-        name,
-        anime: base[1],
-        rarity,
-        element: elementByForm(form[0], renameIndex),
-        basePower: power,
-        baseFarm: Math.max(1, Math.floor(power / 8)),
-        baseLuck: Math.max(1, Math.floor(power / 20)),
-        auraName: `${form[0]} Aura`,
-        active: true
-      }
-    }).catch(() => {});
-
-    renameIndex++;
-  }
-
-  const total = await prisma.character.count().catch(() => 0);
-  if (total >= 5000) {
-    console.log(`[BigPool] Character count ${total}. Cleaned generated names: ${generated.length}.`);
-    return;
-  }
-
-  const batch = [];
-  let seed = 0;
-
-  while (total + batch.length < 5000) {
-    const base = baseRoster[seed % baseRoster.length];
-    const form = forms[Math.floor(seed / baseRoster.length) % forms.length];
-    const name = `${base[0]} (${form[0]})`;
-    const rarity = form[1];
-    const power = powerFor(rarity, seed + 1);
-    const cleanId = phase2Normalize(`${base[0]} ${form[0]} ${seed}`).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 48);
-
-    batch.push({
-      id: `real_${cleanId}`,
-      name,
-      anime: base[1],
-      rarity,
-      element: elementByForm(form[0], seed),
-      imageUrl: null,
-      auraName: `${form[0]} Aura`,
-      auraColor: rarity === 'SECRET' ? '#111827' : rarity === 'DIVINE' ? '#f472b6' : rarity === 'MYTHIC' ? '#ef4444' : rarity === 'LEGENDARY' ? '#f59e0b' : '#3b82f6',
-      auraSecondary: '#ffffff',
-      auraIntensity: rarity === 'SECRET' ? 1.8 : rarity === 'DIVINE' ? 1.5 : 1.0,
-      basePower: power,
-      baseFarm: Math.max(1, Math.floor(power / 8)),
-      baseLuck: Math.max(1, Math.floor(power / 20)),
-      limited: false,
-      banner: null,
-      active: true
-    });
-
-    seed++;
-  }
-
-  for (let i = 0; i < batch.length; i += 500) {
-    await prisma.character.createMany({ data: batch.slice(i, i + 500), skipDuplicates: true }).catch(e => console.error('[BigPool] createMany failed:', e.message));
-  }
-
-  const finalCount = await prisma.character.count().catch(() => 0);
-  console.log(`[BigPool] Character count: ${finalCount}. Clean names enabled. Renamed: ${generated.length}. Added: ${batch.length}.`);
-}
-
 async function applySecretCharacterBoosts() {
   const chars = await prisma.character.findMany({
     where: { active: true },
@@ -987,7 +669,7 @@ async function applySecretCharacterBoosts() {
     const cls = classifyCharacter(c);
     if (!cls) continue;
 
-    const newPower = rarityBasePower(cls.rarity, c.id.length + c.name.length);
+    const newPower = cls.power;
 
     await prisma.character.update({
       where: { id: c.id },
@@ -1224,24 +906,6 @@ function calculateSynergies(cards) {
     if (rule.keys.every(k => text.includes(phase2Normalize(k)))) {
       active.push(rule);
     }
-  }
-
-  const roles = cards.map(c => characterRole(c.character)).filter(Boolean);
-  const elements = cards.map(c => characterElement(c.character)).filter(Boolean);
-  const roleCounts = {};
-  const elementCounts = {};
-
-  for (const r of roles) roleCounts[r] = (roleCounts[r] || 0) + 1;
-  for (const e of elements) elementCounts[e] = (elementCounts[e] || 0) + 1;
-
-  for (const [role, count] of Object.entries(roleCounts)) {
-    if (count >= 3) active.push({ name: `${role} Formation`, atk: 0.06, def: 0.06, ult: 0.05 });
-    if (count >= 5) active.push({ name: `Full ${role} Team`, atk: 0.15, def: 0.12, ult: 0.10 });
-  }
-
-  for (const [element, count] of Object.entries(elementCounts)) {
-    if (count >= 3) active.push({ name: `${element} Aura`, atk: 0.10, hp: 0.08 });
-    if (count >= 5) active.push({ name: `Pure ${element} Formation`, atk: 0.22, hp: 0.15, ult: 0.10 });
   }
 
   const bonus = active.reduce((sum, r) =>
@@ -1749,7 +1413,6 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
-  console.log('[BigPool] Auto clean disabled.');
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
   await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
@@ -1882,22 +1545,18 @@ client.on('interactionCreate', async (i) => {
     const commandName = i.commandName;
     const fusionResults = [];
 
-
-
-    if (commandName === 'admin-clean-generated-names') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      return i.reply({
-        content: '✅ Clean command received. Heavy cleaning is disabled now to prevent Discord timeout. I will send a lighter batch cleaner next.',
-        ephemeral: true
-      });
+    if (commandName === 'bot-check') {
+      return i.reply('✅ VoidRoll is responding.');
     }
 
-    if (commandName === 'characters-count') {
-      const total = await prisma.character.count({ where: { active: true } });
-      return i.reply(`📚 **${total}**`);
+
+    if (commandName === 'stats') {
+      const name = i.options.getString('name', true);
+      const card = await phase2FindUserCardByName(userId, name);
+      return i.reply(
+        `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
+        statBlock(card, card.character)
+      );
     }
 
     if (commandName === 'help') {
@@ -2870,7 +2529,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
 
     if (commandName === 'lvl') {
-      const name = i.options.getString('name') || i.options.getString('card_id');
+      const name = i.options.getString('name', true);
       const amount = i.options.getInteger('amount') || 1;
       const card = await phase2FindUserCardByName(userId, name);
       const cost = Math.max(1, amount) * 2500;

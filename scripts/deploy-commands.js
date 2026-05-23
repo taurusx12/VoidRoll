@@ -4,8 +4,18 @@ const { REST, Routes, SlashCommandBuilder, ChannelType } = require('discord.js')
 const config = require('../src/lib/config');
 
 const commands = [
-  new SlashCommandBuilder().setName('admin-clean-generated-names').setDescription('Admin: clean generated placeholder character names'),
-  new SlashCommandBuilder().setName('characters-count').setDescription('Show total active characters and Saber status'),
+  new SlashCommandBuilder().setName('bot-check').setDescription('Check if VoidRoll is responding'),
+
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Show HP, DEF, ATK, class, element and passive for your character')
+    .addStringOption(o =>
+      o.setName('name')
+        .setDescription('Character name')
+        .setRequired(true)
+    ),
+
+
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
@@ -152,11 +162,24 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('ascend')
-    .setDescription('Ascend a character by name using resources')
+    .setDescription('Upgrade a character rarity and power using gold/tokens')
     .addStringOption(o =>
-      o.setName('name')
-        .setDescription('Character name')
+      o.setName('card_id')
+        .setDescription('Card ID')
         .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Target rarity')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Secret', value: 'SECRET' }
+        )
     ),
 
 
