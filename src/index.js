@@ -105,74 +105,6 @@ async function addCardLevel(cardId, amount) {
   });
 }
 
-
-function statRole(character) {
-  const n = phase2Normalize(character?.name || '');
-  if (['lelouch','aizen','makima','kurapika','shikamaru'].some(x => n.includes(x))) return 'Control';
-  if (['rimuru','megumi','kakashi','shoko','orihime','sakura'].some(x => n.includes(x))) return 'Support';
-  if (['saber','ainz','whitebeard','kaido','all might','escanor'].some(x => n.includes(x))) return 'Tank';
-  if (['killua','toji','levi','hisoka','zenitsu'].some(x => n.includes(x))) return 'Assassin';
-  if (['gojo','madara','gilgamesh','sukuna','aizen'].some(x => n.includes(x))) return 'Mage';
-  return 'DPS';
-}
-
-function statElement(character) {
-  const n = phase2Normalize(character?.name || '');
-  if (['sukuna','toji','lelouch','makima','ainz'].some(x => n.includes(x))) return 'Dark';
-  if (['sung jin','igris','beru'].some(x => n.includes(x))) return 'Shadow';
-  if (['gojo','rimuru','gilgamesh','aizen'].some(x => n.includes(x))) return 'Void';
-  if (['saber','goku','naruto','luffy','all might'].some(x => n.includes(x))) return 'Light';
-  if (['ace','rengoku','natsu','shinra'].some(x => n.includes(x))) return 'Fire';
-  if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
-  if (['ichigo','rukia','yhwach'].some(x => n.includes(x))) return 'Soul';
-  return character?.element || 'Neutral';
-}
-
-function statPassive(character) {
-  const n = phase2Normalize(character?.name || '');
-  if (n.includes('lelouch')) return 'Geass: enemy control + team ultimate charge.';
-  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
-  if (n.includes('sung jin')) return 'Shadow Monarch: gains damage after enemy defeat.';
-  if (n.includes('saber')) return 'Avalon: shield and damage reduction for team.';
-  if (n.includes('ainz')) return 'Overlord: boosts Dark allies and weakens enemies.';
-  if (n.includes('gon') || n.includes('killua')) return 'Hunter Bond: speed and crit with Hunter allies.';
-  if (n.includes('kurapika')) return 'Chain Judgment: bonus damage against villain teams.';
-  if (n.includes('madara')) return 'Uchiha Dominion: AoE ultimate damage.';
-  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy.';
-  return 'Battle Instinct: small ATK and ultimate charge bonus.';
-}
-
-function statBlock(card, character) {
-  const level = Number(card?.level || 1);
-  const base = Number(card?.power || character?.basePower || 100);
-  const role = statRole(character);
-  const rarity = character?.rarity || 'COMMON';
-  const rarityMult = { COMMON: 0.8, RARE: 1, EPIC: 1.25, LEGENDARY: 1.6, MYTHIC: 2.2, DIVINE: 3.0, SECRET: 4.0 }[rarity] || 1;
-  const levelMult = 1 + ((level - 1) * 0.045);
-
-  let atkScale = 1.0, hpScale = 6.0, defScale = 0.65, speedBonus = 0, crit = 10, critDmg = 150, energy = 100, shield = 0, lifesteal = 0, pen = 0;
-
-  if (role === 'Tank') { hpScale = 10; defScale = 1.25; atkScale = 0.75; shield = 20; }
-  if (role === 'Support') { hpScale = 7; defScale = 0.85; atkScale = 0.8; energy = 135; shield = 10; }
-  if (role === 'Control') { hpScale = 6.8; defScale = 0.8; atkScale = 0.9; energy = 125; speedBonus = 20; }
-  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.2; defScale = 0.45; speedBonus = 45; crit = 30; critDmg = 210; lifesteal = 8; pen = 15; }
-  if (role === 'Mage') { atkScale = 1.45; hpScale = 5.6; defScale = 0.55; energy = 120; pen = 25; critDmg = 190; }
-  if (role === 'DPS') { atkScale = 1.25; hpScale = 6.0; defScale = 0.6; crit = 18; critDmg = 180; }
-
-  const atk = Math.floor(base * atkScale * rarityMult * levelMult);
-  const hp = Math.floor(base * hpScale * rarityMult * levelMult);
-  const def = Math.floor(base * defScale * rarityMult * levelMult);
-  const spd = Math.floor(100 + base / 120 + speedBonus + level * 0.5);
-
-  return (
-    `Class: **${role}** | Element: **${statElement(character)}**\n` +
-    `Lv **${level}/99** | ATK **${money(atk)}** | HP **${money(hp)}** | DEF **${money(def)}** | SPD **${spd}**\n` +
-    `CRIT **${crit}%** | CRIT DMG **${critDmg}%** | PEN **${pen}%**\n` +
-    `Energy **${energy}%** | Shield **${shield}%** | Lifesteal **${lifesteal}%**\n` +
-    `Passive: ${statPassive(character)}`
-  );
-}
-
 function phase2Normalize(value = '') {
   return String(value || '').toLowerCase().replace(/[^\w\s.-]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -1547,16 +1479,6 @@ client.on('interactionCreate', async (i) => {
 
     if (commandName === 'bot-check') {
       return i.reply('✅ VoidRoll is responding.');
-    }
-
-
-    if (commandName === 'stats') {
-      const name = i.options.getString('name', true);
-      const card = await phase2FindUserCardByName(userId, name);
-      return i.reply(
-        `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
-        statBlock(card, card.character)
-      );
     }
 
     if (commandName === 'help') {

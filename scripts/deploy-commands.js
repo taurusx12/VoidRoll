@@ -5,17 +5,6 @@ const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('bot-check').setDescription('Check if VoidRoll is responding'),
-
-  new SlashCommandBuilder()
-    .setName('stats')
-    .setDescription('Show HP, DEF, ATK, class, element and passive for your character')
-    .addStringOption(o =>
-      o.setName('name')
-        .setDescription('Character name')
-        .setRequired(true)
-    ),
-
-
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
