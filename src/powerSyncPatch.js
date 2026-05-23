@@ -10,24 +10,32 @@ async function syncAllCardPowers(prisma) {
   });
 
   let updated = 0;
+  let protectedCards = 0;
 
   for (const card of cards) {
+    const currentPower = Number(card.power || 0);
     const stars = getStars(card);
-    const basePower = Number(card.character?.basePower || card.power || 0);
+    const basePower = Number(card.character?.basePower || currentPower || 0);
     const starBonus = Math.floor(basePower * 0.10 * stars);
-    const targetPower = basePower + starBonus;
+    const minimumPower = basePower + starBonus;
 
-    // مهم: يحدث القوة حتى لو لازم تنقص، عشان يصلح كاكاشي/قوجو وكل البطاقات القديمة.
-    if (targetPower !== Number(card.power || 0)) {
+    // مهم جدًا:
+    // لا ننزل قوة الكرت أبدًا، لأن اللاعب ممكن يكون مطوره بـ train/ascend.
+    // فقط نرفع الكرت إذا كان أقل من القوة الأساسية الجديدة.
+    const targetPower = Math.max(currentPower, minimumPower);
+
+    if (targetPower !== currentPower) {
       await prisma.userCard.update({
         where: { id: card.id },
         data: { power: targetPower }
       });
       updated++;
+    } else {
+      protectedCards++;
     }
   }
 
-  console.log(`[PowerSync] Updated ${updated} old card powers`);
+  console.log(`[PowerSync Safe] Raised ${updated} cards, protected ${protectedCards} upgraded cards`);
 }
 
 module.exports = { syncAllCardPowers };

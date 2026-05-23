@@ -280,6 +280,113 @@ const commands = [
         .addChannelTypes(ChannelType.GuildText)
     ),
 
+
+  new SlashCommandBuilder()
+    .setName('admin-repair-rewards')
+    .setDescription('Admin: send repair compensation to all users')
+    .addIntegerOption(o =>
+      o.setName('gold')
+        .setDescription('Gold amount per user')
+        .setRequired(false)
+    )
+    .addIntegerOption(o =>
+      o.setName('tokens')
+        .setDescription('Tokens amount per user')
+        .setRequired(false)
+    )
+    .addIntegerOption(o =>
+      o.setName('rolls')
+        .setDescription('Rolls amount per user')
+        .setRequired(false)
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('t')
+    .setDescription('Train a character by name using gold')
+    .addStringOption(o =>
+      o.setName('name')
+        .setDescription('Character name')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Training amount 1-100')
+        .setRequired(false)
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('a')
+    .setDescription('Ascend a character by name')
+    .addStringOption(o =>
+      o.setName('name')
+        .setDescription('Character name')
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Target rarity')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Secret', value: 'SECRET' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('sell-rarity')
+    .setDescription('Sell all cards of a rarity')
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Rarity to sell')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Common', value: 'COMMON' },
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Secret', value: 'SECRET' }
+        )
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('admin-give-gold')
+    .setDescription('Admin: give gold to a player')
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Player')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Gold amount')
+        .setRequired(true)
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('admin-give-tokens')
+    .setDescription('Admin: give tokens to a player')
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Player')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Token amount')
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName('admin-give-rolls')
     .setDescription('Admin: give rolls to a player')

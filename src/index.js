@@ -95,6 +95,85 @@ function levelUpText(result) {
 }
 
 
+
+async function findUserCardByName(userId, name) {
+  const query = String(name || '').trim().toLowerCase();
+  if (!query) throw new Error('Write a character name.');
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 10000
+  });
+
+  const exact = cards.find(c => c.character.name.toLowerCase() === query);
+  if (exact) return exact;
+
+  const starts = cards.find(c => c.character.name.toLowerCase().startsWith(query));
+  if (starts) return starts;
+
+  const includes = cards.find(c => c.character.name.toLowerCase().includes(query));
+  if (includes) return includes;
+
+  throw new Error(`No card found in your inventory for: ${name}`);
+}
+
+function raritySellValue(rarity, power = 0) {
+  const base = {
+    COMMON: 250,
+    RARE: 1000,
+    EPIC: 5000,
+    LEGENDARY: 25000,
+    MYTHIC: 90000,
+    DIVINE: 250000,
+    SECRET: 1000000
+  }[rarity] || 100;
+
+  return base + Math.floor(Number(power || 0) * 0.08);
+}
+
+async function sellAllByRarity(userId, rarity) {
+  const target = String(rarity || '').toUpperCase();
+
+  const allowed = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'];
+  if (!allowed.includes(target)) throw new Error('Invalid rarity.');
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    take: 10000
+  });
+
+  const sellCards = cards.filter(c => c.character.rarity === target);
+
+  if (!sellCards.length) {
+    return { sold: 0, gold: 0, rarity: target };
+  }
+
+  const totalGold = sellCards.reduce((sum, c) => sum + raritySellValue(c.character.rarity, c.power), 0);
+  const ids = sellCards.map(c => c.id);
+
+  await prisma.$transaction([
+    prisma.teamSlot.deleteMany({
+      where: { userId, cardId: { in: ids } }
+    }),
+    prisma.marketListing.updateMany({
+      where: { cardId: { in: ids }, status: 'ACTIVE' },
+      data: { status: 'CANCELLED' }
+    }),
+    prisma.userCard.deleteMany({
+      where: { id: { in: ids } }
+    }),
+    prisma.user.update({
+      where: { id: userId },
+      data: { gold: { increment: totalGold } }
+    })
+  ]);
+
+  return { sold: sellCards.length, gold: totalGold, rarity: target };
+}
+
 function rarityEmoji(rarity) {
   return {
     COMMON: '⚪',
@@ -230,25 +309,10 @@ async function applySecretCharacterBoosts() {
   for (const c of chars) {
     const cls = classifyCharacter(c);
 
-    if (!cls) {
-      // لو كان متصنف SECRET بالغلط من باتش قديم، نزله DIVINE بقوة منطقية.
-      if (c.rarity === 'SECRET') {
-        const fixedPower = Math.min(Math.max(c.basePower || 12000, 12000), 16000);
-        await prisma.character.update({
-          where: { id: c.id },
-          data: {
-            rarity: 'DIVINE',
-            basePower: fixedPower,
-            baseFarm: Math.floor(fixedPower / 8),
-            baseLuck: Math.floor(fixedPower / 20)
-          }
-        });
-        updated++;
-      }
-      continue;
-    }
+    if (!cls) continue;
 
-    // مهم: لا تستخدم Math.max هنا. لازم القوة تصير EXACT عشان كاكاشي ينزل من 30000 إلى 14000.
+    // نعدل قوة الشخصية الأساسية فقط.
+    // كروت اللاعبين القديمة محمية في syncAllCardPowers ولا تنقص.
     const newPower = cls.power;
 
     await prisma.character.update({
@@ -264,7 +328,7 @@ async function applySecretCharacterBoosts() {
     updated++;
   }
 
-  console.log(`Full rarity/power balance updated: ${updated}`);
+  console.log(`Safe rarity/base power balance updated: ${updated}`);
 }
 
 async function createCardForUser(userId, character) {
@@ -293,11 +357,11 @@ async function createCardForUser(userId, character) {
 async function guaranteedCharacterRoll(userId, rarity) {
   let pool = await prisma.character.findMany({
     where: { active: true, rarity },
-    take: 500
+    take: 100000
   });
 
   if (!pool.length) {
-    pool = await prisma.character.findMany({ where: { active: true }, take: 500 });
+    pool = await prisma.character.findMany({ where: { active: true }, take: 100000 });
   }
 
   if (!pool.length) throw new Error('No characters are available.');
@@ -402,7 +466,7 @@ async function inventoryEmbed(userId, index = 0) {
     where: { userId },
     include: { character: true },
     orderBy: { obtainedAt: 'desc' },
-    take: 200
+    take: 10000
   });
 
   if (!cards.length) return { empty: true };
@@ -1253,7 +1317,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         where: { userId },
         include: { character: true },
         orderBy: { power: 'desc' },
-        take: 300
+        take: 10000
       });
 
       const matches = cards.filter(c => `${c.character.name} ${c.character.anime}`.toLowerCase().includes(query)).slice(0, 15);
@@ -1773,6 +1837,175 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       const boss = await sendBossAnnouncement(channel);
       return i.reply({ content: `Boss spawned in ${channel}: **${boss.bossName}**`, ephemeral: true });
+    }
+
+
+    if (commandName === 'admin-repair-rewards') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const users = await prisma.user.findMany({ select: { id: true } });
+      const gold = i.options.getInteger('gold') || 500000;
+      const tokens = i.options.getInteger('tokens') || 50;
+      const rolls = i.options.getInteger('rolls') || 50;
+
+      for (const u of users) {
+        await prisma.user.update({
+          where: { id: u.id },
+          data: {
+            gold: { increment: gold },
+            tokens: { increment: tokens },
+            rolls: { increment: rolls }
+          }
+        }).catch(() => {});
+      }
+
+      return i.reply(`Repair rewards sent to **${users.length}** users: ${money(gold)} gold, ${tokens} tokens, ${rolls} rolls.`);
+    }
+
+
+    if (commandName === 't') {
+      const name = i.options.getString('name', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const cost = trainingCost(amount);
+
+      const card = await findUserCardByName(userId, name);
+      const cap = typeof TRAIN_POWER_CAPS !== 'undefined'
+        ? (TRAIN_POWER_CAPS[card.character.rarity] || 1500)
+        : 999999999;
+
+      if (card.power >= cap) {
+        return i.reply(
+          `**${card.character.name}** reached the power cap for **${card.character.rarity}**.\n` +
+          `Cap: **${cap} Power**\n` +
+          `Use **/a name:${card.character.name} rarity:<next rarity>** to continue.`
+        );
+      }
+
+      const allowedGain = Math.max(0, cap - card.power);
+      const finalGain = Math.min(cost.powerGain, allowedGain);
+      const finalGold = Math.ceil(cost.gold * (finalGain / Math.max(1, cost.powerGain)));
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < finalGold) {
+        return i.reply(`You need **${money(finalGold)} Gold** for this training.\nPower Gain: **+${finalGain}**`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { gold: { decrement: finalGold } }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: { power: { increment: finalGain } },
+        include: { character: true }
+      });
+
+      return i.reply(
+        `🏋️ **TRAINING COMPLETE**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${finalGain} Power**.\n` +
+        `Cost: **${money(finalGold)} Gold**\n` +
+        `New Power: **${updated.power}/${cap}**`
+      );
+    }
+
+    if (commandName === 'a') {
+      const name = i.options.getString('name', true);
+      const target = i.options.getString('rarity', true);
+      const cfg = RARITY_UPGRADE_COSTS[target];
+
+      if (!cfg) return i.reply({ content: 'Invalid rarity.', ephemeral: true });
+
+      const card = await findUserCardByName(userId, name);
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cfg.gold || (user.tokens || 0) < cfg.tokens) {
+        return i.reply(`You need **${money(cfg.gold)} gold** and **${cfg.tokens} tokens** to ascend **${card.character.name}** to **${target}**.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { decrement: cfg.gold },
+          tokens: { decrement: cfg.tokens }
+        }
+      });
+
+      await prisma.character.update({
+        where: { id: card.characterId },
+        data: {
+          rarity: target,
+          basePower: Math.max(card.character.basePower || 0, cfg.power)
+        }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: {
+          power: Math.max(card.power || 0, cfg.power + Math.floor(Math.random() * 500))
+        },
+        include: { character: true }
+      });
+
+      return i.reply(
+        `✨ **ASCENSION COMPLETE**\n` +
+        `**${updated.character.name}** is now **${target}**.\n` +
+        `New Power: **${updated.power}**`
+      );
+    }
+
+    if (commandName === 'sell-rarity') {
+      const rarity = i.options.getString('rarity', true);
+      const result = await sellAllByRarity(userId, rarity);
+
+      if (!result.sold) {
+        return i.reply(`You do not have any **${result.rarity}** cards to sell.`);
+      }
+
+      return i.reply(
+        `💰 **SOLD ${result.rarity} CARDS**\n` +
+        `Sold: **${result.sold}** cards\n` +
+        `Gold earned: **${money(result.gold)}**`
+      );
+    }
+
+    if (commandName === 'admin-give-gold') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const target = i.options.getUser('user', true);
+      const amount = i.options.getInteger('amount', true);
+
+      await ensureUser(target);
+
+      const updated = await prisma.user.update({
+        where: { id: target.id },
+        data: { gold: { increment: amount } }
+      });
+
+      return i.reply(`Added **${money(amount)} gold** to **${target.username}**.\nNew gold: **${money(updated.gold)}**`);
+    }
+
+    if (commandName === 'admin-give-tokens') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const target = i.options.getUser('user', true);
+      const amount = i.options.getInteger('amount', true);
+
+      await ensureUser(target);
+
+      const updated = await prisma.user.update({
+        where: { id: target.id },
+        data: { tokens: { increment: amount } }
+      });
+
+      return i.reply(`Added **${amount} tokens** to **${target.username}**.\nNew tokens: **${updated.tokens}**`);
     }
 
     if (commandName === 'admin-give-rolls') {
