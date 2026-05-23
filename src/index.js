@@ -119,8 +119,8 @@ function cleanElement(value) {
 const CANONICAL_ROSTER_FIXES = [
   { key: 'sung jin', name: 'Sung Jin-Woo', anime: 'Solo Leveling', rarity: 'SECRET', power: 9664, element: 'Shadow', q: 'Sung Jin-Woo' },
   { key: 'gojo', name: 'Satoru Gojo', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 9400, element: 'Void', q: 'Satoru Gojo' },
-  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: saberImage },
-  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: saberImage },
+  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: null },
+  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: null },
   { key: 'makima', name: 'Makima', anime: 'Chainsaw Man', rarity: 'SECRET', power: 7600, element: 'Dark', q: 'Makima' },
   { key: 'lelouch', name: 'Lelouch Lamperouge', anime: 'Code Geass', rarity: 'SECRET', power: 8800, element: 'Dark', q: 'Lelouch Lamperouge' },
   { key: 'madara', name: 'Madara Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 9000, element: 'Dark', q: 'Madara Uchiha' },
@@ -152,7 +152,43 @@ function rosterFixForName(name = '') {
   return CANONICAL_ROSTER_FIXES.find(r => clean.includes(phase2Normalize(r.key)));
 }
 
+
+async function findAniListImage(query) {
+  try {
+    const gql = `
+      query ($search: String) {
+        Character(search: $search) {
+          name { full native }
+          image { large medium }
+        }
+      }
+    `;
+
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'VoidRollBot/1.0'
+      },
+      body: JSON.stringify({
+        query: gql,
+        variables: { search: query }
+      })
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.data?.Character?.image?.large || data?.data?.Character?.image?.medium || null;
+  } catch (e) {
+    console.error('[AniListImage] lookup failed:', e.message);
+    return null;
+  }
+}
+
 async function findAnimeImage(query) {
+  const ani = await findAniListImage(query);
+  if (ani) return ani;
+
   try {
     const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=10`;
     const res = await fetch(url, { headers: { 'User-Agent': 'VoidRollBot/1.0' } });
@@ -162,16 +198,15 @@ async function findAnimeImage(query) {
     if (!rows.length) return null;
 
     const q = phase2Normalize(query);
-    let picked = rows.find(r => {
+    const picked = rows.find(r => {
       const name = phase2Normalize(r.name || '');
-      return q.includes('artoria')
-        ? (name.includes('artoria') || name.includes('saber'))
-        : name.includes(q.split(' ')[0]);
+      if (q.includes('artoria')) return name.includes('artoria') || name.includes('saber');
+      return q.split(' ').some(part => part.length > 2 && name.includes(part));
     }) || rows[0];
 
     return picked?.images?.jpg?.image_url || picked?.images?.webp?.image_url || null;
   } catch (e) {
-    console.error('[ImageFix] image lookup failed:', e.message);
+    console.error('[JikanImage] lookup failed:', e.message);
     return null;
   }
 }
@@ -233,8 +268,11 @@ async function ensureCanonicalCharacter(fix) {
 
 
 async function getCorrectSaberImage() {
-  const img = await findAnimeImage('Artoria Pendragon');
-  return img || await findAnimeImage('Saber Artoria Fate');
+  return await findAniListImage('Artoria Pendragon')
+    || await findAniListImage('Saber Fate stay night')
+    || await findAnimeImage('Artoria Pendragon')
+    || await findAnimeImage('Saber Fate stay night')
+    || null;
 }
 
 async function hardFixSaberOneCopy() {
@@ -262,7 +300,7 @@ async function hardFixSaberOneCopy() {
         anime: 'Fate Series',
         rarity: 'SECRET',
         element: 'Light',
-        imageUrl: saberImage,
+        imageUrl: null,
         auraName: 'Avalon Oath',
         auraColor: '#f8fafc',
         auraSecondary: '#fbbf24',
@@ -283,7 +321,7 @@ async function hardFixSaberOneCopy() {
         anime: 'Fate Series',
         rarity: 'SECRET',
         element: 'Light',
-        imageUrl: saberImage,
+        imageUrl: null,
         auraName: 'Avalon Oath',
         auraColor: '#f8fafc',
         auraSecondary: '#fbbf24',
