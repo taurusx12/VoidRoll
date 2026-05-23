@@ -53,7 +53,7 @@ function characterElement(character) {
   if (['ace','rengoku','natsu'].some(x => n.includes(x))) return 'Fire';
   if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
   if (['aizen','ichigo'].some(x => n.includes(x))) return 'Soul';
-  return character?.element || 'Neutral';
+  return cleanElement(character?.element || 'Neutral');
 }
 
 function characterPassive(character) {
@@ -107,11 +107,20 @@ async function addCardLevel(cardId, amount) {
 
 
 
+
+const VALID_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul','Neutral'];
+
+function cleanElement(value) {
+  const raw = String(value || '').trim();
+  const found = VALID_ELEMENTS.find(e => phase2Normalize(e) === phase2Normalize(raw));
+  return found || 'Neutral';
+}
+
 const CANONICAL_ROSTER_FIXES = [
   { key: 'sung jin', name: 'Sung Jin-Woo', anime: 'Solo Leveling', rarity: 'SECRET', power: 9664, element: 'Shadow', q: 'Sung Jin-Woo' },
   { key: 'gojo', name: 'Satoru Gojo', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 9400, element: 'Void', q: 'Satoru Gojo' },
-  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg' },
-  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg' },
+  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: saberImage },
+  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: saberImage },
   { key: 'makima', name: 'Makima', anime: 'Chainsaw Man', rarity: 'SECRET', power: 7600, element: 'Dark', q: 'Makima' },
   { key: 'lelouch', name: 'Lelouch Lamperouge', anime: 'Code Geass', rarity: 'SECRET', power: 8800, element: 'Dark', q: 'Lelouch Lamperouge' },
   { key: 'madara', name: 'Madara Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 9000, element: 'Dark', q: 'Madara Uchiha' },
@@ -145,11 +154,22 @@ function rosterFixForName(name = '') {
 
 async function findAnimeImage(query) {
   try {
-    const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=1`;
+    const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=10`;
     const res = await fetch(url, { headers: { 'User-Agent': 'VoidRollBot/1.0' } });
     if (!res.ok) return null;
     const data = await res.json();
-    return data?.data?.[0]?.images?.jpg?.image_url || data?.data?.[0]?.images?.webp?.image_url || null;
+    const rows = data?.data || [];
+    if (!rows.length) return null;
+
+    const q = phase2Normalize(query);
+    let picked = rows.find(r => {
+      const name = phase2Normalize(r.name || '');
+      return q.includes('artoria')
+        ? (name.includes('artoria') || name.includes('saber'))
+        : name.includes(q.split(' ')[0]);
+    }) || rows[0];
+
+    return picked?.images?.jpg?.image_url || picked?.images?.webp?.image_url || null;
   } catch (e) {
     console.error('[ImageFix] image lookup failed:', e.message);
     return null;
@@ -211,7 +231,14 @@ async function ensureCanonicalCharacter(fix) {
 }
 
 
+
+async function getCorrectSaberImage() {
+  const img = await findAnimeImage('Artoria Pendragon');
+  return img || await findAnimeImage('Saber Artoria Fate');
+}
+
 async function hardFixSaberOneCopy() {
+  const saberImage = await getCorrectSaberImage();
   const saberRows = await prisma.character.findMany({
     where: {
       OR: [
@@ -235,7 +262,7 @@ async function hardFixSaberOneCopy() {
         anime: 'Fate Series',
         rarity: 'SECRET',
         element: 'Light',
-        imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
+        imageUrl: saberImage,
         auraName: 'Avalon Oath',
         auraColor: '#f8fafc',
         auraSecondary: '#fbbf24',
@@ -256,7 +283,7 @@ async function hardFixSaberOneCopy() {
         anime: 'Fate Series',
         rarity: 'SECRET',
         element: 'Light',
-        imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
+        imageUrl: saberImage,
         auraName: 'Avalon Oath',
         auraColor: '#f8fafc',
         auraSecondary: '#fbbf24',
@@ -400,7 +427,7 @@ function vrRole(character) {
 function vrElement(character) {
   const fix = importantFixFor(character);
   if (fix?.element) return fix.element;
-  return character?.element || 'Neutral';
+  return cleanElement(character?.element || 'Neutral');
 }
 
 function vrPassive(character) {
@@ -2086,7 +2113,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       const aura = getAura(first);
       const globalOwned = await prisma.userCard.count({ where: { characterId: first.id } });
       const matches = chars
-        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower} • ${typeof vrRole === 'function' ? vrRole(c) : 'DPS'} • ${typeof vrElement === 'function' ? vrElement(c) : (c.element || 'Neutral')}`)
+        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower} • ${typeof vrRole === 'function' ? vrRole(c) : 'DPS'} • ${typeof vrElement === 'function' ? vrElement(c) : cleanElement(c.element || 'Neutral')}`)
         .join('\n');
 
       const embed = new EmbedBuilder()
@@ -3183,6 +3210,33 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
 
 
+
+
+    if (commandName === 'admin-fix-elements') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const chars = await prisma.character.findMany({
+        where: { active: true },
+        select: { id: true, element: true, name: true }
+      });
+
+      let fixed = 0;
+
+      for (const c of chars) {
+        const clean = cleanElement(c.element);
+        if (clean !== c.element) {
+          await prisma.character.update({
+            where: { id: c.id },
+            data: { element: clean }
+          }).catch(() => {});
+          fixed++;
+        }
+      }
+
+      return i.reply({ content: `✅ Elements cleaned: ${fixed}`, ephemeral: true });
+    }
 
     if (commandName === 'admin-fix-saber-image') {
       if (!config.adminIds.includes(userId)) {
