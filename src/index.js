@@ -976,6 +976,7 @@ client.on('interactionCreate', async (i) => {
     const userId = i.user.id;
     const fusionResultsAtStart = await autoFuseDuplicates(prisma, userId).catch(() => []);
     const commandName = i.commandName;
+    const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
 
     if (commandName === 'help') {
       await i.deferReply({ ephemeral: true });
@@ -1098,8 +1099,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         if (xpResult && xpResult.leveled && typeof levelUpText === 'function') {
           result.text += levelUpText(xpResult);
         }
-        const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
-        result.text += fusionText(fusionResults);
+          result.text += fusionText(fusionResults);
 
         const aura = getAura(result.character);
 
@@ -1162,7 +1162,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       const xpResult = typeof addUserXp === 'function'
         ? await addUserXp(userId, amount * 8, 'character roll')
         : null;
-      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
 
       return i.editReply({
         content: (`**CHARACTER ROLL x${amount}**\n` + lines.join('\n') + `\n\nRolls left: **${(user.rolls ?? 0) - amount}**` + (typeof levelUpText === 'function' ? levelUpText(xpResult) : '') + fusionText(fusionResults)).slice(0, 1800),
@@ -1318,7 +1317,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       const type = i.options.getString('type', true);
       const result = await openPack(userId, type);
-      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
       const aura = getAura(result.character);
 
       const embed = new EmbedBuilder()
@@ -1432,8 +1430,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       if (item.rarity) {
         const result = await guaranteedCharacterRoll(userId, item.rarity);
-        const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
-        return i.editReply(
+          return i.editReply(
           `**Gold Shop ${item.rarity} Roll**\n` +
           `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
           `Power: **${result.card.power}**\n` +
@@ -1526,7 +1523,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       const result = await guaranteedCharacterRoll(userId, cfg.rarity);
-      const fusionResults = await autoFuseDuplicates(prisma, userId).catch(() => []);
       return i.editReply(
         `**Guaranteed ${cfg.rarity} Orb Roll**\n` +
         `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
