@@ -210,6 +210,95 @@ async function ensureCanonicalCharacter(fix) {
   return existing;
 }
 
+
+async function hardFixSaberOneCopy() {
+  const saberRows = await prisma.character.findMany({
+    where: {
+      OR: [
+        { name: { contains: 'Saber', mode: 'insensitive' } },
+        { name: { contains: 'Artoria', mode: 'insensitive' } },
+        { anime: { contains: 'Fate', mode: 'insensitive' } }
+      ]
+    },
+    orderBy: { basePower: 'desc' }
+  }).catch(() => []);
+
+  let canonical = saberRows.find(c => phase2Normalize(c.name) === 'saber')
+    || saberRows.find(c => phase2Normalize(c.name).includes('artoria'))
+    || saberRows[0];
+
+  if (!canonical) {
+    canonical = await prisma.character.create({
+      data: {
+        id: 'canon_saber_artoria_only',
+        name: 'Saber',
+        anime: 'Fate Series',
+        rarity: 'SECRET',
+        element: 'Light',
+        imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
+        auraName: 'Avalon Oath',
+        auraColor: '#f8fafc',
+        auraSecondary: '#fbbf24',
+        auraIntensity: 1.8,
+        basePower: 9000,
+        baseFarm: 1125,
+        baseLuck: 450,
+        limited: true,
+        banner: 'saber_oath',
+        active: true
+      }
+    });
+  } else {
+    canonical = await prisma.character.update({
+      where: { id: canonical.id },
+      data: {
+        name: 'Saber',
+        anime: 'Fate Series',
+        rarity: 'SECRET',
+        element: 'Light',
+        imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
+        auraName: 'Avalon Oath',
+        auraColor: '#f8fafc',
+        auraSecondary: '#fbbf24',
+        auraIntensity: 1.8,
+        basePower: 9000,
+        baseFarm: 1125,
+        baseLuck: 450,
+        limited: true,
+        banner: 'saber_oath',
+        active: true
+      }
+    });
+  }
+
+  let moved = 0;
+  let hidden = 0;
+
+  for (const row of saberRows) {
+    if (row.id === canonical.id) continue;
+
+    const cards = await prisma.userCard.updateMany({
+      where: { characterId: row.id },
+      data: { characterId: canonical.id }
+    }).catch(() => ({ count: 0 }));
+
+    moved += cards.count || 0;
+
+    await prisma.character.update({
+      where: { id: row.id },
+      data: {
+        active: false,
+        name: `Hidden Duplicate Saber ${row.id.slice(0, 6)}`,
+        imageUrl: null
+      }
+    }).catch(() => {});
+
+    hidden++;
+  }
+
+  return { canonical, moved, hidden };
+}
+
 async function collapseRosterVariants() {
   let movedCards = 0;
   let inactiveCharacters = 0;
@@ -3100,27 +3189,15 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         return i.reply({ content: 'Admin only.', ephemeral: true });
       }
 
-      const result = await prisma.character.updateMany({
-        where: {
-          OR: [
-            { name: { contains: 'Saber', mode: 'insensitive' } },
-            { name: { contains: 'Artoria', mode: 'insensitive' } }
-          ]
-        },
-        data: {
-          name: 'Saber',
-          anime: 'Fate Series',
-          rarity: 'SECRET',
-          basePower: 9000,
-          baseFarm: 1125,
-          baseLuck: 450,
-          element: 'Light',
-          imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
-          active: true
-        }
-      });
+      await i.deferReply({ ephemeral: true });
+      const result = await hardFixSaberOneCopy();
 
-      return i.reply({ content: `✅ Saber image fixed. Updated: ${result.count}`, ephemeral: true });
+      return i.editReply(
+        `✅ Saber fixed to ONE copy.\n` +
+        `Kept: **${result.canonical.name}** • ${result.canonical.rarity} • PWR ${result.canonical.basePower}\n` +
+        `Moved player cards: **${result.moved}**\n` +
+        `Hidden duplicate Saber rows: **${result.hidden}**`
+      );
     }
 
     if (commandName === 'admin-collapse-variants') {
