@@ -34,6 +34,107 @@ const pendingTrades = new Map();
 
 
 
+
+const RARITY_BASE_RANGES = {
+  COMMON: { min: 50, max: 150 },
+  RARE: { min: 150, max: 400 },
+  EPIC: { min: 400, max: 900 },
+  LEGENDARY: { min: 900, max: 1800 },
+  MYTHIC: { min: 1800, max: 3500 },
+  DIVINE: { min: 3500, max: 6000 },
+  SECRET: { min: 6000, max: 10000 }
+};
+
+function rarityBasePower(rarity, seed = 1) {
+  const range = RARITY_BASE_RANGES[rarity] || RARITY_BASE_RANGES.COMMON;
+  const spread = Math.max(1, range.max - range.min);
+  return range.min + (Math.abs(seed * 97) % spread);
+}
+
+function calculateDetailedStats(character, level = 1, ascension = 0) {
+  const rarity = character?.rarity || 'COMMON';
+  const role = characterRole(character);
+  const basePower = Number(character?.basePower || rarityBasePower(rarity, level));
+  const growth = 1 + ((level - 1) * 0.085) + (ascension * 0.18);
+
+  let atkScale = 1;
+  let hpScale = 1;
+  let defScale = 1;
+  let speedScale = 1;
+  let critRate = 5;
+  let critDmg = 150;
+  let energyRegen = 100;
+  let pen = 0;
+  let lifesteal = 0;
+  let shield = 0;
+  let controlResist = 0;
+  let ultCharge = 100;
+
+  switch (role) {
+    case 'Tank':
+      hpScale = 2.4;
+      defScale = 2.1;
+      atkScale = 0.85;
+      shield = 22;
+      controlResist = 25;
+      break;
+    case 'Support':
+      hpScale = 1.6;
+      defScale = 1.3;
+      energyRegen = 145;
+      ultCharge = 135;
+      shield = 12;
+      break;
+    case 'Control':
+      hpScale = 1.4;
+      defScale = 1.2;
+      speedScale = 1.15;
+      ultCharge = 125;
+      controlResist = 15;
+      break;
+    case 'Assassin':
+      atkScale = 1.45;
+      speedScale = 1.4;
+      critRate = 28;
+      critDmg = 210;
+      pen = 18;
+      lifesteal = 8;
+      break;
+    case 'Mage':
+      atkScale = 1.55;
+      speedScale = 1.1;
+      pen = 25;
+      ultCharge = 120;
+      break;
+    default:
+      atkScale = 1.3;
+      hpScale = 1.3;
+      critRate = 15;
+      critDmg = 180;
+      break;
+  }
+
+  const atk = Math.floor(basePower * atkScale * growth);
+  const hp = Math.floor(basePower * 10 * hpScale * growth);
+  const def = Math.floor(basePower * 0.85 * defScale * growth);
+  const speed = Math.floor((100 + (basePower / 55)) * speedScale + (level * 0.8));
+
+  return {
+    atk,
+    hp,
+    def,
+    speed,
+    critRate,
+    critDmg,
+    energyRegen,
+    pen,
+    lifesteal,
+    shield,
+    controlResist,
+    ultCharge
+  };
+}
+
 function characterRole(character) {
   const n = phase2Normalize(character?.name || '');
   if (['lelouch','aizen','makima','kurapika'].some(x => n.includes(x))) return 'Control';
@@ -72,23 +173,55 @@ function characterPassive(character) {
 }
 
 function characterStatsText(card, character) {
-  const p = Number(card?.power || character?.basePower || 100);
-  const role = characterRole(character);
-  const atk = Math.floor(p * (role === 'Tank' ? 0.38 : role === 'Support' ? 0.42 : 0.55));
-  const def = Math.floor(p * (role === 'Tank' ? 0.45 : role === 'Assassin' ? 0.20 : 0.30));
-  const hp = Math.floor(p * (role === 'Tank' ? 9.5 : role === 'Support' ? 7.2 : 6.0));
-  const spd = Math.floor(100 + p / 250 + (role === 'Assassin' ? 45 : role === 'Support' ? 25 : 0));
-  const crit = role === 'Assassin' ? 35 : role === 'DPS' ? 25 : 15;
+  const level = Number(card?.level || 1);
+  const ascension = Number(card?.ascension || 0);
+  const stats = calculateDetailedStats(character, level, ascension);
+
   return (
-    `Class: **${role}** | Element: **${characterElement(character)}**\n` +
-    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
-    `CRIT **${crit}%**\n` +
+    `Level: **${level}/99** | Ascension: **${ascension}**\n` +
+    `Class: **${characterRole(character)}** | Element: **${characterElement(character)}**\n` +
+    `ATK **${money(stats.atk)}** • HP **${money(stats.hp)}** • DEF **${money(stats.def)}** • SPD **${stats.speed}**\n` +
+    `CRIT ${stats.critRate}% • CRIT DMG ${stats.critDmg}% • PEN ${stats.pen}%\n` +
+    `Energy Regen ${stats.energyRegen}% • Ult Charge ${stats.ultCharge}%\n` +
+    `Lifesteal ${stats.lifesteal}% • Shield ${stats.shield}% • Control Resist ${stats.controlResist}%\n` +
     `Passive: ${characterPassive(character)}`
   );
 }
 
 function levelCapForCard() {
   return 99;
+}
+
+
+async function ascendCard(cardId) {
+  const card = await prisma.userCard.findUnique({
+    where: { id: cardId },
+    include: { character: true }
+  });
+
+  if (!card) throw new Error('Card not found.');
+
+  const nextAsc = Math.min(15, Number(card.ascension || 0) + 1);
+  const rarityBonus = {
+    COMMON: 15,
+    RARE: 35,
+    EPIC: 80,
+    LEGENDARY: 150,
+    MYTHIC: 280,
+    DIVINE: 520,
+    SECRET: 900
+  }[card.character.rarity] || 10;
+
+  const powerGain = rarityBonus * nextAsc;
+
+  return prisma.userCard.update({
+    where: { id: card.id },
+    data: {
+      ascension: nextAsc,
+      power: { increment: powerGain }
+    },
+    include: { character: true }
+  });
 }
 
 async function addCardLevel(cardId, amount) {
@@ -739,7 +872,7 @@ async function applySecretCharacterBoosts() {
     const cls = classifyCharacter(c);
     if (!cls) continue;
 
-    const newPower = cls.power;
+    const newPower = rarityBasePower(cls.rarity, c.id.length + c.name.length);
 
     await prisma.character.update({
       where: { id: c.id },
