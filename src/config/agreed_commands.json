@@ -1,0 +1,25 @@
+{
+  "player": [
+    "/banner",
+    "/pack banner:<id> amount:<1-10>",
+    "/t name:<character> amount:<1-100>",
+    "/a name:<character> rarity:<target>",
+    "/fuse name:<character>",
+    "/fuse-list",
+    "/team set team:<1-6> slot:<1-5> name:<character>",
+    "/auto-story",
+    "/auto-tower tower:<element>",
+    "/auto-dungeon",
+    "/sell-rarity rarity:<rarity>",
+    "/ah browse",
+    "/ah sell name:<character> price:<gold>",
+    "/ah buy listing:<id>"
+  ],
+  "admin": [
+    "/admin-give-gold",
+    "/admin-give-tokens",
+    "/admin-give-rolls",
+    "/admin-give-resource",
+    "/admin-reset-all confirm:YES"
+  ]
+}

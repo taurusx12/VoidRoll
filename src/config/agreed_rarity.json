@@ -1,0 +1,65 @@
+{
+  "COMMON": [
+    "minor side characters",
+    "starter characters",
+    "early supports"
+  ],
+  "RARE": [
+    "useful side characters",
+    "early fighters",
+    "basic supports"
+  ],
+  "EPIC": [
+    "known fighters",
+    "mid-tier fan favorites"
+  ],
+  "LEGENDARY": [
+    "strong popular characters"
+  ],
+  "MYTHIC": [
+    "very strong characters"
+  ],
+  "DIVINE": [
+    "Saber",
+    "Ainz Ooal Gown",
+    "Gon",
+    "Killua",
+    "Kurapika",
+    "Yami",
+    "Benimaru",
+    "Kakashi",
+    "Law",
+    "Toji",
+    "Makima",
+    "Escanor",
+    "Meliodas",
+    "Meruem",
+    "Chrollo",
+    "Hisoka"
+  ],
+  "SECRET": [
+    "Satoru Gojo",
+    "Sung Jin-Woo Shadow Monarch",
+    "Saitama",
+    "Goku Ultra Instinct",
+    "Vegeta Ultra Ego",
+    "Naruto Baryon Mode",
+    "Sukuna Heian Form",
+    "Rimuru True Dragon",
+    "Zeno",
+    "Featherine",
+    "Aizen Final",
+    "Madara Ten Tails",
+    "Ichigo True Bankai",
+    "Luffy Gear 5",
+    "Shanks",
+    "Whitebeard Prime",
+    "Gol D. Roger",
+    "Yhwach Almighty Full",
+    "Gilgamesh CCC",
+    "Saber Avalon",
+    "Makima Full Control",
+    "Ainz True Overlord",
+    "Gojo Awakened"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "activeBannersAtOnce": 3,
+  "pullCostTokens": 10,
+  "guaranteedAfterTokens": 200,
+  "guaranteedAfterPulls": 20,
+  "rotationHours": 72,
+  "rules": [
+    "No anime packs",
+    "No permanent Secret Pack",
+    "Featured character must be strongest/rarest in its banner",
+    "Do not put stronger characters inside a weaker featured banner"
+  ],
+  "examples": [
+    {
+      "id": "toji_hunt",
+      "featured": "Toji Fushiguro",
+      "pool": [
+        "Toji Fushiguro",
+        "Maki Zenin",
+        "Megumi Fushiguro",
+        "Nanami",
+        "Panda",
+        "Inumaki"
+      ]
+    },
+    {
+      "id": "saber_oath",
+      "featured": "Saber",
+      "pool": [
+        "Saber",
+        "Archer EMIYA",
+        "Rin Tohsaka",
+        "Lancer",
+        "Rider"
+      ]
+    },
+    {
+      "id": "overlord_throne",
+      "featured": "Ainz Ooal Gown",
+      "pool": [
+        "Ainz Ooal Gown",
+        "Albedo",
+        "Demiurge",
+        "Shalltear",
+        "Cocytus"
+      ]
+    },
+    {
+      "id": "shadow_monarch",
+      "featured": "Sung Jin-Woo",
+      "pool": [
+        "Sung Jin-Woo",
+        "Igris",
+        "Beru",
+        "Cha Hae-In",
+        "Thomas Andre"
+      ]
+    }
+  ]
+}
