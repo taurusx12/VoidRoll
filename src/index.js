@@ -503,6 +503,36 @@ function vrStatsCompact(card, character) {
   return `Class: **${role}** | Element: **${character?.element || 'Neutral'}**\nATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**`;
 }
 
+
+async function keepOnlyMalCharacters() {
+  const result = await prisma.character.updateMany({
+    where: {
+      NOT: {
+        id: {
+          startsWith: 'mal_'
+        }
+      }
+    },
+    data: {
+      active: false
+    }
+  });
+
+  const activeMal = await prisma.character.count({
+    where: {
+      active: true,
+      id: {
+        startsWith: 'mal_'
+      }
+    }
+  });
+
+  return {
+    disabled: result.count || 0,
+    activeMal
+  };
+}
+
 async function fixImportantVariants() {
   const chars = await prisma.character.findMany({
     where: { active: true },
@@ -3303,6 +3333,22 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       await fixImportantVariants();
       return i.reply({ content: '✅ Important duplicate variants fixed.', ephemeral: true });
+    }
+
+
+    if (commandName === 'admin-mal-only') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      await i.deferReply({ ephemeral: true });
+      const result = await keepOnlyMalCharacters();
+
+      return i.editReply(
+        `✅ MAL-only roster enabled.\n` +
+        `Disabled old/non-MAL characters: **${result.disabled}**\n` +
+        `Active MAL characters: **${result.activeMal}**`
+      );
     }
 
     if (commandName === 'admin-reset-all') {
