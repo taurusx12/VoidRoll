@@ -33,6 +33,78 @@ const activeBosses = new Map();
 const pendingTrades = new Map();
 
 
+
+function characterRole(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (['lelouch','aizen','makima','kurapika'].some(x => n.includes(x))) return 'Control';
+  if (['rimuru','megumi','saber','kakashi'].some(x => n.includes(x))) return 'Support';
+  if (['whitebeard','kaido','all might','escanor','ainz'].some(x => n.includes(x))) return 'Tank';
+  if (['killua','toji','levi','hisoka'].some(x => n.includes(x))) return 'Assassin';
+  if (['gojo','madara','gilgamesh','sukuna'].some(x => n.includes(x))) return 'Mage';
+  return 'DPS';
+}
+
+function characterElement(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (['sukuna','toji','lelouch','makima','ainz'].some(x => n.includes(x))) return 'Dark';
+  if (['sung jin','igris','beru'].some(x => n.includes(x))) return 'Shadow';
+  if (['gojo','rimuru','gilgamesh'].some(x => n.includes(x))) return 'Void';
+  if (['saber','goku','naruto','luffy'].some(x => n.includes(x))) return 'Light';
+  if (['ace','rengoku','natsu'].some(x => n.includes(x))) return 'Fire';
+  if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
+  if (['aizen','ichigo'].some(x => n.includes(x))) return 'Soul';
+  return character?.element || 'Neutral';
+}
+
+function characterPassive(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (n.includes('lelouch')) return 'Geass: chance to disable enemy ultimate and boost team ult charge.';
+  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
+  if (n.includes('sung jin')) return 'Shadow Monarch: gains power for every defeated enemy.';
+  if (n.includes('saber')) return 'Avalon: grants team shield when HP is low.';
+  if (n.includes('ainz')) return 'Overlord: boosts dark allies and weakens enemies.';
+  if (n.includes('gon') || n.includes('killua')) return 'Hunter Bond: bonus speed when paired with Hunter allies.';
+  if (n.includes('kurapika')) return 'Chain Judgment: bonus damage against villain teams.';
+  if (n.includes('madara')) return 'Uchiha Dominion: boosts AoE ultimate damage.';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu: reduces enemy accuracy.';
+  return 'Battle Instinct: small bonus to ATK and Ultimate charge.';
+}
+
+function characterStatsText(card, character) {
+  const p = Number(card?.power || character?.basePower || 100);
+  const role = characterRole(character);
+  const atk = Math.floor(p * (role === 'Tank' ? 0.38 : role === 'Support' ? 0.42 : 0.55));
+  const def = Math.floor(p * (role === 'Tank' ? 0.45 : role === 'Assassin' ? 0.20 : 0.30));
+  const hp = Math.floor(p * (role === 'Tank' ? 9.5 : role === 'Support' ? 7.2 : 6.0));
+  const spd = Math.floor(100 + p / 250 + (role === 'Assassin' ? 45 : role === 'Support' ? 25 : 0));
+  const crit = role === 'Assassin' ? 35 : role === 'DPS' ? 25 : 15;
+  return (
+    `Class: **${role}** | Element: **${characterElement(character)}**\n` +
+    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
+    `CRIT **${crit}%**\n` +
+    `Passive: ${characterPassive(character)}`
+  );
+}
+
+function levelCapForCard() {
+  return 99;
+}
+
+async function addCardLevel(cardId, amount) {
+  const card = await prisma.userCard.findUnique({ where: { id: cardId }, include: { character: true } });
+  if (!card) throw new Error('Card not found.');
+  const add = Math.max(1, Math.min(98, Number(amount || 1)));
+  const newLevel = Math.min(99, (card.level || 1) + add);
+  const gained = newLevel - (card.level || 1);
+  const rarityMult = { COMMON: 25, RARE: 55, EPIC: 110, LEGENDARY: 240, MYTHIC: 520, DIVINE: 1100, SECRET: 2500 }[card.character.rarity] || 50;
+  const powerGain = gained * rarityMult;
+  return prisma.userCard.update({
+    where: { id: card.id },
+    data: { level: newLevel, power: { increment: powerGain } },
+    include: { character: true }
+  });
+}
+
 function phase2Normalize(value = '') {
   return String(value || '').toLowerCase().replace(/[^\w\s.-]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -520,26 +592,15 @@ function weightedPick(items, weightFn) {
 async function applySecretCharacterBoosts() {
   const chars = await prisma.character.findMany({
     where: { active: true },
-    select: {
-      id: true,
-      name: true,
-      anime: true,
-      rarity: true,
-      basePower: true,
-      baseFarm: true,
-      baseLuck: true
-    }
+    select: { id: true, name: true, anime: true, rarity: true, basePower: true, baseFarm: true, baseLuck: true }
   });
 
   let updated = 0;
 
   for (const c of chars) {
     const cls = classifyCharacter(c);
-
     if (!cls) continue;
 
-    // نعدل قوة الشخصية الأساسية فقط.
-    // كروت اللاعبين القديمة محمية في syncAllCardPowers ولا تنقص.
     const newPower = cls.power;
 
     await prisma.character.update({
@@ -548,14 +609,15 @@ async function applySecretCharacterBoosts() {
         rarity: cls.rarity,
         basePower: newPower,
         baseFarm: Math.floor(newPower / 8),
-        baseLuck: Math.floor(newPower / 20)
+        baseLuck: Math.floor(newPower / 20),
+        element: characterElement({ name: c.name, element: 'Neutral' })
       }
     });
 
     updated++;
   }
 
-  console.log(`Safe rarity/base power balance updated: ${updated}`);
+  console.log(`Rarity/class/power balance updated: ${updated}`);
 }
 
 async function createCardForUser(userId, character) {
@@ -1406,6 +1468,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `${result.text}\n\n` +
             `Anime: **${result.character.anime}**\n` +
             `Technique: **${aura.name}**\n` +
+            characterStatsText(result.card, result.character) + `\n` +
             `Rolls left: **${(user.rolls ?? 1) - 1}**`
           )
           .setColor(embedColor(aura.color))
@@ -1635,6 +1698,8 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `Anime: **${result.character.anime}**\n` +
             `Rarity: **${result.character.rarity}**\n` +
             `Power: **${result.card.power}**\n` +
+            `Level: **${result.card.level || 1}/99**\n` +
+            characterStatsText(result.card, result.character) + `\n` +
             `${result.guaranteed ? '✅ **Guaranteed SECRET triggered!**' : ''}`
           )
           .setColor(embedColor(aura.color));
@@ -2121,6 +2186,28 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
 
+
+    if (commandName === 'lvl') {
+      const name = i.options.getString('name', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const card = await phase2FindUserCardByName(userId, name);
+      const cost = Math.max(1, amount) * 2500;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cost) {
+        return i.reply(`You need **${money(cost)} Gold** to level up **${card.character.name}**.`);
+      }
+
+      await prisma.user.update({ where: { id: userId }, data: { gold: { decrement: cost } } });
+      const updated = await addCardLevel(card.id, amount);
+
+      return i.reply(
+        `📈 **LEVEL UP**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** is now Level **${updated.level}/99**.\n` +
+        `Power: **${money(updated.power)}**`
+      );
+    }
+
     if (commandName === 't') {
       const name = i.options.getString('name', true);
       const amount = i.options.getInteger('amount') || 1;
@@ -2290,6 +2377,28 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         `⭐ **FUSION COMPLETE**\n` +
         `**${result.name}**: ⭐${result.oldStars} → ⭐${result.newStars}\n` +
         `Power gained: **+${money(result.powerGain)}**`
+      );
+    }
+
+
+    if (commandName === 'lvl') {
+      const name = i.options.getString('name', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const card = await phase2FindUserCardByName(userId, name);
+      const cost = Math.max(1, amount) * 2500;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cost) {
+        return i.reply(`You need **${money(cost)} Gold** to level up **${card.character.name}**.`);
+      }
+
+      await prisma.user.update({ where: { id: userId }, data: { gold: { decrement: cost } } });
+      const updated = await addCardLevel(card.id, amount);
+
+      return i.reply(
+        `📈 **LEVEL UP**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** is now Level **${updated.level}/99**.\n` +
+        `Power: **${money(updated.power)}**`
       );
     }
 

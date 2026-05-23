@@ -129,11 +129,6 @@ const commands = [
       o.setName('card_id')
         .setDescription('Card ID')
         .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('amount')
-        .setDescription('Training amount 1-100')
-        .setRequired(false)
     ),
 
   new SlashCommandBuilder().setName('orb-shop').setDescription('Show guaranteed orb market'),
@@ -287,6 +282,21 @@ const commands = [
         .setRequired(false)
     ),
 
+
+
+  new SlashCommandBuilder()
+    .setName('lvl')
+    .setDescription('Level up a character by name to max 99')
+    .addStringOption(o =>
+      o.setName('name')
+        .setDescription('Character name')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Levels to add')
+        .setRequired(false)
+    ),
 
   new SlashCommandBuilder()
     .setName('t')
