@@ -793,6 +793,140 @@ async function inventoryEmbed(userId, index = 0) {
   return { embed, row };
 }
 
+
+function teamRequirementFor(mode, progress) {
+  const value = mode === 'story'
+    ? progress.chapter
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+
+  if (value >= 60 || value >= 201) return 6;
+  if (value >= 50 || value >= 151) return 5;
+  if (value >= 35 || value >= 101) return 4;
+  if (value >= 20 || value >= 51) return 3;
+  if (value >= 10 || value >= 21) return 2;
+  return 1;
+}
+
+const SYNERGY_RULES = [
+  { name: 'Hunter Bond', keys: ['gon', 'killua'], atk: 0.10, speed: 0.15, ult: 0.10 },
+  { name: 'Kurta Revenge', keys: ['kurapika', 'leorio'], atk: 0.12, defBreak: 0.15 },
+  { name: 'Rival Bond', keys: ['naruto', 'sasuke'], atk: 0.20, ult: 0.10 },
+  { name: 'Monster Trio', keys: ['luffy', 'zoro', 'sanji'], atk: 0.20, hp: 0.15 },
+  { name: 'Jujutsu Core', keys: ['yuji', 'megumi', 'nobara'], atk: 0.12, ult: 0.20 },
+  { name: 'Strongest Duo', keys: ['gojo', 'geto'], ult: 0.25, control: 0.15 },
+  { name: 'Saiyan Rivalry', keys: ['goku', 'vegeta'], atk: 0.25 },
+  { name: 'Master Student', keys: ['gohan', 'piccolo'], def: 0.20, ult: 0.15 },
+  { name: 'Uchiha Bloodline', keys: ['itachi', 'sasuke'], atk: 0.15, crit: 0.10 },
+  { name: 'Akatsuki Pressure', keys: ['pain', 'obito', 'itachi'], atk: 0.18, control: 0.12 },
+  { name: 'Shadow Army', keys: ['sung jin', 'igris'], atk: 0.18, ult: 0.12 },
+  { name: 'Overlord Guardians', keys: ['ainz', 'albedo'], def: 0.20, ult: 0.10 },
+  { name: 'Fate Oath', keys: ['saber', 'gilgamesh'], atk: 0.16, crit: 0.08 },
+  { name: 'Control Kings', keys: ['lelouch', 'makima'], control: 0.25, ult: 0.15 }
+];
+
+function cardNameList(cards) {
+  return cards.map(c => phase2Normalize(c.character?.name || '')).join(' | ');
+}
+
+function calculateSynergies(cards) {
+  const text = cardNameList(cards);
+  const active = [];
+
+  for (const rule of SYNERGY_RULES) {
+    if (rule.keys.every(k => text.includes(phase2Normalize(k)))) {
+      active.push(rule);
+    }
+  }
+
+  const bonus = active.reduce((sum, r) =>
+    sum + (r.atk || 0) + (r.def || 0) + (r.hp || 0) + (r.ult || 0) + (r.control || 0) + (r.crit || 0) + (r.speed || 0) + (r.defBreak || 0),
+  0);
+
+  return { active, bonus };
+}
+
+async function getUserTeams(userId, teamCount = 1) {
+  const slots = await prisma.teamSlot.findMany({
+    where: { userId },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  const teams = [];
+
+  for (let t = 1; t <= teamCount; t++) {
+    const start = (t - 1) * 5 + 1;
+    const end = start + 4;
+    let team = slots.filter(s => s.slot >= start && s.slot <= end).map(s => s.card).filter(Boolean);
+
+    if (!team.length) {
+      const skip = (t - 1) * 5;
+      team = await prisma.userCard.findMany({
+        where: { userId },
+        include: { character: true },
+        orderBy: { power: 'desc' },
+        skip,
+        take: 5
+      });
+    }
+
+    teams.push(team.slice(0, 5));
+  }
+
+  return teams;
+}
+
+function enemyTeamMultiplier(teamCount) {
+  return 1 + (teamCount - 1) * 0.85;
+}
+
+async function getMultiTeamPower(userId, teamCount = 1) {
+  const teams = await getUserTeams(userId, teamCount);
+  let total = 0;
+  const synergyNames = [];
+
+  for (const team of teams) {
+    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
+    const syn = calculateSynergies(team);
+    total += Math.floor(base * (1 + syn.bonus));
+    synergyNames.push(...syn.active.map(s => s.name));
+  }
+
+  return {
+    power: total,
+    teams,
+    synergies: [...new Set(synergyNames)]
+  };
+}
+
+async function autoBuildTeams(userId, teamCount = 1) {
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: teamCount * 5
+  });
+
+  await prisma.teamSlot.deleteMany({
+    where: { userId, slot: { lte: teamCount * 5 } }
+  });
+
+  for (let x = 0; x < cards.length; x++) {
+    await prisma.teamSlot.create({
+      data: {
+        id: `${userId}_${x + 1}`,
+        userId,
+        slot: x + 1,
+        cardId: cards[x].id
+      }
+    });
+  }
+
+  return cards;
+}
+
 async function getOrCreateProgress(userId) {
   return prisma.storyProgress.upsert({
     where: { userId },
@@ -890,24 +1024,30 @@ async function runProgressBattle(interaction, mode) {
 
   const userId = interaction.user.id;
   const progress = await getOrCreateProgress(userId);
-  const teamPower = await getTeamPower(userId);
+  const requiredTeams = teamRequirementFor(mode, progress);
+  const teamData = await getMultiTeamPower(userId, requiredTeams);
+  const teamPower = teamData.power;
 
   const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-  const required = mode === 'story'
+  const baseRequired = mode === 'story'
     ? 700 + storyIndex * 260
     : mode === 'tower'
       ? 1200 + progress.towerFloor * 420
       : 900 + progress.dungeonFloor * 330;
 
-  const enemies = await getAnimeEnemies(5, Math.max(0, required / 8));
+  const required = Math.floor(baseRequired * enemyTeamMultiplier(requiredTeams));
+  const enemies = await getAnimeEnemies(requiredTeams * 5, Math.max(0, required / 8));
   let allyMana = 0;
   let enemyMana = 0;
 
   let text =
     `**${mode.toUpperCase()} BATTLE STARTED**\n` +
     `${getProgressTitle(mode, progress)}\n` +
+    `Teams Required: **${requiredTeams}**\n` +
     `Team Power: **${money(teamPower)}**\n` +
+    `Enemy Teams: **${requiredTeams}**\n` +
     `Required Power: **${money(required)}**\n` +
+    (teamData.synergies.length ? `Synergies: **${teamData.synergies.join(', ')}**\n` : '') +
     `Enemies: **${enemies.join(', ')}**\n\n`;
 
   await interaction.editReply(text + 'Battle is starting...');
@@ -1727,6 +1867,110 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
     }
 
+
+
+    if (commandName === 'class-tower') {
+      await i.deferReply();
+
+      const element = i.options.getString('element', true);
+      const progress = await getOrCreateProgress(userId);
+      const requiredTeams = teamRequirementFor('tower', progress);
+      const teams = await getUserTeams(userId, requiredTeams);
+      const allCards = teams.flat();
+      const matching = allCards.filter(c => phase2Normalize(characterElement(c.character)) === phase2Normalize(element));
+
+      if (matching.length < requiredTeams) {
+        return i.editReply(`You need more **${element}** characters in your teams. Required teams: **${requiredTeams}**.`);
+      }
+
+      const power = matching.reduce((sum, c) => sum + Number(c.power || 0), 0);
+      const required = Math.floor((1500 + progress.towerFloor * 500) * enemyTeamMultiplier(requiredTeams));
+      const won = power >= required || Math.random() < Math.min(0.20, power / Math.max(1, required) / 4);
+
+      if (!won) {
+        return i.editReply(
+          `**${element} Tower** Floor ${progress.towerFloor}\n` +
+          `Element Power: **${money(power)}**\n` +
+          `Required: **${money(required)}**\n` +
+          `Result: **Defeat**`
+        );
+      }
+
+      await prisma.storyProgress.update({
+        where: { userId },
+        data: { towerFloor: progress.towerFloor + 1 }
+      });
+
+      const gold = Math.floor(required * 0.7);
+      const tokens = progress.towerFloor % 5 === 0 ? Math.max(1, Math.floor(progress.towerFloor / 5)) * 4 : 0;
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { increment: gold },
+          tokens: { increment: tokens }
+        }
+      });
+
+      return i.editReply(
+        `**${element} Tower Victory!**\n` +
+        `Floor cleared: **${progress.towerFloor}**\n` +
+        `Teams Required: **${requiredTeams}**\n` +
+        `Rewards: **${money(gold)} Gold**, **${tokens} Tokens**`
+      );
+    }
+
+    if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
+      await i.deferReply();
+      const mode = commandName.replace('auto-', '');
+      const maxRuns = Math.max(1, Math.min(25, i.options.getInteger('runs') || 10));
+      let text = `**AUTO ${mode.toUpperCase()} STARTED**\n`;
+      let wins = 0;
+
+      for (let run = 1; run <= maxRuns; run++) {
+        const progress = await getOrCreateProgress(userId);
+        const requiredTeams = teamRequirementFor(mode, progress);
+        const teamData = await getMultiTeamPower(userId, requiredTeams);
+        const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+        const baseRequired = mode === 'story'
+          ? 700 + storyIndex * 260
+          : mode === 'tower'
+            ? 1200 + progress.towerFloor * 420
+            : 900 + progress.dungeonFloor * 330;
+        const required = Math.floor(baseRequired * enemyTeamMultiplier(requiredTeams));
+        const won = teamData.power >= required || Math.random() < Math.min(0.25, teamData.power / Math.max(1, required) / 4);
+
+        text += `\nRun ${run}: ${getProgressTitle(mode, progress)} | Teams ${requiredTeams} | Power ${money(teamData.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
+
+        if (!won) break;
+
+        wins++;
+        const progressNumber = mode === 'story'
+          ? (((progress.chapter - 1) * 30) + progress.stage)
+          : mode === 'tower'
+            ? progress.towerFloor
+            : progress.dungeonFloor;
+        const gold = Math.floor(required * 0.55);
+        const tokens = progressNumber % 5 === 0 ? Math.max(1, Math.floor(progressNumber / 5)) * (mode === 'story' ? 5 : 4) : 0;
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            gold: { increment: gold },
+            tokens: { increment: tokens },
+            rolls: { increment: 1 }
+          }
+        });
+
+        await updateProgressAfterWin(userId, mode, progress);
+
+        if (run % 3 === 0) await i.editReply(text.slice(-1900)).catch(() => {});
+      }
+
+      text += `\n\nFinished. Wins: **${wins}**`;
+      return i.editReply(text.slice(-1900));
+    }
+
     if (commandName === 'story' || commandName === 'dungeon' || commandName === 'tower') {
       const action = i.options.getString('action') || 'info';
       const mode = commandName;
@@ -1962,34 +2206,49 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'autoteam') {
-      const cards = await prisma.userCard.findMany({
-        where: { userId },
-        include: { character: true },
-        orderBy: { power: 'desc' },
-        take: 5
-      });
+      const count = Math.max(1, Math.min(6, i.options.getInteger('teams') || 1));
+      const cards = await autoBuildTeams(userId, count);
 
       if (!cards.length) return i.reply('You do not have any cards yet.');
 
-      await prisma.teamSlot.deleteMany({ where: { userId } });
-
-      for (let x = 0; x < cards.length; x++) {
-        await prisma.teamSlot.create({
-          data: {
-            id: `${userId}_${x + 1}`,
-            userId,
-            slot: x + 1,
-            cardId: cards[x].id
-          }
-        });
+      const lines = [];
+      for (let t = 1; t <= count; t++) {
+        const teamCards = cards.slice((t - 1) * 5, t * 5);
+        lines.push(`\n**Team ${t}**`);
+        lines.push(...teamCards.map((c, idx) => `Slot ${idx + 1}: ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
       }
 
-      return i.reply(
-        `**Auto Team Equipped!**\n\n` +
-        cards.map((c, idx) => `Slot ${idx + 1}: ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${c.power}`).join('\n')
-      );
+      return i.reply((`**Auto Teams Equipped!**\n` + lines.join('\n')).slice(0, 1900));
     }
 
+    if (commandName === 'teams') {
+      const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
+      const teams = await getUserTeams(userId, count);
+      const lines = [];
+
+      for (let t = 1; t <= count; t++) {
+        const team = teams[t - 1] || [];
+        const syn = calculateSynergies(team);
+        lines.push(`\n**Team ${t}** • Power ${money(team.reduce((s,c)=>s+Number(c.power||0),0))}`);
+        if (syn.active.length) lines.push(`Synergy: ${syn.active.map(x => x.name).join(', ')}`);
+        lines.push(...team.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${characterRole(c.character)} • ${characterElement(c.character)} • PWR ${money(c.power)}`));
+      }
+
+      return i.reply(lines.join('\n').slice(0, 1900));
+    }
+
+    if (commandName === 'synergy') {
+      const cards = await getUserBattleTeam(userId);
+      const syn = calculateSynergies(cards);
+
+      if (!syn.active.length) return i.reply('No active synergies in your main team.');
+
+      return i.reply(
+        `**Active Synergies**\n` +
+        syn.active.map(s => `• **${s.name}**`).join('\n') +
+        `\n\nEstimated Bonus Score: **${Math.round(syn.bonus * 100)}%**`
+      );
+    }
 
     if (commandName === 'pvp') {
       const target = i.options.getUser('user', true);

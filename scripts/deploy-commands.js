@@ -42,7 +42,7 @@ const commands = [
 
   new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
-  new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest 5 cards'),
+  new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest teams').addIntegerOption(o => o.setName('teams').setDescription('Team count 1-6').setRequired(false)),
 
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
@@ -406,6 +406,42 @@ const commands = [
       o.setName('confirm')
         .setDescription('Type YES')
         .setRequired(true)
+    ),
+
+
+  new SlashCommandBuilder()
+    .setName('auto-story')
+    .setDescription('Auto play story until loss')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('auto-tower')
+    .setDescription('Auto play tower until loss')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('auto-dungeon')
+    .setDescription('Auto play dungeon until loss')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
+
+
+  new SlashCommandBuilder()
+    .setName('class-tower')
+    .setDescription('Play an element/class tower')
+    .addStringOption(o =>
+      o.setName('element')
+        .setDescription('Element tower')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Dark', value: 'Dark' },
+          { name: 'Light', value: 'Light' },
+          { name: 'Fire', value: 'Fire' },
+          { name: 'Ice', value: 'Ice' },
+          { name: 'Shadow', value: 'Shadow' },
+          { name: 'Curse', value: 'Curse' },
+          { name: 'Void', value: 'Void' },
+          { name: 'Lightning', value: 'Lightning' }
+        )
     ),
 
   new SlashCommandBuilder()
