@@ -1,0 +1,13 @@
+{
+  "active_banners": 4,
+  "rotation_days": 3,
+  "multi_pull_cost": 1000,
+  "guaranteed": {
+    "rare": 5,
+    "epic": 3,
+    "mythic": 1,
+    "divine": 1
+  },
+  "secret_pity_multi": 50,
+  "commons_in_banner": false
+}
