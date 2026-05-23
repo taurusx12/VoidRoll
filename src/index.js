@@ -23,6 +23,7 @@ const equipment = require('./services/equipment');
 const { getAura, embedColor } = require('./lib/aura');
 const { renderCard } = require('./services/cardRender');
 const { rollItem, itemLine, seedItemTemplates } = require('./services/itemSystem');
+const bannerSystem = require('./services/bannerSystem');
 const { autoFuseDuplicates, fusionText, starLabel } = require('./services/duplicateFusion');
 const { isSecretCandidate, classifyCharacter } = require('./lib/secretCharacters');
 const { syncAllCardPowers } = require('./powerSyncPatch');
@@ -1060,7 +1061,7 @@ client.on('interactionCreate', async (i) => {
         `/farm-claim - Claim passive farm\n` +
         `/gold-shop /gold-buy /train - Spend gold\n` +
         `/orb-shop /orb-roll /ascend - Upgrade and guaranteed rolls\n` +
-        `/shop /pack - Packs\n` +
+        `/shop /banner /pack - Multiple rotating banners\n` +
         `/transfer /list /buy - Market\n` +
         `/admin-spawn-boss - Admin boss event`
       );
@@ -1357,53 +1358,77 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       return i.reply(('**Equipment**\n' + eq.map(itemLine).join('\n')).slice(0, 1900));
     }
 
-    if (commandName === 'shop') {
+    if (commandName === 'shop' || commandName === 'banner') {
+      const banners = bannerSystem.activeBanners();
+      const lines = [];
+
+      for (const b of banners) {
+        const pity = await bannerSystem.getPity(prisma, userId, b.id);
+        lines.push(
+          `**${b.name}** \`${b.id}\`\n` +
+          `Featured: **${b.featuredDisplay}**\n` +
+          `Cost: **10 Tokens** per pull • Guaranteed: **20 pulls / 200 tokens**\n` +
+          `Your pity: **${pity}/20**\n` +
+          `Ends: <t:${Math.floor(b.endsAt.getTime() / 1000)}:R>\n` +
+          `Pool: ${b.pool.join(', ')}\n`
+        );
+      }
+
       return i.reply(
-        `**VOIDROLL SHOP**\n\n` +
-        `Jujutsu Pack - 10 Tokens\n` +
-        `Demon Slayer Pack - 10 Tokens\n` +
-        `Naruto Pack - 10 Tokens\n` +
-        `One Piece Pack - 10 Tokens\n` +
-        `Bleach Pack - 10 Tokens\n` +
-        `My Hero Pack - 10 Tokens\n` +
-        `Hunter x Hunter Pack - 10 Tokens\n` +
-        `Dragon Ball Pack - 10 Tokens\n` +
-        `Attack on Titan Pack - 10 Tokens\n` +
-        `Villains Pack - 18 Tokens\n` +
-        `Secret Pack - 500 Tokens - Guaranteed SECRET\n` +
-        `Event Pack - 25 Tokens\n\n` +
-        `Use /pack type:<pack>.`
+        `🎯 **ACTIVE LIMITED BANNERS**\n\n` +
+        lines.join('\n') +
+        `\nUse **/pack banner:<id> amount:<1-10>**. Anime packs and Secret Pack are removed.`
       );
     }
 
     if (commandName === 'pack') {
       await i.deferReply();
 
-      const type = i.options.getString('type', true);
-      const result = await openPack(userId, type);
-      const aura = getAura(result.character);
+      const bannerId = i.options.getString('banner', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const pull = await bannerSystem.rollBanner(prisma, userId, bannerId, amount);
 
-      const embed = new EmbedBuilder()
-        .setTitle(`${type.toUpperCase()} Pack`)
-        .setDescription(
-          `${rarityEmoji(result.character.rarity)} **${result.character.name}**\n` +
-          `Anime: **${result.character.anime}**\n` +
-          `Rarity: **${result.character.rarity}**\n` +
-          `Power: **${result.card.power}**\n` +
-          `Technique: **${aura.name}**` + fusionText(fusionResults)
-        )
-        .setColor(embedColor(aura.color))
-        .setFooter({ text: `Card ID: ${result.card.id}` });
+      const embeds = [];
+      const files = [];
+      const lines = [];
 
-      try {
-        const png = await renderCard({ card: result.card, character: result.character });
-        const file = new AttachmentBuilder(png, { name: 'pack-card.png' });
-        embed.setImage('attachment://pack-card.png');
-        return i.editReply({ embeds: [embed], files: [file] });
-      } catch (_) {
-        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
-        return i.editReply({ embeds: [embed] });
+      for (let x = 0; x < pull.results.length; x++) {
+        const result = pull.results[x];
+        const aura = getAura(result.character);
+        lines.push(`${x + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.rarity} • PWR ${result.card.power}${result.guaranteed ? ' • GUARANTEED' : ''}`);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`${x + 1}. ${result.character.name}`)
+          .setDescription(
+            `Banner: **${pull.banner.name}**\n` +
+            `Anime: **${result.character.anime}**\n` +
+            `Rarity: **${result.character.rarity}**\n` +
+            `Power: **${result.card.power}**\n` +
+            `${result.guaranteed ? '✅ **Guaranteed featured triggered!**' : ''}`
+          )
+          .setColor(embedColor(aura.color));
+
+        try {
+          const png = await renderCard({ card: result.card, character: result.character });
+          const fileName = `banner-${x + 1}.png`;
+          const file = new AttachmentBuilder(png, { name: fileName });
+          embed.setImage(`attachment://${fileName}`);
+          files.push(file);
+        } catch (_) {
+          if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+        }
+
+        embeds.push(embed);
       }
+
+      return i.editReply({
+        embeds: embeds.slice(0, 10),
+        files: files.slice(0, 10),
+        content:
+          `🎯 **${pull.banner.name} Pull x${pull.results.length}**\n` +
+          `Cost: **${pull.cost} Tokens** • Pity: **${pull.pity}/20**\n\n` +
+          lines.join('\n')
+      });
     }
 
     if (commandName === 'story' || commandName === 'dungeon' || commandName === 'tower') {

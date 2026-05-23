@@ -47,29 +47,21 @@ const commands = [
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
 
-  new SlashCommandBuilder().setName('shop').setDescription('Show official packs and events'),
+  new SlashCommandBuilder().setName('shop').setDescription('Show active limited banners'),
+  new SlashCommandBuilder().setName('banner').setDescription('Show active limited banners'),
 
   new SlashCommandBuilder()
     .setName('pack')
-    .setDescription('Open an official anime pack')
+    .setDescription('Pull from a selected active limited banner')
     .addStringOption(o =>
-      o.setName('type')
-        .setDescription('pack type')
+      o.setName('banner')
+        .setDescription('Banner id from /banner')
         .setRequired(true)
-        .addChoices(
-          { name: 'Jujutsu Pack', value: 'jjk' },
-          { name: 'Demon Slayer Pack', value: 'demon' },
-          { name: 'Naruto Pack', value: 'naruto' },
-          { name: 'One Piece Pack', value: 'onepiece' },
-          { name: 'Bleach Pack', value: 'bleach' },
-          { name: 'My Hero Pack', value: 'mha' },
-          { name: 'Hunter x Hunter Pack', value: 'hxh' },
-          { name: 'Dragon Ball Pack', value: 'dbz' },
-          { name: 'Attack on Titan Pack', value: 'aot' },
-          { name: 'Villains Pack', value: 'villains' },
-          { name: 'Secret Pack', value: 'secret' },
-          { name: 'Event Pack', value: 'event' }
-        )
+    )
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('Pull amount 1-10')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder().setName('events').setDescription('Show active events'),
