@@ -18,8 +18,7 @@ const BANNERS = [
   { id: 'gojo_limit', name: 'Gojo Limit Banner', featured: 'satoru gojo', featuredDisplay: 'Satoru Gojo',
     pool: ['gojo', 'kurapika', 'ainz', 'hisoka', 'power', 'denji', 'megumi', 'zenitsu', 'piccolo', 'robin'] },
 
-  { id: 'saber_oath', name: 'Saber Oath Banner', featured: 'saber', featuredDisplay: 'Saber',
-    pool: ['saber', 'gon', 'killua', 'toji', 'law', 'ace', 'yuji', 'nobara', 'android 18', 'chopper'] },
+  { id: 'saber_oath', name: 'Saber Oath Banner', featured: 'saber', featuredDisplay: 'Saber (SECRET)', pool: ['saber', 'kurapika', 'ainz', 'killua', 'toji', 'denji', 'zoro', 'rengoku', 'nobara', 'rock lee'] },
   { id: 'overlord_throne', name: 'Overlord Throne Banner', featured: 'ainz', featuredDisplay: 'Ainz Ooal Gown',
     pool: ['ainz', 'saber', 'kurapika', 'kakashi', 'sanji', 'denji', 'megumi', 'inosuke', 'rock lee', 'usopp'] },
   { id: 'kurapika_chain', name: 'Kurapika Chain Banner', featured: 'kurapika', featuredDisplay: 'Kurapika',

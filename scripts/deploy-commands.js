@@ -4,6 +4,7 @@ const { REST, Routes, SlashCommandBuilder, ChannelType } = require('discord.js')
 const config = require('../src/lib/config');
 
 const commands = [
+  new SlashCommandBuilder().setName('characters-count').setDescription('Show total active characters and Saber status'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
@@ -443,45 +444,6 @@ const commands = [
           { name: 'Lightning', value: 'Lightning' }
         )
     ),
-
-
-  new SlashCommandBuilder()
-    .setName('boss-rush')
-    .setDescription('Fight a solo boss rush for damage rewards'),
-
-  new SlashCommandBuilder()
-    .setName('resources')
-    .setDescription('Show your resources'),
-
-  new SlashCommandBuilder()
-    .setName('gear-set')
-    .setDescription('Show active gear/role set bonuses'),
-
-  new SlashCommandBuilder()
-    .setName('ult-combo')
-    .setDescription('Show active ultimate combos'),
-
-  new SlashCommandBuilder()
-    .setName('admin-give-resource')
-    .setDescription('Admin: give a resource')
-    .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
-    .addStringOption(o =>
-      o.setName('resource')
-        .setDescription('Resource type')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Essence', value: 'essence' },
-          { name: 'Crystal', value: 'crystal' },
-          { name: 'Shadow Core', value: 'shadow_core' },
-          { name: 'Ascension Flame', value: 'ascension_flame' },
-          { name: 'Dungeon Key', value: 'dungeon_key' },
-          { name: 'Raid Ticket', value: 'raid_ticket' },
-          { name: 'Trait Reroll', value: 'trait_reroll' },
-          { name: 'Evolution Gem', value: 'evolution_gem' },
-          { name: 'Weapon Shard', value: 'weapon_shard' }
-        )
-    )
-    .addIntegerOption(o => o.setName('amount').setDescription('Amount').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('admin-give-rolls')

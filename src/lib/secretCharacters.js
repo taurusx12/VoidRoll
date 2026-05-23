@@ -1,4 +1,9 @@
 const SECRET_POWER_MAP = {
+  'saber': 30000,
+  'artoria pendragon': 30000,
+  'saber alter': 32000,
+  'artoria pendragon': 30000,
+  'saber alter': 32000,
   'satoru gojo': 30000,
   'satoru gojou': 30000,
   'gojo': 30000,
@@ -45,7 +50,6 @@ const SECRET_POWER_MAP = {
 };
 
 const DIVINE_POWER_MAP = {
-  'saber': 17000,
   'gon freecss': 16000,
   'gon': 16000,
   'killua zoldyck': 16000,
