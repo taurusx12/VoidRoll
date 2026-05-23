@@ -1,0 +1,17 @@
+
+FIXED READY BUILD
+
+بعد الرفع:
+1- npm install
+2- node scripts/deploy-commands.js
+3- git push
+4- Render -> Clear build cache & deploy
+
+الموجود:
+- fuse
+- fuse-list
+- admin reset
+- admin give gold/tokens
+- rarity fixes
+- multi banners
+- unlimited inventory
