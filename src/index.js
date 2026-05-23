@@ -739,9 +739,120 @@ function weightedPick(items, weightFn) {
 
 
 async function ensureSaberAnd5000Characters() {
-  const total = await prisma.character.count().catch(() => 0);
+  const baseRoster = [
+    ['Naruto Uzumaki','Naruto'], ['Sasuke Uchiha','Naruto'], ['Sakura Haruno','Naruto'], ['Kakashi Hatake','Naruto'],
+    ['Itachi Uchiha','Naruto'], ['Madara Uchiha','Naruto'], ['Obito Uchiha','Naruto'], ['Pain','Naruto'],
+    ['Minato Namikaze','Naruto'], ['Rock Lee','Naruto'], ['Neji Hyuga','Naruto'], ['Shikamaru Nara','Naruto'],
 
-  const saberExisting = await prisma.character.findFirst({
+    ['Monkey D. Luffy','One Piece'], ['Roronoa Zoro','One Piece'], ['Sanji','One Piece'], ['Nami','One Piece'],
+    ['Nico Robin','One Piece'], ['Franky','One Piece'], ['Brook','One Piece'], ['Jinbe','One Piece'],
+    ['Shanks','One Piece'], ['Kaido','One Piece'], ['Whitebeard','One Piece'], ['Gol D. Roger','One Piece'],
+    ['Trafalgar Law','One Piece'], ['Portgas D. Ace','One Piece'], ['Dracule Mihawk','One Piece'],
+
+    ['Ichigo Kurosaki','Bleach'], ['Rukia Kuchiki','Bleach'], ['Byakuya Kuchiki','Bleach'], ['Kenpachi Zaraki','Bleach'],
+    ['Sosuke Aizen','Bleach'], ['Yhwach','Bleach'], ['Ulquiorra Cifer','Bleach'], ['Genryusai Yamamoto','Bleach'],
+
+    ['Goku','Dragon Ball'], ['Vegeta','Dragon Ball'], ['Gohan','Dragon Ball'], ['Piccolo','Dragon Ball'],
+    ['Frieza','Dragon Ball'], ['Broly','Dragon Ball'], ['Beerus','Dragon Ball'], ['Whis','Dragon Ball'],
+
+    ['Satoru Gojo','Jujutsu Kaisen'], ['Ryomen Sukuna','Jujutsu Kaisen'], ['Yuji Itadori','Jujutsu Kaisen'],
+    ['Megumi Fushiguro','Jujutsu Kaisen'], ['Nobara Kugisaki','Jujutsu Kaisen'], ['Toji Fushiguro','Jujutsu Kaisen'],
+    ['Maki Zenin','Jujutsu Kaisen'], ['Kento Nanami','Jujutsu Kaisen'], ['Suguru Geto','Jujutsu Kaisen'],
+
+    ['Tanjiro Kamado','Demon Slayer'], ['Nezuko Kamado','Demon Slayer'], ['Zenitsu Agatsuma','Demon Slayer'],
+    ['Inosuke Hashibira','Demon Slayer'], ['Kyojuro Rengoku','Demon Slayer'], ['Giyu Tomioka','Demon Slayer'],
+    ['Shinobu Kocho','Demon Slayer'], ['Tengen Uzui','Demon Slayer'], ['Akaza','Demon Slayer'], ['Muzan Kibutsuji','Demon Slayer'],
+
+    ['Gon Freecss','Hunter x Hunter'], ['Killua Zoldyck','Hunter x Hunter'], ['Kurapika','Hunter x Hunter'],
+    ['Leorio','Hunter x Hunter'], ['Hisoka Morow','Hunter x Hunter'], ['Chrollo Lucilfer','Hunter x Hunter'],
+    ['Meruem','Hunter x Hunter'], ['Isaac Netero','Hunter x Hunter'],
+
+    ['Saber','Fate Series'], ['Artoria Pendragon','Fate Series'], ['Saber Alter','Fate Series'],
+    ['Gilgamesh','Fate Series'], ['Archer EMIYA','Fate Series'], ['Rin Tohsaka','Fate Series'],
+
+    ['Ainz Ooal Gown','Overlord'], ['Albedo','Overlord'], ['Demiurge','Overlord'], ['Shalltear Bloodfallen','Overlord'],
+
+    ['Sung Jin-Woo','Solo Leveling'], ['Igris','Solo Leveling'], ['Beru','Solo Leveling'], ['Cha Hae-In','Solo Leveling'],
+
+    ['Denji','Chainsaw Man'], ['Power','Chainsaw Man'], ['Makima','Chainsaw Man'], ['Aki Hayakawa','Chainsaw Man'],
+
+    ['Eren Yeager','Attack on Titan'], ['Mikasa Ackerman','Attack on Titan'], ['Levi Ackerman','Attack on Titan'], ['Armin Arlert','Attack on Titan'],
+
+    ['Asta','Black Clover'], ['Yuno','Black Clover'], ['Yami Sukehiro','Black Clover'], ['Julius Novachrono','Black Clover'],
+
+    ['Izuku Midoriya','My Hero Academia'], ['Katsuki Bakugo','My Hero Academia'], ['Shoto Todoroki','My Hero Academia'], ['All Might','My Hero Academia'],
+
+    ['Saitama','One Punch Man'], ['Genos','One Punch Man'], ['Garou','One Punch Man'], ['Tatsumaki','One Punch Man'],
+
+    ['Natsu Dragneel','Fairy Tail'], ['Lucy Heartfilia','Fairy Tail'], ['Erza Scarlet','Fairy Tail'], ['Gray Fullbuster','Fairy Tail'],
+
+    ['Kaneki Ken','Tokyo Ghoul'], ['Touka Kirishima','Tokyo Ghoul'], ['Rize Kamishiro','Tokyo Ghoul'],
+
+    ['Lelouch Lamperouge','Code Geass'], ['Suzaku Kururugi','Code Geass'], ['C.C.','Code Geass'], ['Kallen Kozuki','Code Geass'],
+
+    ['Edward Elric','Fullmetal Alchemist'], ['Alphonse Elric','Fullmetal Alchemist'], ['Roy Mustang','Fullmetal Alchemist'],
+
+    ['Jotaro Kujo','JoJo'], ['Dio Brando','JoJo'], ['Giorno Giovanna','JoJo'],
+
+    ['Rin Itoshi','Blue Lock'], ['Yoichi Isagi','Blue Lock'], ['Seishiro Nagi','Blue Lock'],
+
+    ['Thorfinn','Vinland Saga'], ['Askeladd','Vinland Saga'], ['Canute','Vinland Saga'],
+
+    ['Shinra Kusakabe','Fire Force'], ['Benimaru Shinmon','Fire Force'], ['Arthur Boyle','Fire Force'],
+
+    ['Kirito','Sword Art Online'], ['Asuna','Sword Art Online'], ['Sinon','Sword Art Online'],
+
+    ['Rimuru Tempest','That Time I Got Reincarnated as a Slime'], ['Benimaru','That Time I Got Reincarnated as a Slime'],
+    ['Diablo','That Time I Got Reincarnated as a Slime'], ['Veldora Tempest','That Time I Got Reincarnated as a Slime'],
+
+    ['Cid Kagenou','The Eminence in Shadow'], ['Alpha','The Eminence in Shadow'], ['Delta','The Eminence in Shadow'],
+    ['Kusuo Saiki','The Disastrous Life of Saiki K.'], ['Mob','Mob Psycho 100'], ['Reigen Arataka','Mob Psycho 100']
+  ];
+
+  const forms = [
+    ['Base','COMMON'], ['Training','COMMON'], ['Early Arc','COMMON'], ['Support','RARE'], ['Battle Ready','RARE'],
+    ['Awakened','EPIC'], ['Limit Break','EPIC'], ['Elite','EPIC'], ['Commander','LEGENDARY'], ['Prime','LEGENDARY'],
+    ['Final Arc','LEGENDARY'], ['Mythic Form','MYTHIC'], ['True Power','MYTHIC'], ['Domain Form','MYTHIC'],
+    ['Divine Form','DIVINE'], ['Transcendent','DIVINE'], ['Ultimate','DIVINE'], ['Secret Form','SECRET'],
+    ['Final Form','SECRET'], ['Legendary Variant','LEGENDARY'], ['Raid Variant','MYTHIC'], ['Festival Variant','EPIC'],
+    ['Dark Variant','EPIC'], ['Light Variant','EPIC'], ['Shadow Variant','MYTHIC'], ['Demon Variant','MYTHIC'],
+    ['Hero Variant','RARE'], ['Royal Variant','LEGENDARY'], ['Cursed Variant','MYTHIC'], ['Void Variant','DIVINE'],
+    ['Berserk Mode','LEGENDARY'], ['Spirit Mode','EPIC'], ['Heavenly Form','DIVINE'], ['Godspeed Form','DIVINE'],
+    ['Full Power','SECRET'], ['Overdrive','MYTHIC'], ['War Arc','LEGENDARY'], ['Time Skip','EPIC'],
+    ['Armored','RARE'], ['Black Outfit','RARE'], ['White Outfit','RARE'], ['Captain Form','LEGENDARY'],
+    ['Monarch Form','SECRET'], ['King Form','DIVINE'], ['Queen Form','DIVINE'], ['Zero Form','SECRET'],
+    ['Avalon Form','SECRET'], ['Hollow Form','MYTHIC'], ['Bankai Form','DIVINE'], ['Sage Form','DIVINE'],
+    ['Baryon Form','SECRET'], ['Gear Form','DIVINE'], ['Ultra Form','SECRET'], ['Limitless Form','SECRET'],
+    ['Chain Form','DIVINE'], ['Assassin Form','MYTHIC'], ['Hunter Form','EPIC'], ['Guardian Form','RARE'],
+    ['Vanguard Form','RARE'], ['Phantom Form','EPIC']
+  ];
+
+  const elementByForm = (form, fallbackIndex) => {
+    const f = phase2Normalize(form);
+    if (f.includes('dark') || f.includes('cursed') || f.includes('demon')) return 'Dark';
+    if (f.includes('light') || f.includes('heaven') || f.includes('avalon')) return 'Light';
+    if (f.includes('shadow') || f.includes('monarch')) return 'Shadow';
+    if (f.includes('void') || f.includes('limitless') || f.includes('zero')) return 'Void';
+    if (f.includes('godspeed') || f.includes('ultra')) return 'Lightning';
+    return ['Neutral','Fire','Ice','Curse','Light','Dark','Shadow','Void','Lightning'][fallbackIndex % 9];
+  };
+
+  const powerFor = (rarity, seed) => {
+    const ranges = {
+      COMMON: [50, 150],
+      RARE: [150, 400],
+      EPIC: [400, 900],
+      LEGENDARY: [900, 1800],
+      MYTHIC: [1800, 3500],
+      DIVINE: [3500, 6000],
+      SECRET: [6000, 10000]
+    };
+    const [min, max] = ranges[rarity] || ranges.COMMON;
+    return min + (seed * 97 % Math.max(1, max - min));
+  };
+
+  // Saber must exist as SECRET.
+  const saber = await prisma.character.findFirst({
     where: {
       OR: [
         { name: { contains: 'Saber', mode: 'insensitive' } },
@@ -750,17 +861,10 @@ async function ensureSaberAnd5000Characters() {
     }
   }).catch(() => null);
 
-  if (saberExisting) {
+  if (saber) {
     await prisma.character.update({
-      where: { id: saberExisting.id },
-      data: {
-        rarity: 'SECRET',
-        basePower: 30000,
-        baseFarm: 3750,
-        baseLuck: 1500,
-        element: 'Light',
-        active: true
-      }
+      where: { id: saber.id },
+      data: { name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', basePower: 9000, baseFarm: 1125, baseLuck: 450, element: 'Light', active: true }
     }).catch(() => {});
   } else {
     await prisma.character.create({
@@ -775,9 +879,9 @@ async function ensureSaberAnd5000Characters() {
         auraColor: '#f8fafc',
         auraSecondary: '#fbbf24',
         auraIntensity: 1.7,
-        basePower: 30000,
-        baseFarm: 3750,
-        baseLuck: 1500,
+        basePower: 9000,
+        baseFarm: 1125,
+        baseLuck: 450,
         limited: true,
         banner: 'saber_oath',
         active: true
@@ -785,72 +889,70 @@ async function ensureSaberAnd5000Characters() {
     }).catch(() => {});
   }
 
+  const badPatterns = ['Guardian ', 'Beast ', 'Frost ', 'Void ', 'Saint ', 'Blade ', 'Shadow ', 'Flame ', 'Thunder ', 'Spirit ', 'Dragon ', 'Demon ', 'Hunter ', 'Knight ', 'Monarch ', 'Reaper ', 'Oracle ', 'Phantom ', 'Breaker ', 'Vanguard ', 'Sage ', 'Titan ', 'Rogue ', 'Captain '];
+
+  const generated = await prisma.character.findMany({
+    where: {
+      OR: [
+        { id: { startsWith: 'gen_' } },
+        ...badPatterns.map(p => ({ name: { contains: p, mode: 'insensitive' } }))
+      ]
+    },
+    orderBy: { id: 'asc' }
+  }).catch(() => []);
+
+  let renameIndex = 0;
+
+  for (const c of generated) {
+    const base = baseRoster[renameIndex % baseRoster.length];
+    const form = forms[Math.floor(renameIndex / baseRoster.length) % forms.length];
+    const name = `${base[0]} (${form[0]})`;
+    const rarity = form[1];
+    const power = powerFor(rarity, renameIndex + 1);
+
+    await prisma.character.update({
+      where: { id: c.id },
+      data: {
+        name,
+        anime: base[1],
+        rarity,
+        element: elementByForm(form[0], renameIndex),
+        basePower: power,
+        baseFarm: Math.max(1, Math.floor(power / 8)),
+        baseLuck: Math.max(1, Math.floor(power / 20)),
+        auraName: `${form[0]} Aura`,
+        active: true
+      }
+    }).catch(() => {});
+
+    renameIndex++;
+  }
+
+  const total = await prisma.character.count().catch(() => 0);
   if (total >= 5000) {
-    console.log(`[BigPool] Character count already ${total}. Saber checked.`);
+    console.log(`[BigPool] Character count ${total}. Cleaned generated names: ${generated.length}.`);
     return;
   }
 
-  const animeSeries = [
-    'Naruto', 'One Piece', 'Bleach', 'Dragon Ball', 'Jujutsu Kaisen', 'Demon Slayer',
-    'Hunter x Hunter', 'Fate Series', 'Overlord', 'Solo Leveling', 'Chainsaw Man',
-    'Attack on Titan', 'Black Clover', 'My Hero Academia', 'One Punch Man', 'Fairy Tail',
-    'Tokyo Ghoul', 'Code Geass', 'Fullmetal Alchemist', 'JoJo', 'Blue Lock',
-    'Vinland Saga', 'Fire Force', 'Sword Art Online', 'ReZero', 'That Time I Got Reincarnated as a Slime'
-  ];
-  const archetypes = [
-    'Guardian', 'Blade', 'Shadow', 'Flame', 'Frost', 'Thunder', 'Void', 'Spirit',
-    'Dragon', 'Demon', 'Saint', 'Hunter', 'Knight', 'Monarch', 'Reaper', 'Oracle',
-    'Beast', 'Phantom', 'Breaker', 'Vanguard', 'Sage', 'Titan', 'Rogue', 'Captain'
-  ];
-  const elements = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Neutral'];
-  const rarities = [
-    ['COMMON', 45], ['RARE', 28], ['EPIC', 15], ['LEGENDARY', 7], ['MYTHIC', 3], ['DIVINE', 1.5], ['SECRET', 0.5]
-  ];
-
-  function pickRarity(i) {
-    const mod = i % 200;
-    if (mod === 0) return 'SECRET';
-    if (mod <= 3) return 'DIVINE';
-    if (mod <= 10) return 'MYTHIC';
-    if (mod <= 25) return 'LEGENDARY';
-    if (mod <= 70) return 'EPIC';
-    if (mod <= 140) return 'RARE';
-    return 'COMMON';
-  }
-
-  function basePowerFor(rarity, i) {
-    const ranges = {
-      COMMON: [120, 900],
-      RARE: [900, 2200],
-      EPIC: [2200, 5200],
-      LEGENDARY: [5200, 9000],
-      MYTHIC: [9000, 14000],
-      DIVINE: [14000, 22000],
-      SECRET: [24000, 36000]
-    };
-    const [min, max] = ranges[rarity] || ranges.COMMON;
-    return min + (i * 97 % (max - min));
-  }
-
-  const missing = 5000 - total;
   const batch = [];
+  let seed = 0;
 
-  for (let i = 1; i <= missing + 25; i++) {
-    const globalIndex = total + i;
-    const anime = animeSeries[globalIndex % animeSeries.length];
-    const archetype = archetypes[globalIndex % archetypes.length];
-    const rarity = pickRarity(globalIndex);
-    const power = basePowerFor(rarity, globalIndex);
-    const name = `${anime} ${archetype} ${String(globalIndex).padStart(4, '0')}`;
+  while (total + batch.length < 5000) {
+    const base = baseRoster[seed % baseRoster.length];
+    const form = forms[Math.floor(seed / baseRoster.length) % forms.length];
+    const name = `${base[0]} (${form[0]})`;
+    const rarity = form[1];
+    const power = powerFor(rarity, seed + 1);
+    const cleanId = phase2Normalize(`${base[0]} ${form[0]} ${seed}`).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 48);
 
     batch.push({
-      id: `gen_${globalIndex}_${phase2Normalize(name).replace(/\s+/g, '_').slice(0, 35)}`,
+      id: `real_${cleanId}`,
       name,
-      anime,
+      anime: base[1],
       rarity,
-      element: elements[globalIndex % elements.length],
+      element: elementByForm(form[0], seed),
       imageUrl: null,
-      auraName: `${archetype} Aura`,
+      auraName: `${form[0]} Aura`,
       auraColor: rarity === 'SECRET' ? '#111827' : rarity === 'DIVINE' ? '#f472b6' : rarity === 'MYTHIC' ? '#ef4444' : rarity === 'LEGENDARY' ? '#f59e0b' : '#3b82f6',
       auraSecondary: '#ffffff',
       auraIntensity: rarity === 'SECRET' ? 1.8 : rarity === 'DIVINE' ? 1.5 : 1.0,
@@ -861,17 +963,16 @@ async function ensureSaberAnd5000Characters() {
       banner: null,
       active: true
     });
+
+    seed++;
   }
 
   for (let i = 0; i < batch.length; i += 500) {
-    await prisma.character.createMany({
-      data: batch.slice(i, i + 500),
-      skipDuplicates: true
-    }).catch(e => console.error('[BigPool] createMany failed:', e.message));
+    await prisma.character.createMany({ data: batch.slice(i, i + 500), skipDuplicates: true }).catch(e => console.error('[BigPool] createMany failed:', e.message));
   }
 
   const finalCount = await prisma.character.count().catch(() => 0);
-  console.log(`[BigPool] Character count: ${finalCount}. Generated ${batch.length} candidates. Saber is SECRET.`);
+  console.log(`[BigPool] Character count: ${finalCount}. Clean names enabled. Renamed: ${generated.length}. Added: ${batch.length}.`);
 }
 
 async function applySecretCharacterBoosts() {
@@ -1781,6 +1882,26 @@ client.on('interactionCreate', async (i) => {
     const commandName = i.commandName;
     const fusionResults = [];
 
+
+
+    if (commandName === 'admin-clean-generated-names') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      await i.deferReply({ ephemeral: true });
+      await ensureSaberAnd5000Characters();
+      const total = await prisma.character.count({ where: { active: true } });
+      const saber = await prisma.character.findFirst({
+        where: { name: { contains: 'Saber', mode: 'insensitive' } }
+      });
+
+      return i.editReply(
+        `Clean done.\n` +
+        `Active characters: **${total}**\n` +
+        `Saber: **${saber ? `${saber.rarity} • ${saber.name} • PWR ${saber.basePower}` : 'Missing'}**`
+      );
+    }
 
     if (commandName === 'characters-count') {
       const total = await prisma.character.count({ where: { active: true } });

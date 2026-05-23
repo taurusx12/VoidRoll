@@ -4,6 +4,7 @@ const { REST, Routes, SlashCommandBuilder, ChannelType } = require('discord.js')
 const config = require('../src/lib/config');
 
 const commands = [
+  new SlashCommandBuilder().setName('admin-clean-generated-names').setDescription('Admin: clean generated placeholder character names'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show total active characters and Saber status'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
