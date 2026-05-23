@@ -379,6 +379,20 @@ const commands = [
         .setRequired(true)
     ),
 
+
+  new SlashCommandBuilder()
+    .setName('fuse-list')
+    .setDescription('Show duplicate characters ready to fuse'),
+
+  new SlashCommandBuilder()
+    .setName('fuse')
+    .setDescription('Fuse duplicate characters by name')
+    .addStringOption(o =>
+      o.setName('name')
+        .setDescription('Character name')
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName('admin-give-rolls')
     .setDescription('Admin: give rolls to a player')

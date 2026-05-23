@@ -32,6 +32,232 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const activeBosses = new Map();
 const pendingTrades = new Map();
 
+
+function phase2Normalize(value = '') {
+  return String(value || '').toLowerCase().replace(/[^\w\s.-]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+async function phase2FindUserCardByName(userId, name) {
+  const q = phase2Normalize(name);
+  if (!q) throw new Error('Write a character name.');
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' }
+  });
+
+  const exact = cards.find(c => phase2Normalize(c.character.name) === q);
+  if (exact) return exact;
+
+  const start = cards.find(c => phase2Normalize(c.character.name).startsWith(q));
+  if (start) return start;
+
+  const inc = cards.find(c => phase2Normalize(c.character.name).includes(q));
+  if (inc) return inc;
+
+  throw new Error(`No card found in your inventory for: ${name}`);
+}
+
+function phase2RaritySellValue(rarity, power = 0) {
+  const base = {
+    COMMON: 250,
+    RARE: 1000,
+    EPIC: 5000,
+    LEGENDARY: 25000,
+    MYTHIC: 90000,
+    DIVINE: 250000,
+    SECRET: 1000000
+  }[rarity] || 100;
+
+  return base + Math.floor(Number(power || 0) * 0.08);
+}
+
+function phase2GetStars(card) {
+  const trait = String(card?.trait || '');
+  const match = trait.match(/STAR:(\d+)/);
+  return Math.max(0, Number(match?.[1] || 0));
+}
+
+function phase2SetStarsTrait(oldTrait, stars) {
+  const clean = String(oldTrait || '').replace(/STAR:\d+/g, '').trim();
+  return `${clean} STAR:${Math.max(0, stars)}`.trim();
+}
+
+function phase2StarLabel(card) {
+  const stars = phase2GetStars(card);
+  return stars ? ` ⭐${stars}` : '';
+}
+
+async function phase2FuseByName(userId, name) {
+  const q = phase2Normalize(name);
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' }
+  });
+
+  const matches = cards.filter(c => phase2Normalize(c.character.name).includes(q));
+
+  if (!matches.length) throw new Error(`No cards found for ${name}.`);
+
+  const characterId = matches[0].characterId;
+  const same = cards.filter(c => c.characterId === characterId)
+    .sort((a, b) => {
+      const starDiff = phase2GetStars(b) - phase2GetStars(a);
+      if (starDiff !== 0) return starDiff;
+      return Number(b.power || 0) - Number(a.power || 0);
+    });
+
+  if (same.length < 2) {
+    return {
+      fused: false,
+      message: `You need at least 2 copies of **${same[0].character.name}** to fuse.`
+    };
+  }
+
+  const keeper = same[0];
+  const consume = same[1];
+  const oldStars = phase2GetStars(keeper);
+  const gainedStars = 1 + phase2GetStars(consume);
+  const newStars = Math.min(10, oldStars + gainedStars);
+
+  const basePower = Number(keeper.character.basePower || keeper.power || 0);
+  const powerGain = Math.floor(basePower * 0.10 * gainedStars) + Math.floor(Number(consume.power || 0) * 0.08);
+
+  await prisma.$transaction([
+    prisma.teamSlot.deleteMany({
+      where: { userId, cardId: consume.id }
+    }),
+    prisma.marketListing.updateMany({
+      where: { cardId: consume.id, status: 'ACTIVE' },
+      data: { status: 'CANCELLED' }
+    }),
+    prisma.userCard.delete({
+      where: { id: consume.id }
+    }),
+    prisma.userCard.update({
+      where: { id: keeper.id },
+      data: {
+        power: { increment: powerGain },
+        trait: phase2SetStarsTrait(keeper.trait, newStars)
+      }
+    })
+  ]);
+
+  return {
+    fused: true,
+    name: keeper.character.name,
+    oldStars,
+    newStars,
+    powerGain
+  };
+}
+
+async function phase2FuseList(userId) {
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { obtainedAt: 'desc' }
+  });
+
+  const map = new Map();
+
+  for (const c of cards) {
+    if (!map.has(c.characterId)) {
+      map.set(c.characterId, {
+        name: c.character.name,
+        rarity: c.character.rarity,
+        count: 0,
+        maxPower: 0
+      });
+    }
+
+    const row = map.get(c.characterId);
+    row.count++;
+    row.maxPower = Math.max(row.maxPower, Number(c.power || 0));
+  }
+
+  return Array.from(map.values())
+    .filter(x => x.count >= 2)
+    .sort((a, b) => b.count - a.count || b.maxPower - a.maxPower);
+}
+
+async function phase2SellAllByRarity(userId, rarity) {
+  const target = String(rarity || '').toUpperCase();
+  const allowed = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE', 'SECRET'];
+
+  if (!allowed.includes(target)) throw new Error('Invalid rarity.');
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true }
+  });
+
+  const sellCards = cards.filter(c => c.character.rarity === target);
+
+  if (!sellCards.length) return { sold: 0, gold: 0, rarity: target };
+
+  const totalGold = sellCards.reduce((sum, c) => sum + phase2RaritySellValue(c.character.rarity, c.power), 0);
+  const ids = sellCards.map(c => c.id);
+
+  await prisma.$transaction([
+    prisma.teamSlot.deleteMany({ where: { userId, cardId: { in: ids } } }),
+    prisma.marketListing.updateMany({
+      where: { cardId: { in: ids }, status: 'ACTIVE' },
+      data: { status: 'CANCELLED' }
+    }),
+    prisma.userCard.deleteMany({ where: { id: { in: ids } } }),
+    prisma.user.update({
+      where: { id: userId },
+      data: { gold: { increment: totalGold } }
+    })
+  ]);
+
+  return { sold: sellCards.length, gold: totalGold, rarity: target };
+}
+
+async function phase2ApplyRarityFixes() {
+  const fixes = [
+    { names: ['lelouch', 'lelouch lamperouge'], rarity: 'SECRET', power: 28000 },
+    { names: ['saber'], rarity: 'DIVINE', power: 17000 },
+    { names: ['ainz', 'ainz ooal gown'], rarity: 'DIVINE', power: 18000 },
+    { names: ['gon', 'gon freecss'], rarity: 'DIVINE', power: 16000 },
+    { names: ['killua', 'killua zoldyck'], rarity: 'DIVINE', power: 16000 },
+    { names: ['kurapika'], rarity: 'DIVINE', power: 16000 },
+    { names: ['kakashi', 'kakashi hatake'], rarity: 'DIVINE', power: 14000 },
+    { names: ['gojo', 'satoru gojo', 'satoru gojou'], rarity: 'SECRET', power: 30000 }
+  ];
+
+  const chars = await prisma.character.findMany({
+    where: { active: true }
+  });
+
+  let updated = 0;
+
+  for (const c of chars) {
+    const n = phase2Normalize(c.name);
+    const fix = fixes.find(f => f.names.some(name => n === phase2Normalize(name) || n.includes(phase2Normalize(name))));
+
+    if (!fix) continue;
+
+    await prisma.character.update({
+      where: { id: c.id },
+      data: {
+        rarity: fix.rarity,
+        basePower: Math.max(Number(c.basePower || 0), fix.power),
+        baseFarm: Math.floor(fix.power / 8),
+        baseLuck: Math.floor(fix.power / 20)
+      }
+    });
+
+    updated++;
+  }
+
+  console.log(`[Phase2] Rarity fixes updated ${updated} characters`);
+}
+
 function money(n) {
   return Number(n || 0).toLocaleString('en-US');
 }
@@ -910,6 +1136,7 @@ client.once('ready', async () => {
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
+  await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
 
   const firstBossDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 90) * 1000;
@@ -2031,6 +2258,189 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       return i.reply(`Added **${amount} tokens** to **${target.username}**.\nNew tokens: **${updated.tokens}**`);
+    }
+
+
+    if (commandName === 'fuse-list') {
+      const list = await phase2FuseList(userId);
+
+      if (!list.length) {
+        return i.reply('You do not have duplicate characters ready to fuse.');
+      }
+
+      return i.reply(
+        (`**FUSION READY**\n\n` +
+        list.slice(0, 30).map(x =>
+          `${rarityEmoji(x.rarity)} **${x.name}** x${x.count} • Max PWR ${money(x.maxPower)}`
+        ).join('\n')).slice(0, 1900)
+      );
+    }
+
+    if (commandName === 'fuse') {
+      const name = i.options.getString('name', true);
+      const result = await phase2FuseByName(userId, name);
+
+      if (!result.fused) return i.reply(result.message);
+
+      return i.reply(
+        `⭐ **FUSION COMPLETE**\n` +
+        `**${result.name}**: ⭐${result.oldStars} → ⭐${result.newStars}\n` +
+        `Power gained: **+${money(result.powerGain)}**`
+      );
+    }
+
+    if (commandName === 't') {
+      const name = i.options.getString('name', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const cost = trainingCost(amount);
+      const card = await phase2FindUserCardByName(userId, name);
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cost.gold) {
+        return i.reply(`You need **${money(cost.gold)} Gold** for this training.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { gold: { decrement: cost.gold } }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: { power: { increment: cost.powerGain } },
+        include: { character: true }
+      });
+
+      return i.reply(
+        `🏋️ **TRAINING COMPLETE**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}${phase2StarLabel(updated)}** gained **+${money(cost.powerGain)} Power**.\n` +
+        `New Power: **${money(updated.power)}**`
+      );
+    }
+
+    if (commandName === 'a') {
+      const name = i.options.getString('name', true);
+      const target = i.options.getString('rarity', true);
+      const cfg = RARITY_UPGRADE_COSTS[target];
+
+      if (!cfg) return i.reply({ content: 'Invalid rarity.', ephemeral: true });
+
+      const card = await phase2FindUserCardByName(userId, name);
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cfg.gold || (user.tokens || 0) < cfg.tokens) {
+        return i.reply(`You need **${money(cfg.gold)} gold** and **${cfg.tokens} tokens**.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { decrement: cfg.gold },
+          tokens: { decrement: cfg.tokens }
+        }
+      });
+
+      await prisma.character.update({
+        where: { id: card.characterId },
+        data: {
+          rarity: target,
+          basePower: Math.max(card.character.basePower || 0, cfg.power)
+        }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: {
+          power: Math.max(card.power || 0, cfg.power + Math.floor(Math.random() * 500))
+        },
+        include: { character: true }
+      });
+
+      return i.reply(
+        `✨ **ASCENSION COMPLETE**\n` +
+        `**${updated.character.name}** is now **${target}**.\n` +
+        `New Power: **${money(updated.power)}**`
+      );
+    }
+
+    if (commandName === 'sell-rarity') {
+      const rarity = i.options.getString('rarity', true);
+      const result = await phase2SellAllByRarity(userId, rarity);
+
+      if (!result.sold) return i.reply(`You do not have any **${result.rarity}** cards.`);
+
+      return i.reply(
+        `💰 **SOLD ${result.rarity} CARDS**\n` +
+        `Sold: **${result.sold}**\n` +
+        `Gold earned: **${money(result.gold)}**`
+      );
+    }
+
+    if (commandName === 'admin-give-gold') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const target = i.options.getUser('user', true);
+      const amount = i.options.getInteger('amount', true);
+      await ensureUser(target);
+
+      const updated = await prisma.user.update({
+        where: { id: target.id },
+        data: { gold: { increment: amount } }
+      });
+
+      return i.reply(`Added **${money(amount)} gold** to **${target.username}**. New gold: **${money(updated.gold)}**`);
+    }
+
+    if (commandName === 'admin-give-tokens') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const target = i.options.getUser('user', true);
+      const amount = i.options.getInteger('amount', true);
+      await ensureUser(target);
+
+      const updated = await prisma.user.update({
+        where: { id: target.id },
+        data: { tokens: { increment: amount } }
+      });
+
+      return i.reply(`Added **${amount} tokens** to **${target.username}**. New tokens: **${updated.tokens}**`);
+    }
+
+    if (commandName === 'admin-reset-all') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const confirm = i.options.getString('confirm', true);
+
+      if (confirm !== 'YES') {
+        return i.reply({ content: 'Type confirm:YES to reset all players.', ephemeral: true });
+      }
+
+      await prisma.$transaction([
+        prisma.teamSlot.deleteMany({}),
+        prisma.marketListing.deleteMany({}),
+        prisma.userEquipment.deleteMany({}),
+        prisma.userCard.deleteMany({}),
+        prisma.storyProgress.deleteMany({}),
+        prisma.bossEventEntry.deleteMany({}).catch(() => prisma.$executeRaw`SELECT 1`),
+        prisma.user.updateMany({
+          data: {
+            gold: 0,
+            tokens: 0,
+            rolls: 10,
+            xp: 0,
+            level: 1
+          }
+        })
+      ]);
+
+      return i.reply('⚠️ **RESET ALL COMPLETE**');
     }
 
     if (commandName === 'admin-give-rolls') {
