@@ -110,8 +110,8 @@ async function addCardLevel(cardId, amount) {
 const CANONICAL_ROSTER_FIXES = [
   { key: 'sung jin', name: 'Sung Jin-Woo', anime: 'Solo Leveling', rarity: 'SECRET', power: 9664, element: 'Shadow', q: 'Sung Jin-Woo' },
   { key: 'gojo', name: 'Satoru Gojo', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 9400, element: 'Void', q: 'Satoru Gojo' },
-  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Saber Fate' },
-  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Saber Fate' },
+  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg' },
+  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg' },
   { key: 'makima', name: 'Makima', anime: 'Chainsaw Man', rarity: 'SECRET', power: 7600, element: 'Dark', q: 'Makima' },
   { key: 'lelouch', name: 'Lelouch Lamperouge', anime: 'Code Geass', rarity: 'SECRET', power: 8800, element: 'Dark', q: 'Lelouch Lamperouge' },
   { key: 'madara', name: 'Madara Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 9000, element: 'Dark', q: 'Madara Uchiha' },
@@ -167,7 +167,7 @@ async function ensureCanonicalCharacter(fix) {
     orderBy: { basePower: 'desc' }
   }).catch(() => null);
 
-  const imageUrl = existing?.imageUrl || await findAnimeImage(fix.q || fix.name);
+  const imageUrl = fix.imageUrl || existing?.imageUrl || await findAnimeImage(fix.q || fix.name);
 
   if (!existing) {
     existing = await prisma.character.create({
@@ -198,7 +198,7 @@ async function ensureCanonicalCharacter(fix) {
         anime: fix.anime,
         rarity: fix.rarity,
         element: fix.element,
-        imageUrl: imageUrl || existing.imageUrl,
+        imageUrl: fix.imageUrl || imageUrl || existing.imageUrl,
         basePower: fix.power,
         baseFarm: Math.floor(fix.power / 8),
         baseLuck: Math.floor(fix.power / 20),
@@ -347,6 +347,18 @@ function vrStatsLine(card, character) {
     `CRIT **${crit}%**\n` +
     `Passive: ${vrPassive(character)}`
   );
+}
+
+
+function vrStatsCompact(card, character) {
+  if (typeof vrStatsLine === 'function') return vrStatsLine(card, character);
+  const p = Number(card?.power || character?.basePower || 100);
+  const role = 'DPS';
+  const atk = Math.floor(p * 1.1);
+  const def = Math.floor(p * 0.55);
+  const hp = Math.floor(p * 8);
+  const spd = 105;
+  return `Class: **${role}** | Element: **${character?.element || 'Neutral'}**\nATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**`;
 }
 
 async function fixImportantVariants() {
@@ -1985,7 +1997,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       const aura = getAura(first);
       const globalOwned = await prisma.userCard.count({ where: { characterId: first.id } });
       const matches = chars
-        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower}`)
+        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower} • ${typeof vrRole === 'function' ? vrRole(c) : 'DPS'} • ${typeof vrElement === 'function' ? vrElement(c) : (c.element || 'Neutral')}`)
         .join('\n');
 
       const embed = new EmbedBuilder()
@@ -3081,6 +3093,35 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
 
+
+
+    if (commandName === 'admin-fix-saber-image') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      const result = await prisma.character.updateMany({
+        where: {
+          OR: [
+            { name: { contains: 'Saber', mode: 'insensitive' } },
+            { name: { contains: 'Artoria', mode: 'insensitive' } }
+          ]
+        },
+        data: {
+          name: 'Saber',
+          anime: 'Fate Series',
+          rarity: 'SECRET',
+          basePower: 9000,
+          baseFarm: 1125,
+          baseLuck: 450,
+          element: 'Light',
+          imageUrl: 'https://cdn.myanimelist.net/images/characters/9/151643.jpg',
+          active: true
+        }
+      });
+
+      return i.reply({ content: `✅ Saber image fixed. Updated: ${result.count}`, ephemeral: true });
+    }
 
     if (commandName === 'admin-collapse-variants') {
       if (!config.adminIds.includes(userId)) {

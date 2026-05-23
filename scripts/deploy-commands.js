@@ -44,6 +44,7 @@ const commands = [
   new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
   new SlashCommandBuilder().setName('stats').setDescription('Show character stats').addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
   new SlashCommandBuilder().setName('admin-fix-variants').setDescription('Admin: fix important duplicated variants'),
+  new SlashCommandBuilder().setName('admin-fix-saber-image').setDescription('Admin: force correct female Saber image'),
   new SlashCommandBuilder().setName('admin-collapse-variants').setDescription('Admin: keep one best version per important character and restore images'),
 
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
