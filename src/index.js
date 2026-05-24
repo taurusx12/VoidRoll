@@ -8764,6 +8764,50 @@ async function baHandler(i, userId, commandName) {
 }
 // ===== END BUY ROLLS ABSOLUTE BIGINT SAFE FIX =====
 
+
+// ===== READY ASCEND COMMAND PATCH =====
+function raClean(name=''){return String(name||'').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig,' ').replace(/\s+/g,' ').trim()}
+function raMoney(n){return typeof money==='function'?money(n):Number(n||0).toLocaleString('en-US')}
+function raStars(trait=''){const m=String(trait||'').match(/Stars:(\d+)/i);return m?Math.max(0,Math.min(10,Number(m[1]||0))):0}
+function raStarsLine(stars){stars=Math.max(0,Math.min(10,Number(stars||0)));return '★'.repeat(stars)+'☆'.repeat(10-stars)}
+function raRank(r){return {COMMON:1,RARE:2,EPIC:3,LEGENDARY:4,MYTHIC:5,DIVINE:6,SECRET:7}[String(r||'').toUpperCase()]||1}
+function raRankRarity(rank){return {1:'COMMON',2:'RARE',3:'EPIC',4:'LEGENDARY',5:'MYTHIC',6:'DIVINE',7:'SECRET'}[rank]||'COMMON'}
+function raNextRarity(current,stars){const rank=raRank(current);if(rank>=7)return 'SECRET';return raRankRarity(Math.min(7,rank+Math.floor(Number(stars||0)/2)))}
+function raAscendCost(rarity,nextStars){const base={COMMON:1200,RARE:2800,EPIC:7000,LEGENDARY:18000,MYTHIC:42000,DIVINE:85000,SECRET:150000}[String(rarity||'').toUpperCase()]||1200;return base*Math.max(1,Number(nextStars||1))}
+async function raBuildList(userId){
+  const cards=await prisma.userCard.findMany({where:{userId},include:{character:true},orderBy:[{power:'desc'},{id:'desc'}],take:100000}).catch(()=>[]);
+  const byCharacter=new Map();
+  for(const card of cards){const key=card.characterId;if(!byCharacter.has(key))byCharacter.set(key,[]);byCharacter.get(key).push(card)}
+  const ready=[];
+  for(const group of byCharacter.values()){
+    if(group.length<2)continue;
+    const main=group.sort((a,b)=>Number(b.power||0)-Number(a.power||0))[0];
+    const c=main.character, stars=raStars(main.trait);
+    if(stars>=10)continue;
+    const nextStars=stars+1, currentRarity=String(c.rarity||'COMMON').toUpperCase(), nextRarity=raNextRarity(currentRarity,nextStars), cost=raAscendCost(currentRarity,nextStars);
+    ready.push({name:raClean(c.name),anime:c.anime,rarity:currentRarity,nextRarity,stars,nextStars,cost,power:Number(main.power||c.basePower||0),dupes:group.length-1});
+  }
+  ready.sort((a,b)=>raRank(b.rarity)-raRank(a.rarity)||b.power-a.power);
+  return ready;
+}
+async function raReadyAscend(i){
+  const pageInput=i.options.getInteger('page')||1;
+  const ready=await raBuildList(i.user.id);
+  if(!ready.length)return i.reply(`No characters are ready to ascend yet.\nYou need at least **1 duplicate** of the same character.\n\nUse:\n\`/ascend name:Character\``);
+  const perPage=10, maxPage=Math.max(1,Math.ceil(ready.length/perPage)), page=Math.max(1,Math.min(pageInput,maxPage)), start=(page-1)*perPage;
+  const lines=ready.slice(start,start+perPage).map((x,idx)=>{
+    const evolve=x.nextRarity!==x.rarity?` 🔥 **${x.rarity} → ${x.nextRarity}**`:'';
+    return `${start+idx+1}. **${x.name}** • ${x.anime}\n   Rarity: **${x.rarity}**${evolve}\n   Stars: **${raStarsLine(x.stars)} → ${raStarsLine(x.nextStars)}**\n   Dupes: **${x.dupes}** | Cost: **${raMoney(x.cost)} Gold**\n   Command: \`/ascend name:${x.name}\``;
+  }).join('\n\n');
+  const embed=new EmbedBuilder().setTitle('Ready to Ascend').setDescription(`${lines}\n\nPage **${page}/${maxPage}** • Total ready: **${ready.length}**`).setColor(0xf1c40f);
+  return i.reply({embeds:[embed]});
+}
+async function raHandler(i,userId,commandName){
+  if(commandName==='ready-ascend')return raReadyAscend(i);
+  return false;
+}
+// ===== END READY ASCEND COMMAND PATCH =====
+
 client.on('interactionCreate', async (i) => {
     const uiButtonHandled = await uiButtons(i);
     if (uiButtonHandled !== false) return uiButtonHandled;
@@ -8948,6 +8992,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const raHandled = await raHandler(i, userId, commandName);
+    if (raHandled !== false) return raHandled;
 
     const baHandled = await baHandler(i, userId, commandName);
     if (baHandled !== false) return baHandled;

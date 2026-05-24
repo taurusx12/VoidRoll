@@ -49,7 +49,7 @@ const commands = [
     .addUserOption(o => o.setName('opponent').setDescription('Player to fight').setRequired(true)),
   new SlashCommandBuilder()
     .setName('admin-fix-all-for-one')
-    .setDescription('Admin: set All For One to Mythic and fix his passive'),,
+    .setDescription('Admin: set All For One to Mythic and fix his passive'),
   new SlashCommandBuilder()
     .setName('shop')
     .setDescription('Open shop to buy normal rolls with Gold'),
@@ -64,6 +64,10 @@ const commands = [
         .setMinValue(1)
         .setMaxValue(100)
     ),
+  new SlashCommandBuilder()
+    .setName('ready-ascend')
+    .setDescription('Show characters that are ready to ascend')
+    .addIntegerOption(o => o.setName('page').setDescription('Page number').setRequired(false)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
