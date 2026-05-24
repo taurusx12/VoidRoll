@@ -5,6 +5,16 @@ const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
+  new SlashCommandBuilder()
+    .setName('formation-set')
+    .setDescription('Manually set one formation')
+    .addIntegerOption(o => o.setName('formation').setDescription('Formation number 1-6').setRequired(true))
+    .addStringOption(o => o.setName('slot1').setDescription('Character 1').setRequired(true))
+    .addStringOption(o => o.setName('slot2').setDescription('Character 2').setRequired(false))
+    .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
+    .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
+    .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
+    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),
