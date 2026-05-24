@@ -34,10 +34,112 @@ const pendingTrades = new Map();
 
 
 
+
+const RARITY_BASE_RANGES = {
+  COMMON: { min: 50, max: 150 },
+  RARE: { min: 150, max: 400 },
+  EPIC: { min: 400, max: 900 },
+  LEGENDARY: { min: 900, max: 1800 },
+  MYTHIC: { min: 1800, max: 3500 },
+  DIVINE: { min: 3500, max: 6000 },
+  SECRET: { min: 6000, max: 10000 }
+};
+
+function rarityBasePower(rarity, seed = 1) {
+  const range = RARITY_BASE_RANGES[rarity] || RARITY_BASE_RANGES.COMMON;
+  const spread = Math.max(1, range.max - range.min);
+  return range.min + (Math.abs(seed * 97) % spread);
+}
+
+function calculateDetailedStats(character, level = 1, ascension = 0) {
+  const rarity = character?.rarity || 'COMMON';
+  const role = characterRole(character);
+  const basePower = Number(character?.basePower || rarityBasePower(rarity, level));
+  const growth = 1 + ((level - 1) * 0.085) + (ascension * 0.18);
+
+  let atkScale = 1;
+  let hpScale = 1;
+  let defScale = 1;
+  let speedScale = 1;
+  let critRate = 5;
+  let critDmg = 150;
+  let energyRegen = 100;
+  let pen = 0;
+  let lifesteal = 0;
+  let shield = 0;
+  let controlResist = 0;
+  let ultCharge = 100;
+
+  switch (role) {
+    case 'Tank':
+      hpScale = 2.4;
+      defScale = 2.1;
+      atkScale = 0.85;
+      shield = 22;
+      controlResist = 25;
+      break;
+    case 'Support':
+      hpScale = 1.6;
+      defScale = 1.3;
+      energyRegen = 145;
+      ultCharge = 135;
+      shield = 12;
+      break;
+    case 'Control':
+      hpScale = 1.4;
+      defScale = 1.2;
+      speedScale = 1.15;
+      ultCharge = 125;
+      controlResist = 15;
+      break;
+    case 'Assassin':
+      atkScale = 1.45;
+      speedScale = 1.4;
+      critRate = 28;
+      critDmg = 210;
+      pen = 18;
+      lifesteal = 8;
+      break;
+    case 'Mage':
+      atkScale = 1.55;
+      speedScale = 1.1;
+      pen = 25;
+      ultCharge = 120;
+      break;
+    default:
+      atkScale = 1.3;
+      hpScale = 1.3;
+      critRate = 15;
+      critDmg = 180;
+      break;
+  }
+
+  const atk = Math.floor(basePower * atkScale * growth);
+  const hp = Math.floor(basePower * 10 * hpScale * growth);
+  const def = Math.floor(basePower * 0.85 * defScale * growth);
+  const speed = Math.floor((100 + (basePower / 55)) * speedScale + (level * 0.8));
+
+  return {
+    atk,
+    hp,
+    def,
+    speed,
+    critRate,
+    critDmg,
+    energyRegen,
+    pen,
+    lifesteal,
+    shield,
+    controlResist,
+    ultCharge
+  };
+}
+
 function characterRole(character) {
   const n = phase2Normalize(character?.name || '');
   if (['lelouch','aizen','makima','kurapika'].some(x => n.includes(x))) return 'Control';
-  if (['rimuru','megumi','saber','kakashi'].some(x => n.includes(x))) return 'Support';
+  if (['rimuru','megumi','kakashi'].some(x => n.includes(x))) return 'Support';
+  if (['saber','artoria'].some(x => n.includes(x))) return 'Tank';
   if (['whitebeard','kaido','all might','escanor','ainz'].some(x => n.includes(x))) return 'Tank';
   if (['killua','toji','levi','hisoka'].some(x => n.includes(x))) return 'Assassin';
   if (['gojo','madara','gilgamesh','sukuna'].some(x => n.includes(x))) return 'Mage';
@@ -49,11 +151,11 @@ function characterElement(character) {
   if (['sukuna','toji','lelouch','makima','ainz'].some(x => n.includes(x))) return 'Dark';
   if (['sung jin','igris','beru'].some(x => n.includes(x))) return 'Shadow';
   if (['gojo','rimuru','gilgamesh'].some(x => n.includes(x))) return 'Void';
-  if (['saber','goku','naruto','luffy'].some(x => n.includes(x))) return 'Light';
+  if (['saber','artoria','goku','naruto','luffy'].some(x => n.includes(x))) return 'Light';
   if (['ace','rengoku','natsu'].some(x => n.includes(x))) return 'Fire';
   if (['killua','zenitsu'].some(x => n.includes(x))) return 'Lightning';
   if (['aizen','ichigo'].some(x => n.includes(x))) return 'Soul';
-  return cleanElement(character?.element || 'Neutral');
+  return character?.element || 'Neutral';
 }
 
 function characterPassive(character) {
@@ -71,23 +173,57 @@ function characterPassive(character) {
 }
 
 function characterStatsText(card, character) {
-  const p = Number(card?.power || character?.basePower || 100);
-  const role = characterRole(character);
-  const atk = Math.floor(p * (role === 'Tank' ? 0.38 : role === 'Support' ? 0.42 : 0.55));
-  const def = Math.floor(p * (role === 'Tank' ? 0.45 : role === 'Assassin' ? 0.20 : 0.30));
-  const hp = Math.floor(p * (role === 'Tank' ? 9.5 : role === 'Support' ? 7.2 : 6.0));
-  const spd = Math.floor(100 + p / 250 + (role === 'Assassin' ? 45 : role === 'Support' ? 25 : 0));
-  const crit = role === 'Assassin' ? 35 : role === 'DPS' ? 25 : 15;
+  const level = Number(card?.level || 1);
+  const ascension = getAscension(card);
+  const stats = calculateDetailedStats(character, level, ascension);
+
   return (
-    `Class: **${role}** | Element: **${characterElement(character)}**\n` +
-    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
-    `CRIT **${crit}%**\n` +
+    `Level: **${level}/99** | Ascension: **${ascension}**\n` +
+    `Class: **${characterRole(character)}** | Element: **${characterElement(character)}**\n` +
+    `ATK **${money(stats.atk)}** • HP **${money(stats.hp)}** • DEF **${money(stats.def)}** • SPD **${stats.speed}**\n` +
+    `CRIT ${stats.critRate}% • CRIT DMG ${stats.critDmg}% • PEN ${stats.pen}%\n` +
+    `Energy Regen ${stats.energyRegen}% • Ult Charge ${stats.ultCharge}%\n` +
+    `Lifesteal ${stats.lifesteal}% • Shield ${stats.shield}% • Control Resist ${stats.controlResist}%\n` +
     `Passive: ${characterPassive(character)}`
   );
 }
 
 function levelCapForCard() {
   return 99;
+}
+
+
+async function ascendCard(cardId) {
+  const card = await prisma.userCard.findUnique({
+    where: { id: cardId },
+    include: { character: true }
+  });
+
+  if (!card) throw new Error('Card not found.');
+
+  const currentAsc = getAscension(card);
+  const nextAsc = Math.min(15, currentAsc + 1);
+
+  const rarityBonus = {
+    COMMON: 15,
+    RARE: 35,
+    EPIC: 80,
+    LEGENDARY: 150,
+    MYTHIC: 280,
+    DIVINE: 520,
+    SECRET: 900
+  }[card.character.rarity] || 10;
+
+  const powerGain = rarityBonus * nextAsc;
+
+  return prisma.userCard.update({
+    where: { id: card.id },
+    data: {
+      trait: setAscensionTrait(card.trait, nextAsc),
+      power: { increment: powerGain }
+    },
+    include: { character: true }
+  });
 }
 
 async function addCardLevel(cardId, amount) {
@@ -103,683 +239,6 @@ async function addCardLevel(cardId, amount) {
     data: { level: newLevel, power: { increment: powerGain } },
     include: { character: true }
   });
-}
-
-
-
-
-const VALID_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul','Neutral'];
-
-function cleanElement(value) {
-  const raw = String(value || '').trim();
-  const found = VALID_ELEMENTS.find(e => phase2Normalize(e) === phase2Normalize(raw));
-  return found || 'Neutral';
-}
-
-const CANONICAL_ROSTER_FIXES = [
-  { key: 'sung jin', name: 'Sung Jin-Woo', anime: 'Solo Leveling', rarity: 'SECRET', power: 9664, element: 'Shadow', q: 'Sung Jin-Woo' },
-  { key: 'gojo', name: 'Satoru Gojo', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 9400, element: 'Void', q: 'Satoru Gojo' },
-  { key: 'saber', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: null },
-  { key: 'artoria', name: 'Saber', anime: 'Fate Series', rarity: 'SECRET', power: 9000, element: 'Light', q: 'Artoria Pendragon', imageUrl: null },
-  { key: 'makima', name: 'Makima', anime: 'Chainsaw Man', rarity: 'SECRET', power: 7600, element: 'Dark', q: 'Makima' },
-  { key: 'lelouch', name: 'Lelouch Lamperouge', anime: 'Code Geass', rarity: 'SECRET', power: 8800, element: 'Dark', q: 'Lelouch Lamperouge' },
-  { key: 'madara', name: 'Madara Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 9000, element: 'Dark', q: 'Madara Uchiha' },
-  { key: 'aizen', name: 'Sosuke Aizen', anime: 'Bleach', rarity: 'SECRET', power: 9200, element: 'Void', q: 'Sosuke Aizen' },
-  { key: 'sukuna', name: 'Ryomen Sukuna', anime: 'Jujutsu Kaisen', rarity: 'SECRET', power: 8900, element: 'Dark', q: 'Ryomen Sukuna' },
-  { key: 'rimuru', name: 'Rimuru Tempest', anime: 'That Time I Got Reincarnated as a Slime', rarity: 'SECRET', power: 9700, element: 'Void', q: 'Rimuru Tempest' },
-  { key: 'luffy', name: 'Monkey D. Luffy', anime: 'One Piece', rarity: 'SECRET', power: 8200, element: 'Light', q: 'Monkey D Luffy' },
-  { key: 'ichigo', name: 'Ichigo Kurosaki', anime: 'Bleach', rarity: 'SECRET', power: 8800, element: 'Soul', q: 'Ichigo Kurosaki' },
-  { key: 'naruto', name: 'Naruto Uzumaki', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 8500, element: 'Light', q: 'Naruto Uzumaki' },
-  { key: 'sasuke', name: 'Sasuke Uchiha', anime: 'Naruto: Shippuden', rarity: 'SECRET', power: 8400, element: 'Dark', q: 'Sasuke Uchiha' },
-  { key: 'gon', name: 'Gon Freecss', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Light', q: 'Gon Freecss' },
-  { key: 'killua', name: 'Killua Zoldyck', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Lightning', q: 'Killua Zoldyck' },
-  { key: 'kurapika', name: 'Kurapika', anime: 'Hunter x Hunter', rarity: 'DIVINE', power: 5200, element: 'Light', q: 'Kurapika' },
-  { key: 'toji', name: 'Toji Fushiguro', anime: 'Jujutsu Kaisen', rarity: 'DIVINE', power: 5200, element: 'Dark', q: 'Toji Fushiguro' },
-  { key: 'kakashi', name: 'Kakashi Hatake', anime: 'Naruto: Shippuden', rarity: 'DIVINE', power: 4800, element: 'Lightning', q: 'Kakashi Hatake' }
-];
-
-function canonicalBaseName(name = '') {
-  return phase2Normalize(
-    String(name)
-      .replace(/\s+\((.*?)\)$/g, '')
-      .replace(/\b(base|secret form|true power|final form|divine form|mythic form|royal variant|raid variant|festival variant|battle ready|domain form|early arc|light variant|dark variant|shadow variant|hero variant|demon variant|legendary variant)\b/ig, '')
-      .trim()
-  );
-}
-
-function rosterFixForName(name = '') {
-  const clean = canonicalBaseName(name);
-  return CANONICAL_ROSTER_FIXES.find(r => clean.includes(phase2Normalize(r.key)));
-}
-
-
-async function findMyAnimeListImage(query) {
-  // Disabled: images now use MyAnimeList/Jikan only.
-  return null;
-}
-
-async function findAnimeImage(query) {
-  try {
-    const url = `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=10`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'VoidRollBot/1.0'
-      }
-    });
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const rows = data?.data || [];
-    if (!rows.length) return null;
-
-    const q = phase2Normalize(query);
-
-    const picked = rows.find(r => {
-      const name = phase2Normalize(r.name || '');
-      const nicknames = (r.nicknames || []).map(x => phase2Normalize(x)).join(' ');
-      const full = `${name} ${nicknames}`;
-
-      if (q.includes('artoria')) {
-        return full.includes('artoria') || full.includes('saber');
-      }
-
-      if (q.includes('saber')) {
-        return full.includes('artoria') || full.includes('saber');
-      }
-
-      return q.split(' ').some(part => part.length > 2 && full.includes(part));
-    }) || rows[0];
-
-    return picked?.images?.jpg?.image_url
-      || picked?.images?.webp?.image_url
-      || null;
-  } catch (e) {
-    console.error('[MAL/JikanImage] lookup failed:', e.message);
-    return null;
-  }
-}
-
-async function ensureCanonicalCharacter(fix) {
-  let existing = await prisma.character.findFirst({
-    where: {
-      OR: [
-        { name: { equals: fix.name, mode: 'insensitive' } },
-        { name: { contains: fix.key, mode: 'insensitive' } }
-      ]
-    },
-    orderBy: { basePower: 'desc' }
-  }).catch(() => null);
-
-  const imageUrl = fix.imageUrl || existing?.imageUrl || await findAnimeImage(fix.q || fix.name);
-
-  if (!existing) {
-    existing = await prisma.character.create({
-      data: {
-        id: `canon_${phase2Normalize(fix.name).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}`,
-        name: fix.name,
-        anime: fix.anime,
-        rarity: fix.rarity,
-        element: fix.element,
-        imageUrl,
-        auraName: `${fix.name} Aura`,
-        auraColor: fix.rarity === 'SECRET' ? '#111827' : fix.rarity === 'DIVINE' ? '#f472b6' : '#3b82f6',
-        auraSecondary: '#ffffff',
-        auraIntensity: fix.rarity === 'SECRET' ? 1.8 : 1.4,
-        basePower: fix.power,
-        baseFarm: Math.floor(fix.power / 8),
-        baseLuck: Math.floor(fix.power / 20),
-        limited: fix.rarity === 'SECRET',
-        banner: null,
-        active: true
-      }
-    });
-  } else {
-    existing = await prisma.character.update({
-      where: { id: existing.id },
-      data: {
-        name: fix.name,
-        anime: fix.anime,
-        rarity: fix.rarity,
-        element: fix.element,
-        imageUrl: fix.imageUrl || imageUrl || existing.imageUrl,
-        basePower: fix.power,
-        baseFarm: Math.floor(fix.power / 8),
-        baseLuck: Math.floor(fix.power / 20),
-        active: true
-      }
-    });
-  }
-
-  return existing;
-}
-
-
-
-async function getCorrectSaberImage() {
-  return await findAnimeImage('Artoria Pendragon')
-    || await findAnimeImage('Saber Fate stay night')
-    || await findAnimeImage('Saber Fate Zero')
-    || null;
-}
-
-async function hardFixSaberOneCopy() {
-  const saberImage = await getCorrectSaberImage();
-  const saberRows = await prisma.character.findMany({
-    where: {
-      OR: [
-        { name: { contains: 'Saber', mode: 'insensitive' } },
-        { name: { contains: 'Artoria', mode: 'insensitive' } },
-        { anime: { contains: 'Fate', mode: 'insensitive' } }
-      ]
-    },
-    orderBy: { basePower: 'desc' }
-  }).catch(() => []);
-
-  let canonical = saberRows.find(c => phase2Normalize(c.name) === 'saber')
-    || saberRows.find(c => phase2Normalize(c.name).includes('artoria'))
-    || saberRows[0];
-
-  if (!canonical) {
-    canonical = await prisma.character.create({
-      data: {
-        id: 'canon_saber_artoria_only',
-        name: 'Saber',
-        anime: 'Fate Series',
-        rarity: 'SECRET',
-        element: 'Light',
-        imageUrl: null,
-        auraName: 'Avalon Oath',
-        auraColor: '#f8fafc',
-        auraSecondary: '#fbbf24',
-        auraIntensity: 1.8,
-        basePower: 9000,
-        baseFarm: 1125,
-        baseLuck: 450,
-        limited: true,
-        banner: 'saber_oath',
-        active: true
-      }
-    });
-  } else {
-    canonical = await prisma.character.update({
-      where: { id: canonical.id },
-      data: {
-        name: 'Saber',
-        anime: 'Fate Series',
-        rarity: 'SECRET',
-        element: 'Light',
-        imageUrl: null,
-        auraName: 'Avalon Oath',
-        auraColor: '#f8fafc',
-        auraSecondary: '#fbbf24',
-        auraIntensity: 1.8,
-        basePower: 9000,
-        baseFarm: 1125,
-        baseLuck: 450,
-        limited: true,
-        banner: 'saber_oath',
-        active: true
-      }
-    });
-  }
-
-  let moved = 0;
-  let hidden = 0;
-
-  for (const row of saberRows) {
-    if (row.id === canonical.id) continue;
-
-    const cards = await prisma.userCard.updateMany({
-      where: { characterId: row.id },
-      data: { characterId: canonical.id }
-    }).catch(() => ({ count: 0 }));
-
-    moved += cards.count || 0;
-
-    await prisma.character.update({
-      where: { id: row.id },
-      data: {
-        active: false,
-        name: `Hidden Duplicate Saber ${row.id.slice(0, 6)}`,
-        imageUrl: null
-      }
-    }).catch(() => {});
-
-    hidden++;
-  }
-
-  return { canonical, moved, hidden };
-}
-
-async function collapseRosterVariants() {
-  let movedCards = 0;
-  let inactiveCharacters = 0;
-  let fixedCanon = 0;
-
-  for (const fix of CANONICAL_ROSTER_FIXES) {
-    const canonical = await ensureCanonicalCharacter(fix);
-    fixedCanon++;
-
-    const duplicates = await prisma.character.findMany({
-      where: {
-        active: true,
-        id: { not: canonical.id },
-        name: { contains: fix.key, mode: 'insensitive' }
-      }
-    }).catch(() => []);
-
-    for (const dupe of duplicates) {
-      const move = await prisma.userCard.updateMany({
-        where: { characterId: dupe.id },
-        data: { characterId: canonical.id }
-      }).catch(() => ({ count: 0 }));
-
-      movedCards += move.count || 0;
-
-      await prisma.character.update({
-        where: { id: dupe.id },
-        data: { active: false }
-      }).catch(() => {});
-
-      inactiveCharacters++;
-    }
-  }
-
-  // Hide ugly generated variant names from active search results.
-  const ugly = await prisma.character.findMany({
-    where: {
-      active: true,
-      OR: [
-        { id: { startsWith: 'gen_' } },
-        { id: { startsWith: 'real_' } }
-      ]
-    },
-    take: 5000
-  }).catch(() => []);
-
-  for (const c of ugly) {
-    const fix = rosterFixForName(c.name);
-    if (fix) continue;
-    await prisma.character.update({ where: { id: c.id }, data: { active: false } }).catch(() => {});
-    inactiveCharacters++;
-  }
-
-  console.log(`[RosterClean] Canon ${fixedCanon}, moved cards ${movedCards}, inactive ${inactiveCharacters}`);
-  return { fixedCanon, movedCards, inactiveCharacters };
-}
-
-const IMPORTANT_RARITY_FIXES = [
-  { keys: ['sung jin-woo', 'sung jin woo', 'jin-woo', 'jin woo'], rarity: 'SECRET', power: 9664, element: 'Shadow' },
-  { keys: ['satoru gojo', 'satoru gojou', 'gojo'], rarity: 'SECRET', power: 9400, element: 'Void' },
-  { keys: ['lelouch'], rarity: 'SECRET', power: 8800, element: 'Dark' },
-  { keys: ['saber', 'artoria'], rarity: 'SECRET', power: 9000, element: 'Light' },
-  { keys: ['madara'], rarity: 'SECRET', power: 9000, element: 'Dark' },
-  { keys: ['aizen'], rarity: 'SECRET', power: 9200, element: 'Void' },
-  { keys: ['sukuna'], rarity: 'SECRET', power: 8900, element: 'Dark' },
-  { keys: ['rimuru'], rarity: 'SECRET', power: 9700, element: 'Void' },
-  { keys: ['saitama'], rarity: 'SECRET', power: 10000, element: 'Light' },
-  { keys: ['gilgamesh'], rarity: 'SECRET', power: 9100, element: 'Light' },
-  { keys: ['makima'], rarity: 'SECRET', power: 7600, element: 'Dark' },
-  { keys: ['cid kagenou'], rarity: 'SECRET', power: 8800, element: 'Shadow' },
-  { keys: ['ainz'], rarity: 'SECRET', power: 8900, element: 'Dark' },
-
-  { keys: ['gon'], rarity: 'DIVINE', power: 5200, element: 'Light' },
-  { keys: ['killua'], rarity: 'DIVINE', power: 5200, element: 'Lightning' },
-  { keys: ['kurapika'], rarity: 'DIVINE', power: 5200, element: 'Light' },
-  { keys: ['kakashi'], rarity: 'DIVINE', power: 4800, element: 'Lightning' },
-  { keys: ['toji'], rarity: 'DIVINE', power: 5200, element: 'Dark' }
-];
-
-function cleanVariantName(name = '') {
-  return phase2Normalize(String(name).replace(/\((base|secret form|true power|final form|divine form|mythic form|royal variant|raid variant|festival variant|battle ready|domain form|early arc|light variant|dark variant|shadow variant|hero variant|demon variant|legendary variant)\)/ig, '').trim());
-}
-
-function importantFixFor(character) {
-  const clean = cleanVariantName(character?.name || '');
-  return IMPORTANT_RARITY_FIXES.find(f => f.keys.some(k => clean.includes(phase2Normalize(k))));
-}
-
-function vrRole(character) {
-  const n = cleanVariantName(character?.name || '');
-  if (['lelouch','aizen','makima','kurapika','shikamaru'].some(x => n.includes(x))) return 'Control';
-  if (['rimuru','megumi','kakashi','sakura','orihime'].some(x => n.includes(x))) return 'Support';
-  if (['saber','ainz','whitebeard','kaido','all might','escanor'].some(x => n.includes(x))) return 'Tank';
-  if (['killua','toji','levi','hisoka','zenitsu'].some(x => n.includes(x))) return 'Assassin';
-  if (['gojo','madara','gilgamesh','sukuna'].some(x => n.includes(x))) return 'Mage';
-  return 'DPS';
-}
-
-function vrElement(character) {
-  const fix = importantFixFor(character);
-  if (fix?.element) return fix.element;
-  return cleanElement(character?.element || 'Neutral');
-}
-
-function vrPassive(character) {
-  const n = cleanVariantName(character?.name || '');
-  if (n.includes('sung jin')) return 'Shadow Monarch: gains power after every defeated enemy.';
-  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
-  if (n.includes('lelouch')) return 'Geass: control enemy actions and boost team ultimate charge.';
-  if (n.includes('saber')) return 'Avalon: shield and damage reduction for the team.';
-  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.';
-  if (n.includes('madara')) return 'Uchiha Dominion: boosts AoE ultimate damage.';
-  if (n.includes('sukuna')) return 'King of Curses: executes low HP enemies.';
-  if (n.includes('rimuru')) return 'Predator: absorbs buffs and scales during battle.';
-  if (n.includes('killua')) return 'Godspeed: high speed and crit burst.';
-  if (n.includes('gon')) return 'Jajanken: heavy single target ultimate.';
-  return 'Battle Instinct: small ATK and ultimate charge bonus.';
-}
-
-function vrStatsLine(card, character) {
-  const p = Number(card?.power || character?.basePower || 100);
-  const role = vrRole(character);
-  let atk = Math.floor(p * 0.9), def = Math.floor(p * 0.5), hp = Math.floor(p * 8), spd = 100, crit = 12;
-
-  if (role === 'Tank') { atk = Math.floor(p * 0.65); def = Math.floor(p * 1.2); hp = Math.floor(p * 14); crit = 8; }
-  if (role === 'Support') { atk = Math.floor(p * 0.7); def = Math.floor(p * 0.8); hp = Math.floor(p * 10); spd = 115; crit = 10; }
-  if (role === 'Control') { atk = Math.floor(p * 0.8); def = Math.floor(p * 0.7); hp = Math.floor(p * 9); spd = 120; crit = 12; }
-  if (role === 'Assassin') { atk = Math.floor(p * 1.25); def = Math.floor(p * 0.35); hp = Math.floor(p * 6); spd = 145; crit = 30; }
-  if (role === 'Mage') { atk = Math.floor(p * 1.35); def = Math.floor(p * 0.45); hp = Math.floor(p * 7); spd = 110; crit = 18; }
-  if (role === 'DPS') { atk = Math.floor(p * 1.1); def = Math.floor(p * 0.55); hp = Math.floor(p * 8); spd = 105; crit = 18; }
-
-  return (
-    `Class: **${role}** | Element: **${vrElement(character)}**\n` +
-    `ATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**\n` +
-    `CRIT **${crit}%**\n` +
-    `Passive: ${typeof vrUniquePassive === 'function' ? vrUniquePassive(character) : vrPassive(character)}`
-  );
-}
-
-
-function vrStatsCompact(card, character) {
-  if (typeof vrStatsLine === 'function') return vrStatsLine(card, character);
-  const p = Number(card?.power || character?.basePower || 100);
-  const role = 'DPS';
-  const atk = Math.floor(p * 1.1);
-  const def = Math.floor(p * 0.55);
-  const hp = Math.floor(p * 8);
-  const spd = 105;
-  return `Class: **${role}** | Element: **${character?.element || 'Neutral'}**\nATK **${money(atk)}** • DEF **${money(def)}** • HP **${money(hp)}** • SPD **${spd}**`;
-}
-
-
-
-function vrQueryTokens(q = '') {
-  const aliases = {
-    'grand': 'grand',
-    'order': 'order',
-    'fgo': 'grand order',
-    'fategrandorder': 'grand order',
-    'fatestaynight': 'stay night',
-    'staynight': 'stay night',
-    'jujutsu': 'jujutsu',
-    'kaisen': 'kaisen'
-  };
-
-  const clean = phase2Normalize(q).replace(/[\/:_\-]+/g, ' ');
-  const words = clean.split(/\s+/).filter(Boolean);
-  const expanded = [];
-
-  for (const w of words) {
-    expanded.push(w);
-    if (aliases[w]) expanded.push(...aliases[w].split(/\s+/));
-  }
-
-  return [...new Set(expanded.filter(x => x.length > 1))];
-}
-
-function vrSearchScore(character, tokens) {
-  const name = phase2Normalize(character.name || '').replace(/[\/:_\-]+/g, ' ');
-  const anime = phase2Normalize(character.anime || '').replace(/[\/:_\-]+/g, ' ');
-  const full = `${name} ${anime}`;
-  let score = 0;
-
-  for (const t of tokens) {
-    if (name === t) score += 80;
-    if (name.includes(t)) score += 35;
-    if (anime.includes(t)) score += 45;
-    if (full.includes(t)) score += 20;
-  }
-
-  if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-
-  const rarityScore = { SECRET: 70, DIVINE: 55, MYTHIC: 40, LEGENDARY: 28, EPIC: 16, RARE: 8, COMMON: 0 }[character.rarity] || 0;
-  return score + rarityScore + Math.floor(Number(character.basePower || 0) / 1000);
-}
-
-function vrUniquePassive(character) {
-  const n = phase2Normalize(character?.name || '');
-  const anime = phase2Normalize(character?.anime || '');
-
-  if (n.includes('saber')) return 'Avalon: grants team shield and reduces incoming burst damage.';
-  if (n.includes('gojo')) return 'Infinity: dodges part of incoming damage and boosts Void allies.';
-  if (n.includes('geto')) return 'Cursed Spirit Control: increases summon/curse damage for the team.';
-  if (n.includes('sung jin')) return 'Shadow Monarch: gains damage and summon pressure after every kill.';
-  if (n.includes('makima')) return 'Control Devil: lowers enemy ATK and increases control chance.';
-  if (n.includes('reze')) return 'Bomb Devil: burst damage increases after ultimate.';
-  if (n.includes('luffy')) return 'Gear Spirit: ramps ATK and speed each round.';
-  if (n.includes('zoro')) return 'Three Sword Style: bonus crit damage against bosses.';
-  if (n.includes('sanji')) return 'Diable Jambe: fire bonus and dodge chance.';
-  if (n.includes('naruto')) return 'Nine-Tails Chakra: heals slightly and boosts Light allies.';
-  if (n.includes('sasuke')) return 'Sharingan: crit and counter chance.';
-  if (n.includes('madara')) return 'Uchiha Dominion: AoE ultimate damage increased.';
-  if (n.includes('itachi')) return 'Tsukuyomi: chance to silence enemy ultimate.';
-  if (n.includes('ichigo')) return 'Bankai Pressure: Soul damage and speed boost.';
-  if (n.includes('aizen')) return 'Kyoka Suigetsu: enemy accuracy and control resist reduced.';
-  if (n.includes('killua')) return 'Godspeed: very high speed and crit burst.';
-  if (n.includes('gon')) return 'Jajanken: heavy single target burst.';
-  if (n.includes('kurapika')) return 'Chain Judgment: bonus damage against villain teams.';
-  if (n.includes('toji')) return 'Heavenly Restriction: ignores part of enemy DEF.';
-  if (n.includes('sukuna')) return 'King of Curses: executes weakened enemies.';
-  if (n.includes('rimuru')) return 'Predator: copies a small part of enemy buffs.';
-  if (n.includes('ainz')) return 'Overlord: boosts Dark allies and reduces enemy resistance.';
-  if (n.includes('gilgamesh')) return 'Gate of Babylon: high PEN and ultimate burst.';
-  if (anime.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
-  if (anime.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
-  if (anime.includes('jujutsu')) return 'Cursed Energy: PEN and control resistance.';
-  return vrPassive(character);
-}
-
-const VR_SYNERGY_RULES = [
-  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
-  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
-  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
-  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
-  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
-  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% PEN, +12% shield' },
-  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
-  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
-  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ult charge' }
-];
-
-function vrSynergyForCards(cards) {
-  const text = cards.map(c => phase2Normalize(c.character?.name || c.name || '')).join(' | ');
-  const active = [];
-  for (const s of VR_SYNERGY_RULES) {
-    if (s.keys.every(k => text.includes(k))) active.push(s);
-  }
-
-  const elements = {};
-  for (const c of cards) {
-    const e = vrElement(c.character || c);
-    elements[e] = (elements[e] || 0) + 1;
-  }
-  for (const [e, count] of Object.entries(elements)) {
-    if (count >= 3) active.push({ name: `${e} Aura`, buff: count >= 5 ? '+22% team damage and HP' : '+10% team damage and HP' });
-  }
-
-  return active;
-}
-
-const VR_VALID_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul','Neutral'];
-
-function vrCleanElement(value) {
-  const raw = String(value || '').trim();
-  const found = VR_VALID_ELEMENTS.find(e => phase2Normalize(e) === phase2Normalize(raw));
-  return found || 'Neutral';
-}
-
-function vrRole(character) {
-  const n = phase2Normalize(character?.name || '');
-  if (['lelouch','aizen','makima','kurapika','shikamaru','light yagami'].some(x => n.includes(x))) return 'Control';
-  if (['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen'].some(x => n.includes(x))) return 'Support';
-  if (['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo'].some(x => n.includes(x))) return 'Tank';
-  if (['killua','toji','levi','hisoka','zenitsu','yoroichi'].some(x => n.includes(x))) return 'Assassin';
-  if (['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem'].some(x => n.includes(x))) return 'Mage';
-  return 'DPS';
-}
-
-function vrElement(character) {
-  const n = phase2Normalize(character?.name || '');
-  const anime = phase2Normalize(character?.anime || '');
-  if (['sukuna','toji','lelouch','makima','ainz','dio','alucard'].some(x => n.includes(x))) return 'Dark';
-  if (['sung jin','shadow','igris','beru','cid kagenou'].some(x => n.includes(x) || anime.includes(x))) return 'Shadow';
-  if (['gojo','rimuru','gilgamesh','aizen','yhwach'].some(x => n.includes(x))) return 'Void';
-  if (['saber','artoria','goku','naruto','luffy','all might','saitama'].some(x => n.includes(x))) return 'Light';
-  if (['ace','rengoku','natsu','shinra','yamamoto'].some(x => n.includes(x))) return 'Fire';
-  if (['killua','zenitsu','kakashi'].some(x => n.includes(x))) return 'Lightning';
-  if (['ichigo','rukia','bleach'].some(x => n.includes(x) || anime.includes(x))) return 'Soul';
-  return vrCleanElement(character?.element || 'Neutral');
-}
-
-function vrPassive(character) {
-  const n = phase2Normalize(character?.name || '');
-  if (n.includes('sung jin')) return 'Shadow Monarch: scales after defeating enemies.';
-  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
-  if (n.includes('saber') || n.includes('artoria')) return 'Avalon: shield and damage reduction.';
-  if (n.includes('lelouch')) return 'Geass: control and ultimate charge.';
-  if (n.includes('makima')) return 'Control Devil: weakens enemy damage.';
-  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy.';
-  if (n.includes('madara')) return 'Uchiha Dominion: boosts AoE ultimate damage.';
-  if (n.includes('sukuna')) return 'King of Curses: executes low HP enemies.';
-  if (n.includes('killua')) return 'Godspeed: high speed and crit burst.';
-  if (n.includes('gon')) return 'Jajanken: heavy single-target ultimate.';
-  if (n.includes('kurapika')) return 'Chain Judgment: bonus vs villains.';
-  return 'Battle Instinct: small ATK and ultimate charge bonus.';
-}
-
-function vrStatsLine(card, character) {
-  const p = Math.max(1, Number(card?.power || character?.basePower || 100));
-  const role = vrRole(character);
-  const rarity = character?.rarity || 'COMMON';
-  const rarityMult = { COMMON: 0.8, RARE: 1.0, EPIC: 1.25, LEGENDARY: 1.55, MYTHIC: 2.05, DIVINE: 2.8, SECRET: 3.6 }[rarity] || 1;
-  const level = Number(card?.level || 1);
-  const levelMult = 1 + ((level - 1) * 0.04);
-
-  let atkScale = 1.05, hpScale = 7.2, defScale = 0.58, spd = 105, crit = 14, energy = 100, shield = 0, pen = 0;
-  if (role === 'Tank') { atkScale = 0.72; hpScale = 13.5; defScale = 1.22; spd = 92; shield = 20; crit = 8; }
-  if (role === 'Support') { atkScale = 0.78; hpScale = 9.0; defScale = 0.82; spd = 112; energy = 140; shield = 12; crit = 10; }
-  if (role === 'Control') { atkScale = 0.88; hpScale = 8.5; defScale = 0.76; spd = 120; energy = 128; crit = 12; }
-  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
-  if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
-  if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
-  if (finalNameHas(character, ['nanami'])) { crit = 38; pen = Math.max(pen, 12); }
-  if (finalNameHas(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 18; }
-
-  const atk = Math.floor(p * atkScale * rarityMult * levelMult);
-  const hp = Math.floor(p * hpScale * rarityMult * levelMult);
-  const def = Math.floor(p * defScale * rarityMult * levelMult);
-
-  return `Class: **${role}** | Element: **${vrElement(character)}**\nATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${spd}**\nCRIT **${crit}%** • PEN **${pen}%** • Energy **${energy}%** • Shield **${shield}%**\nPassive: ${typeof vrUniquePassive === 'function' ? vrUniquePassive(character) : vrPassive(character)}`;
-}
-
-function vrTargetPower(rarity, seed = 1) {
-  const ranges = { COMMON: [50,150], RARE: [150,400], EPIC: [400,900], LEGENDARY: [900,1800], MYTHIC: [1800,3500], DIVINE: [3500,6000], SECRET: [6000,10000] };
-  const [min, max] = ranges[rarity] || ranges.COMMON;
-  return min + ((Math.abs(seed) * 97) % Math.max(1, max - min));
-}
-
-async function keepOnlyMalCharactersAndBalance() {
-  const disabled = await prisma.character.updateMany({
-    where: { NOT: { id: { startsWith: 'mal_' } } },
-    data: { active: false }
-  });
-
-  const chars = await prisma.character.findMany({
-    where: { id: { startsWith: 'mal_' } },
-    orderBy: [{ basePower: 'desc' }, { name: 'asc' }]
-  });
-
-  let balanced = 0;
-  let fixedImages = 0;
-  const protectedNames = ['sung jin','gojo','saber','artoria','saitama','rimuru','madara','aizen','sukuna','goku','vegeta','gilgamesh','makima','lelouch','yhwach','ichigo','naruto','sasuke','luffy','kaido','shanks','ainz'];
-
-  for (let idx = 0; idx < chars.length; idx++) {
-    const c = chars[idx];
-    const n = phase2Normalize(c.name || '');
-    const rank = idx + 1;
-    let rarity =
-      rank <= Math.max(25, Math.floor(chars.length * 0.005)) ? 'SECRET' :
-      rank <= Math.max(100, Math.floor(chars.length * 0.02)) ? 'DIVINE' :
-      rank <= Math.max(250, Math.floor(chars.length * 0.06)) ? 'MYTHIC' :
-      rank <= Math.max(650, Math.floor(chars.length * 0.13)) ? 'LEGENDARY' :
-      rank <= Math.max(1500, Math.floor(chars.length * 0.28)) ? 'EPIC' :
-      rank <= Math.max(3200, Math.floor(chars.length * 0.58)) ? 'RARE' :
-      'COMMON';
-
-    if (protectedNames.some(x => n.includes(x))) rarity = 'SECRET';
-
-    const power = vrTargetPower(rarity, c.id.length + idx + c.name.length);
-    const data = {
-      rarity,
-      element: vrElement({ ...c, rarity }),
-      basePower: power,
-      baseFarm: Math.max(1, Math.floor(power / 8)),
-      baseLuck: Math.max(1, Math.floor(power / 20)),
-      active: true
-    };
-
-    if (!c.imageUrl && typeof findAnimeImage === 'function') {
-      const img = await findAnimeImage(c.name).catch(() => null);
-      if (img) { data.imageUrl = img; fixedImages++; }
-    }
-
-    await prisma.character.update({ where: { id: c.id }, data }).catch(() => {});
-    balanced++;
-  }
-
-  const activeMal = await prisma.character.count({ where: { active: true, id: { startsWith: 'mal_' } } });
-  return { disabled: disabled.count || 0, activeMal, balanced, fixedImages };
-}
-
-async function fixImportantVariants() {
-  const chars = await prisma.character.findMany({
-    where: { active: true },
-    select: { id: true, name: true, anime: true, rarity: true, basePower: true, element: true }
-  });
-
-  let fixed = 0;
-  const seen = new Set();
-
-  for (const c of chars) {
-    const fix = importantFixFor(c);
-    if (!fix) continue;
-
-    let newName = c.name
-      .replace(/\s+\((Base|Secret Form|True Power|Final Form|Divine Form|Mythic Form)\)$/i, '')
-      .trim();
-
-    // keep one clean named version, variants become readable but same rarity
-    if (!newName) newName = c.name;
-
-    await prisma.character.update({
-      where: { id: c.id },
-      data: {
-        name: newName,
-        rarity: fix.rarity,
-        basePower: Math.max(Number(c.basePower || 0), fix.power),
-        baseFarm: Math.floor(fix.power / 8),
-        baseLuck: Math.floor(fix.power / 20),
-        element: fix.element || c.element || 'Neutral',
-        active: true
-      }
-    }).catch(() => {});
-
-    fixed++;
-  }
-
-  console.log(`[ImportantFix] Fixed variants: ${fixed}`);
 }
 
 function phase2Normalize(value = '') {
@@ -820,6 +279,18 @@ function phase2RaritySellValue(rarity, power = 0) {
   }[rarity] || 100;
 
   return base + Math.floor(Number(power || 0) * 0.08);
+}
+
+
+function getAscension(card) {
+  const trait = String(card?.trait || '');
+  const match = trait.match(/ASC:(\d+)/);
+  return Math.max(0, Number(match?.[1] || 0));
+}
+
+function setAscensionTrait(oldTrait, ascension) {
+  const clean = String(oldTrait || '').replace(/ASC:\d+/g, '').trim();
+  return `${clean} ASC:${Math.max(0, ascension)}`.trim();
 }
 
 function phase2GetStars(card) {
@@ -1191,10 +662,10 @@ const GOLD_SHOP_ITEMS = {
   rolls_10: { name: '10 Rolls', gold: 10000, rolls: 10 },
   rolls_25: { name: '25 Rolls', gold: 22000, rolls: 25 },
   token_1: { name: '1 Token', gold: 10000, tokens: 1 },
-  legendary_orb: { name: 'Legendary cores Roll', gold: 300000, rarity: 'LEGENDARY' },
-  mythic_orb: { name: 'Mythic cores Roll', gold: 900000, rarity: 'MYTHIC' },
-  divine_orb: { name: 'Divine cores Roll', gold: 2500000, rarity: 'DIVINE' },
-  secret_orb: { name: 'Secret cores Roll', gold: 9000000, rarity: 'SECRET' }
+  legendary_orb: { name: 'Legendary core Roll', gold: 300000, rarity: 'LEGENDARY' },
+  mythic_orb: { name: 'Mythic core Roll', gold: 900000, rarity: 'MYTHIC' },
+  divine_orb: { name: 'Divine core Roll', gold: 2500000, rarity: 'DIVINE' },
+  secret_orb: { name: 'Secret core Roll', gold: 9000000, rarity: 'SECRET' }
 };
 
 const ORB_ROLL_COSTS = {
@@ -1266,6 +737,143 @@ function weightedPick(items, weightFn) {
   return rows[rows.length - 1]?.item;
 }
 
+
+async function ensureSaberAnd5000Characters() {
+  const total = await prisma.character.count().catch(() => 0);
+
+  const saberExisting = await prisma.character.findFirst({
+    where: {
+      OR: [
+        { name: { contains: 'Saber', mode: 'insensitive' } },
+        { name: { contains: 'Artoria', mode: 'insensitive' } }
+      ]
+    }
+  }).catch(() => null);
+
+  if (saberExisting) {
+    await prisma.character.update({
+      where: { id: saberExisting.id },
+      data: {
+        rarity: 'SECRET',
+        basePower: 30000,
+        baseFarm: 3750,
+        baseLuck: 1500,
+        element: 'Light',
+        active: true
+      }
+    }).catch(() => {});
+  } else {
+    await prisma.character.create({
+      data: {
+        id: 'secret_saber_artoria',
+        name: 'Saber',
+        anime: 'Fate Series',
+        rarity: 'SECRET',
+        element: 'Light',
+        imageUrl: null,
+        auraName: 'Avalon Oath',
+        auraColor: '#f8fafc',
+        auraSecondary: '#fbbf24',
+        auraIntensity: 1.7,
+        basePower: 30000,
+        baseFarm: 3750,
+        baseLuck: 1500,
+        limited: true,
+        banner: 'saber_oath',
+        active: true
+      }
+    }).catch(() => {});
+  }
+
+  if (total >= 5000) {
+    console.log(`[BigPool] Character count already ${total}. Saber checked.`);
+    return;
+  }
+
+  const animeSeries = [
+    'Naruto', 'One Piece', 'Bleach', 'Dragon Ball', 'Jujutsu Kaisen', 'Demon Slayer',
+    'Hunter x Hunter', 'Fate Series', 'Overlord', 'Solo Leveling', 'Chainsaw Man',
+    'Attack on Titan', 'Black Clover', 'My Hero Academia', 'One Punch Man', 'Fairy Tail',
+    'Tokyo Ghoul', 'Code Geass', 'Fullmetal Alchemist', 'JoJo', 'Blue Lock',
+    'Vinland Saga', 'Fire Force', 'Sword Art Online', 'ReZero', 'That Time I Got Reincarnated as a Slime'
+  ];
+  const archetypes = [
+    'Guardian', 'Blade', 'Shadow', 'Flame', 'Frost', 'Thunder', 'Void', 'Spirit',
+    'Dragon', 'Demon', 'Saint', 'Hunter', 'Knight', 'Monarch', 'Reaper', 'Oracle',
+    'Beast', 'Phantom', 'Breaker', 'Vanguard', 'Sage', 'Titan', 'Rogue', 'Captain'
+  ];
+  const elements = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Neutral'];
+  const rarities = [
+    ['COMMON', 45], ['RARE', 28], ['EPIC', 15], ['LEGENDARY', 7], ['MYTHIC', 3], ['DIVINE', 1.5], ['SECRET', 0.5]
+  ];
+
+  function pickRarity(i) {
+    const mod = i % 200;
+    if (mod === 0) return 'SECRET';
+    if (mod <= 3) return 'DIVINE';
+    if (mod <= 10) return 'MYTHIC';
+    if (mod <= 25) return 'LEGENDARY';
+    if (mod <= 70) return 'EPIC';
+    if (mod <= 140) return 'RARE';
+    return 'COMMON';
+  }
+
+  function basePowerFor(rarity, i) {
+    const ranges = {
+      COMMON: [120, 900],
+      RARE: [900, 2200],
+      EPIC: [2200, 5200],
+      LEGENDARY: [5200, 9000],
+      MYTHIC: [9000, 14000],
+      DIVINE: [14000, 22000],
+      SECRET: [24000, 36000]
+    };
+    const [min, max] = ranges[rarity] || ranges.COMMON;
+    return min + (i * 97 % (max - min));
+  }
+
+  const missing = 5000 - total;
+  const batch = [];
+
+  for (let i = 1; i <= missing + 25; i++) {
+    const globalIndex = total + i;
+    const anime = animeSeries[globalIndex % animeSeries.length];
+    const archetype = archetypes[globalIndex % archetypes.length];
+    const rarity = pickRarity(globalIndex);
+    const power = basePowerFor(rarity, globalIndex);
+    const name = `${anime} ${archetype} ${String(globalIndex).padStart(4, '0')}`;
+
+    batch.push({
+      id: `gen_${globalIndex}_${phase2Normalize(name).replace(/\s+/g, '_').slice(0, 35)}`,
+      name,
+      anime,
+      rarity,
+      element: elements[globalIndex % elements.length],
+      imageUrl: null,
+      auraName: `${archetype} Aura`,
+      auraColor: rarity === 'SECRET' ? '#111827' : rarity === 'DIVINE' ? '#f472b6' : rarity === 'MYTHIC' ? '#ef4444' : rarity === 'LEGENDARY' ? '#f59e0b' : '#3b82f6',
+      auraSecondary: '#ffffff',
+      auraIntensity: rarity === 'SECRET' ? 1.8 : rarity === 'DIVINE' ? 1.5 : 1.0,
+      basePower: power,
+      baseFarm: Math.max(1, Math.floor(power / 8)),
+      baseLuck: Math.max(1, Math.floor(power / 20)),
+      limited: false,
+      banner: null,
+      active: true
+    });
+  }
+
+  for (let i = 0; i < batch.length; i += 500) {
+    await prisma.character.createMany({
+      data: batch.slice(i, i + 500),
+      skipDuplicates: true
+    }).catch(e => console.error('[BigPool] createMany failed:', e.message));
+  }
+
+  const finalCount = await prisma.character.count().catch(() => 0);
+  console.log(`[BigPool] Character count: ${finalCount}. Generated ${batch.length} candidates. Saber is SECRET.`);
+}
+
 async function applySecretCharacterBoosts() {
   const chars = await prisma.character.findMany({
     where: { active: true },
@@ -1278,7 +886,7 @@ async function applySecretCharacterBoosts() {
     const cls = classifyCharacter(c);
     if (!cls) continue;
 
-    const newPower = cls.power;
+    const newPower = rarityBasePower(cls.rarity, c.id.length + c.name.length);
 
     await prisma.character.update({
       where: { id: c.id },
@@ -1515,6 +1123,24 @@ function calculateSynergies(cards) {
     if (rule.keys.every(k => text.includes(phase2Normalize(k)))) {
       active.push(rule);
     }
+  }
+
+  const roles = cards.map(c => characterRole(c.character)).filter(Boolean);
+  const elements = cards.map(c => characterElement(c.character)).filter(Boolean);
+  const roleCounts = {};
+  const elementCounts = {};
+
+  for (const r of roles) roleCounts[r] = (roleCounts[r] || 0) + 1;
+  for (const e of elements) elementCounts[e] = (elementCounts[e] || 0) + 1;
+
+  for (const [role, count] of Object.entries(roleCounts)) {
+    if (count >= 3) active.push({ name: `${role} Formation`, atk: 0.06, def: 0.06, ult: 0.05 });
+    if (count >= 5) active.push({ name: `Full ${role} Team`, atk: 0.15, def: 0.12, ult: 0.10 });
+  }
+
+  for (const [element, count] of Object.entries(elementCounts)) {
+    if (count >= 3) active.push({ name: `${element} Aura`, atk: 0.10, hp: 0.08 });
+    if (count >= 5) active.push({ name: `Pure ${element} Formation`, atk: 0.22, hp: 0.15, ult: 0.10 });
   }
 
   const bonus = active.reduce((sum, r) =>
@@ -2022,9 +1648,9 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   await seedItemTemplates().catch(e => console.error('Item seed failed:', e));
+  await ensureSaberAnd5000Characters().catch(e => console.error('Big pool seed failed:', e));
   await applySecretCharacterBoosts().catch(e => console.error('Secret boost failed:', e));
   await phase2ApplyRarityFixes().catch(e => console.error('Phase2 rarity fix failed:', e));
-  await fixImportantVariants().catch(e => console.error('Important variants fix failed:', e));
   await syncAllCardPowers(prisma).catch(e => console.error('Power sync failed:', e));
 
   const firstBossDelay = Number(process.env.BOSS_EVENT_FIRST_DELAY_SECONDS || 90) * 1000;
@@ -2034,1987 +1660,52 @@ client.once('ready', async () => {
 });
 
 
-async function vrPrepareInteraction(i) {
-  if (!i.isChatInputCommand()) return;
+// ===== VOIDROLL CLEAN PHASES PATCH =====
+// Built on stable 03eb125. Removes Orb wording and adds the requested systems without stacking old broken patches.
 
-  const originalReply = i.reply.bind(i);
-  const originalEditReply = i.editReply.bind(i);
-  const originalDeferReply = i.deferReply.bind(i);
+const vrActiveRuns = new Set();
 
-  i.deferReply = async function patchedDeferReply(options = {}) {
-    if (i.deferred || i.replied) return null;
-    return originalDeferReply(options).catch(() => null);
-  };
-
-  i.reply = async function patchedReply(payload) {
-    if (i.deferred || i.replied) {
-      return originalEditReply(payload).catch(async () => {
-        try { return await i.followUp(payload); } catch { return null; }
-      });
-    }
-    return originalReply(payload).catch(async () => {
-      try { return await originalDeferReply(); } catch {}
-      return originalEditReply(payload).catch(() => null);
-    });
-  };
-
-  if (!i.deferred && !i.replied) {
-    await originalDeferReply().catch(() => null);
-  }
-}
-
-
-// ===== VOIDROLL FINAL GLOBAL RELEASE PATCH =====
-async function finalSafeInteraction(i) {
-  if (!i.isChatInputCommand()) return;
-
-  const originalReply = i.reply.bind(i);
-  const originalEditReply = i.editReply.bind(i);
-  const originalDeferReply = i.deferReply.bind(i);
-
-  i.deferReply = async function(options = {}) {
-    if (i.deferred || i.replied) return null;
-    return originalDeferReply(options).catch(() => null);
-  };
-
-  i.reply = async function(payload) {
-    if (i.deferred || i.replied) {
-      return originalEditReply(payload).catch(async () => {
-        try { return await i.followUp(payload); } catch { return null; }
-      });
-    }
-
-    return originalReply(payload).catch(async () => {
-      try { await originalDeferReply(); } catch {}
-      return originalEditReply(payload).catch(() => null);
-    });
-  };
-
-  if (!i.deferred && !i.replied) {
-    await originalDeferReply().catch(() => null);
-  }
-}
-
-function finalNorm(value = '') {
-  return String(value || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function finalText(character) {
-  return `${finalNorm(character?.name)} ${finalNorm(character?.anime)}`;
-}
-
-function finalNameText(character) {
-  return finalNorm(character?.name || '');
-}
-
-function finalNameHas(character, keys) {
-  const text = finalNameText(character);
-  return keys.some(k => text.includes(finalNorm(k)));
-}
-
-function finalHas(character, keys) {
-  const text = finalText(character);
-  return keys.some(k => text.includes(finalNorm(k)));
-}
-
-const FINAL_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul'];
-
-function finalHash(value = '') {
-  let h = 0;
-  for (const ch of String(value)) h = ((h << 5) - h) + ch.charCodeAt(0);
-  return Math.abs(h);
-}
-
-function finalElement(character) {
-  const old = String(character?.element || '').trim();
-  if (old && !['Neutral','Anime','undefined','null'].includes(old)) return old;
-
-  if (finalHas(character, ['sukuna','makima','toji','ainz','dio','alucard','devil','demon','curse','muzan'])) return 'Dark';
-  if (finalHas(character, ['sung jin','jinwoo','jin woo','shadow','igris','beru','cid kagenou','eminence'])) return 'Shadow';
-  if (finalHas(character, ['gojo','rimuru','gilgamesh','aizen','yhwach','void','space','time','accelerator'])) return 'Void';
-  if (finalHas(character, ['saber','artoria','goku','naruto','luffy','saitama','all might','hero','saint'])) return 'Light';
-  if (finalHas(character, ['ace','rengoku','natsu','shinra','flame','fire','yamamoto','endeavor'])) return 'Fire';
-  if (finalHas(character, ['killua','zenitsu','kakashi','thunder','lightning','misaka'])) return 'Lightning';
-  if (finalHas(character, ['ichigo','rukia','bleach','soul','spirit','shinigami'])) return 'Soul';
-  if (finalHas(character, ['ice','frost','snow','rukia','todoroki'])) return 'Ice';
-  return FINAL_ELEMENTS[finalHash(finalText(character)) % FINAL_ELEMENTS.length];
-}
-
-function finalRole(character) {
-  if (finalNameHas(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet','senku'])) return 'Control';
-  if (finalNameHas(character, ['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','cc','c c','rem'])) return 'Support';
-  if (finalNameHas(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard','naofumi'])) return 'Tank';
-  if (finalNameHas(character, ['gabimaru','killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito','yor forger'])) return 'Assassin';
-  if (finalNameHas(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad','asta'])) return 'Mage';
-  return 'DPS';
-}
-
-function finalPassive(character) {
-  const t = finalText(character);
-  const n = finalNameText(character);
-
-  const list = [
-    [['gabimaru'], 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after using ultimate.'],
-    [['nanami'], 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
-
-    [['lelouch'], 'Geass Command: commands the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
-    [['c c','cc'], 'Immortal Witch: regenerates each round and gives extra energy to the strongest ally.'],
-    [['sung jin','jinwoo','jin woo'], 'Shadow Monarch: summons shadow pressure after kills and stacks Shadow damage.'],
-    [['gojo'], 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
-    [['geto'], 'Cursed Spirit Manipulation: weakens enemy DEF and increases Curse/Summon damage.'],
-    [['saber','artoria'], 'Avalon: gives a team shield at battle start and reduces burst damage.'],
-    [['gilgamesh'], 'Gate of Babylon: high penetration and massive ultimate burst.'],
-    [['makima'], 'Control Devil: lowers enemy ATK and raises control chance.'],
-    [['reze'], 'Bomb Devil: ultimate applies explosive burst damage over time.'],
-    [['denji'], 'Chainsaw Heart: lifesteal and damage increase when HP is low.'],
-    [['power'], 'Blood Fiend: crit chance rises after taking damage.'],
-    [['aki hayakawa'], 'Future Contract: chance to dodge and counter.'],
-    [['luffy'], 'Nika Rhythm: gains ATK and speed every round.'],
-    [['zoro'], 'Three Sword Style: crit damage increases against bosses.'],
-    [['sanji'], 'Diable Jambe: fire damage and dodge chance.'],
-    [['nami'], 'Weather Tempo: boosts speed and Lightning damage.'],
-    [['law'], 'Room: ignores part of enemy DEF and increases team PEN.'],
-    [['naruto'], 'Nine-Tails Chakra: heals slightly and boosts Light allies.'],
-    [['sasuke'], 'Sharingan: crit and counter chance.'],
-    [['itachi'], 'Tsukuyomi: chance to delay enemy ultimate.'],
-    [['madara'], 'Uchiha Dominion: increases AoE ultimate damage.'],
-    [['obito'], 'Kamui: dodge chance and enemy accuracy reduction.'],
-    [['pain','nagato'], 'Rinnegan Pressure: lowers enemy DEF and control resist.'],
-    [['ichigo'], 'Bankai Pressure: Soul damage and speed increase.'],
-    [['aizen'], 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
-    [['rukia'], 'Sode no Shirayuki: Ice damage and enemy speed reduction.'],
-    [['kenpachi'], 'Battle Thirst: ATK rises as HP drops.'],
-    [['killua'], 'Godspeed: very high speed and crit burst.'],
-    [['gon'], 'Jajanken: huge single-target ultimate damage.'],
-    [['kurapika'], 'Chain Judgment: bonus damage against villain teams.'],
-    [['hisoka'], 'Bungee Gum: dodge chance and crit damage.'],
-    [['chrollo'], 'Skill Hunter: copies a minor enemy buff.'],
-    [['toji'], 'Heavenly Restriction: ignores part of enemy DEF.'],
-    [['sukuna'], 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
-    [['yuji'], 'Black Flash Chain: crit chance increases after each attack.'],
-    [['megumi'], 'Ten Shadows: summons add bonus Shadow damage.'],
-    [['nobara'], 'Resonance: marks enemy and increases team burst damage.'],
-    [['yuta'], 'Rika Bond: support shield and curse burst.'],
-    [['rimuru'], 'Predator: copies a small part of enemy buffs.'],
-    [['ainz'], 'Overlord: boosts Dark allies and lowers enemy resistance.'],
-    [['albedo'], 'Guardian Overseer: shields frontline and boosts Tank DEF.'],
-    [['vegeta'], 'Saiyan Pride: gains ATK after taking damage.'],
-    [['goku'], 'Limit Breaker: ultimate damage scales with battle rounds.'],
-    [['saitama'], 'One Punch Pressure: massive single-hit scaling against bosses.'],
-    [['tanjiro'], 'Hinokami Kagura: Fire burst and small team heal.'],
-    [['nezuko'], 'Demon Blood Art: team regen and Dark resistance.'],
-    [['zenitsu'], 'Thunder Breathing: first ultimate charges faster.'],
-    [['inosuke'], 'Beast Instinct: bonus crit and lifesteal.'],
-    [['rengoku'], 'Flame Hashira: boosts Fire allies and frontline damage.'],
-    [['todoroki'], 'Half-Cold Half-Hot: alternates Ice slow and Fire burst.'],
-    [['bakugo'], 'Explosion Rush: crit damage increases after ultimate.'],
-    [['midoriya','deku'], 'One For All: ATK and speed scale through rounds.'],
-    [['all might'], 'Symbol of Peace: protects allies and boosts Light damage.'],
-    [['levi'], 'Humanity’s Strongest: high dodge and boss damage.'],
-    [['eren'], 'Titan Shifter: gains HP and ATK after first ultimate.'],
-    [['mikasa'], 'Ackerman Instinct: crit chance and counterattack.']
-  ];
-
-  for (const [keys, passive] of list) {
-    if (keys.some(k => n.includes(finalNorm(k)))) return passive;
-  }
-
-  if (t.includes('code geass')) return 'Tactical Order: increases control chance and ultimate charge.';
-  if (t.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
-  if (t.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
-  if (t.includes('jujutsu')) return 'Cursed Energy: penetration and control resistance.';
-  if (t.includes('jigokuraku') || t.includes('hells paradise')) return 'Tao Flow: dodge chance and burst damage rise after ultimate.';
-  if (t.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
-  if (t.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
-  if (t.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
-  if (t.includes('hunter')) return 'Nen Flow: crit and energy regen.';
-  if (t.includes('demon slayer')) return 'Breathing Style: speed and burst damage.';
-  if (t.includes('dragon ball')) return 'Ki Surge: ATK increases each round.';
-
-  const role = finalRole(character);
-  const element = finalElement(character);
-  const options = {
-    Tank: [`Iron Guard: +DEF scaling and ${element} resistance.`, 'Frontline Wall: absorbs part of ally damage.', 'Last Stand: gains shield when HP is low.'],
-    Support: ['Battle Support: increases team energy regen.', 'Guardian Aid: grants small shield to weakest ally.', 'Tactical Heal: improves sustain during long fights.'],
-    Control: ['Mind Game: reduces enemy ultimate charge.', 'Pressure Field: lowers enemy accuracy.', 'Command Aura: increases control chance.'],
-    Assassin: ['Killer Tempo: high crit after first attack.', 'Silent Step: bonus speed and dodge chance.', 'Weak Point: ignores part of DEF.'],
-    Mage: [`${element} Burst: ultimate damage scales with penetration.`, 'Arcane Pressure: weakens enemy resistance.', 'Mana Surge: faster ultimate charge.'],
-    DPS: ['Battle Instinct: ATK rises every round.', 'Power Strike: bonus damage to bosses.', `${element} Edge: basic attacks gain elemental damage.`]
-  };
-  const arr = options[role] || options.DPS;
-  return arr[finalHash(t) % arr.length];
-}
-
-const FINAL_TEAMUPS = [
-  { name: 'Zero Requiem', keys: ['lelouch','c c'], buff: '+20% control chance, +15% ultimate charge' },
-  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
-  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
-  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
-  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
-  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
-  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% penetration, +12% shield' },
-  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
-  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
-  { name: 'Saiyan Rivalry', keys: ['goku','vegeta'], buff: '+18% ATK after round 3' },
-  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ultimate charge' },
-  { name: 'Demon Slayer Trio', keys: ['tanjiro','zenitsu','inosuke'], buff: '+12% speed, +12% crit' },
-  { name: 'Shadow Army', keys: ['sung jin','igris'], buff: '+15% Shadow damage' },
-  { name: 'Akatsuki Pressure', keys: ['pain','obito','itachi'], buff: '+15% Dark damage, enemy DEF down' }
-];
-
-function finalTeamUpsForCharacter(character) {
-  const t = finalNameText(character);
-  return FINAL_TEAMUPS
-    .filter(rule => rule.keys.some(k => t.includes(finalNorm(k))))
-    .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
-}
-
-function finalTeamUpsForCards(cards) {
-  const names = cards.map(c => finalNameText(c.character || c)).join(' | ');
-  const active = [];
-  for (const rule of FINAL_TEAMUPS) {
-    if (rule.keys.every(k => names.includes(finalNorm(k)))) active.push(rule);
-  }
-
-  const counts = {};
-  for (const c of cards) {
-    const e = finalElement(c.character || c);
-    counts[e] = (counts[e] || 0) + 1;
-  }
-
-  for (const [element, count] of Object.entries(counts)) {
-    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team damage and HP' : '+12% team damage and HP' });
-  }
-
-  return active;
-}
-
-function finalStatsLine(card, character) {
-  const p = Math.max(1, Number(card?.power || character?.basePower || 100));
-  const role = finalRole(character);
-  const rarity = character?.rarity || 'COMMON';
-  const rarityMult = { COMMON: 0.8, RARE: 1.0, EPIC: 1.25, LEGENDARY: 1.55, MYTHIC: 2.05, DIVINE: 2.8, SECRET: 3.6 }[rarity] || 1;
-  const level = Number(card?.level || 1);
-  const levelMult = 1 + ((level - 1) * 0.04);
-
-  let atkScale = 1.05, hpScale = 7.2, defScale = 0.58, spd = 105, crit = 14, energy = 100, shield = 0, pen = 0;
-  if (role === 'Tank') { atkScale = 0.72; hpScale = 13.5; defScale = 1.22; spd = 92; shield = 20; crit = 8; }
-  if (role === 'Support') { atkScale = 0.78; hpScale = 9.0; defScale = 0.82; spd = 112; energy = 140; shield = 12; crit = 10; }
-  if (role === 'Control') { atkScale = 0.88; hpScale = 8.5; defScale = 0.76; spd = 120; energy = 128; crit = 12; }
-  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
-  if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
-  if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
-  if (finalNameHas(character, ['nanami'])) { crit = 38; pen = Math.max(pen, 12); }
-  if (finalNameHas(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 18; }
-
-  const atk = Math.floor(p * atkScale * rarityMult * levelMult);
-  const hp = Math.floor(p * hpScale * rarityMult * levelMult);
-  const def = Math.floor(p * defScale * rarityMult * levelMult);
-
-  return `Class: **${role}** | Element: **${finalElement(character)}**\nLevel **${level}/99** • ATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${spd}**\nCRIT **${crit}%** • PEN **${pen}%** • Energy **${energy}%** • Shield **${shield}%**\nCharacter Passive: ${finalPassive(character)}`;
-}
-
-function finalFullBlock(card, character) {
-  const teamups = finalTeamUpsForCharacter(character);
-  return finalStatsLine(card, character) + (teamups.length ? `\n\nTeam Up Buffs:\n${teamups.join('\n')}` : '\n\nTeam Up Buffs:\nNone');
-}
-
-function finalRewards(mode, required, progress) {
-  const progressNumber = mode === 'story'
-    ? (((progress.chapter - 1) * 30) + progress.stage)
-    : mode === 'tower'
-      ? progress.towerFloor
-      : progress.dungeonFloor;
-
-  return {
-    gold: Math.floor(required * (mode === 'story' ? 0.8 : mode === 'tower' ? 0.75 : 0.7)),
-    tokens: Math.max(1, Math.floor(progressNumber / 5) + (mode === 'story' ? 2 : 1)),
-    rolls: mode === 'story' ? 3 : 2,
-    xp: mode === 'story' ? 65 : mode === 'tower' ? 75 : 55
-  };
-}
-
-
-// ===== MODES + FORMATIONS + BOSS RUSH PATCH =====
-function vrModeTitle(mode) {
-  return mode === 'story' ? 'STORY'
-    : mode === 'tower' ? 'TOWER'
-    : mode === 'dungeon' ? 'DUNGEON'
-    : mode === 'boss-rush' ? 'BOSS RUSH'
-    : String(mode || '').toUpperCase();
-}
-
-function vrProgressText(mode, progress) {
-  if (mode === 'story') return `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`;
-  if (mode === 'tower') return `Floor ${progress.towerFloor}`;
-  if (mode === 'dungeon') return `Dungeon Floor ${progress.dungeonFloor}`;
-  return 'Battle';
-}
-
-function vrFormationNeeded(mode, progress) {
-  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
-  if (value >= 60) return 6;
-  if (value >= 48) return 5;
-  if (value >= 36) return 4;
-  if (value >= 24) return 3;
-  if (value >= 12) return 2;
-  return 1;
-}
-
-async function vrGetOwnedCards(userId, take = 54) {
-  return prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take
-  });
-}
-
-
-async function vrFindOwnedCardByNameLoose(userId, query) {
-  const tokens = phase2Normalize(query || '').replace(/[\/:_\-]+/g, ' ').split(/\s+/).filter(Boolean);
-
-  const owned = await prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take: 500
-  });
-
-  const scored = owned.map(card => {
-    const full = `${phase2Normalize(card.character.name)} ${phase2Normalize(card.character.anime)}`.replace(/[\/:_\-]+/g, ' ');
-    let score = 0;
-    for (const t of tokens) {
-      if (full.includes(t)) score += 40;
-      if (phase2Normalize(card.character.name).includes(t)) score += 70;
-      if (phase2Normalize(card.character.anime).includes(t)) score += 25;
-    }
-    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-    return { card, score };
-  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
-
-  return scored[0]?.card || null;
-}
-
-async function vrSetManualFormationByNames(userId, formation, names) {
-  const cards = [];
-  const used = new Set();
-
-  for (const raw of names) {
-    if (!raw || !String(raw).trim()) continue;
-    const card = await vrFindOwnedCardByNameLoose(userId, raw);
-    if (card && !used.has(card.id)) {
-      used.add(card.id);
-      cards.push(card);
-    }
-  }
-
-  await vrSetFormation(userId, formation, cards);
-  return cards;
-}
-
-async function vrSetFormation(userId, formation, cards) {
-  const start = ((formation - 1) * 6) + 1;
-  const end = start + 5;
-
-  await prisma.teamSlot.deleteMany({
-    where: { userId, slot: { gte: start, lte: end } }
-  }).catch(() => {});
-
-  for (let i = 0; i < Math.min(6, cards.length); i++) {
-    const slot = start + i;
-    await prisma.teamSlot.upsert({
-      where: { userId_slot: { userId, slot } },
-      update: { cardId: cards[i].id },
-      create: { id: `${userId}_${slot}`, userId, slot, cardId: cards[i].id }
-    }).catch(async () => {
-      await prisma.teamSlot.create({
-        data: { id: `${userId}_${Date.now()}_${slot}`, userId, slot, cardId: cards[i].id }
-      }).catch(() => {});
-    });
-  }
-}
-
-async function vrGetFormation(userId, formation) {
-  const start = ((formation - 1) * 6) + 1;
-  const end = start + 5;
-
-  const slots = await prisma.teamSlot.findMany({
-    where: { userId, slot: { gte: start, lte: end } },
-    include: { card: { include: { character: true } } },
-    orderBy: { slot: 'asc' }
-  }).catch(() => []);
-
-  return slots.map(s => s.card).filter(Boolean).slice(0, 6);
-}
-
-async function vrGetFormations(userId, count = 1) {
-  const owned = await vrGetOwnedCards(userId, count * 6);
-  const teams = [];
-
-  for (let f = 1; f <= count; f++) {
-    let team = await vrGetFormation(userId, f);
-    if (!team.length) team = owned.slice((f - 1) * 6, f * 6);
-    teams.push(team.slice(0, 6));
-  }
-
-  return teams;
-}
-
-function vrCalcTeamBuffs(cards) {
-  if (typeof finalTeamUpsForCards === 'function') return finalTeamUpsForCards(cards);
-  if (typeof vrTeamUpsForCards === 'function') return vrTeamUpsForCards(cards);
-  return [];
-}
-
-async function vrFormationPower(userId, count = 1) {
-  const teams = await vrGetFormations(userId, count);
-  let total = 0;
-  const buffs = [];
-
-  for (const team of teams) {
-    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
-    const b = vrCalcTeamBuffs(team);
-    total += Math.floor(base * (1 + (b.length * 0.08)));
-    buffs.push(...b.map(x => `${x.name}: ${x.buff}`));
-  }
-
-  return { teams, power: total, buffs: [...new Set(buffs)] };
-}
-
-function vrModeRewards(mode, required, progress) {
-  const progressNumber = mode === 'story'
-    ? (((progress.chapter - 1) * 30) + progress.stage)
-    : mode === 'tower'
-      ? progress.towerFloor
-      : progress.dungeonFloor;
-
-  return {
-    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
-    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
-    rolls: mode === 'story' ? 3 : 2,
-    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
-  };
-}
-
-async function vrGiveRewards(userId, rewards, xpMode) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      gold: { increment: rewards.gold },
-      tokens: { increment: rewards.tokens },
-      rolls: { increment: rewards.rolls }
-    }
-  });
-
-  if (typeof addUserXp === 'function') {
-    await addUserXp(userId, rewards.xp, xpMode).catch(() => null);
-  }
-}
-
-async function vrAdvanceProgress(userId, mode, progress) {
-  if (mode === 'story') {
-    let nextStage = progress.stage + 1;
-    let nextChapter = progress.chapter;
-
-    if (nextStage > 30) {
-      nextStage = 1;
-      nextChapter += 1;
-    }
-
-    if (nextChapter > 80) {
-      nextChapter = 80;
-      nextStage = 30;
-    }
-
-    return prisma.storyProgress.update({
-      where: { userId },
-      data: { chapter: nextChapter, stage: nextStage }
-    });
-  }
-
-  if (mode === 'tower') {
-    return prisma.storyProgress.update({
-      where: { userId },
-      data: { towerFloor: progress.towerFloor + 1 }
-    });
-  }
-
-  return prisma.storyProgress.update({
-    where: { userId },
-    data: { dungeonFloor: progress.dungeonFloor + 1 }
-  });
-}
-
-async function vrRunModeBattle(interaction, mode) {
-  await interaction.deferReply();
-
-  const userId = interaction.user.id;
-  const progress = await getOrCreateProgress(userId);
-  const formations = vrFormationNeeded(mode, progress);
-  const fp = await vrFormationPower(userId, formations);
-
-  const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-  const baseRequired = mode === 'story'
-    ? 650 + storyIndex * 240
-    : mode === 'tower'
-      ? 1050 + progress.towerFloor * 390
-      : 850 + progress.dungeonFloor * 320;
-
-  const required = Math.floor(baseRequired * (1 + ((formations - 1) * 0.75)));
-  const won = fp.power >= required || Math.random() < Math.min(0.35, fp.power / Math.max(1, required) / 3);
-
-  let text =
-    `**${vrModeTitle(mode)} BATTLE**\n` +
-    `${vrProgressText(mode, progress)}\n` +
-    `Formations Required: **${formations}** × 6 characters\n` +
-    `Your Power: **${money(fp.power)}**\n` +
-    `Required Power: **${money(required)}**\n` +
-    (fp.buffs.length ? `Team Buffs: **${fp.buffs.slice(0, 4).join(' | ')}**\n` : '') +
-    `\n`;
-
-  for (let r = 1; r <= 5; r++) {
-    const dmg = Math.floor((fp.power / (5 + r)) + Math.random() * 400);
-    text += `Round ${r}: your formations dealt **${money(dmg)}** damage.\n`;
-  }
-
-  if (!won) {
-    text += `\n**Defeat.** Upgrade levels, improve formations, or use better team-up buffs.`;
-    return interaction.editReply(text.slice(-1900));
-  }
-
-  const rewards = vrModeRewards(mode, required, progress);
-  await vrGiveRewards(userId, rewards, mode);
-  await vrAdvanceProgress(userId, mode, progress);
-
-  text +=
-    `\n**Victory!**\n` +
-    `Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**\n` +
-    `Progress saved.`;
-
-  return interaction.editReply(text.slice(-1900));
-}
-
-async function vrRunAutoMode(interaction, mode) {
-  await interaction.deferReply();
-
-  const userId = interaction.user.id;
-  const maxRuns = Math.max(1, Math.min(30, interaction.options.getInteger('runs') || 10));
-
-  let wins = 0;
-  let total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
-  let text = `**AUTO ${vrModeTitle(mode)} STARTED**\n`;
-
-  for (let run = 1; run <= maxRuns; run++) {
-    const progress = await getOrCreateProgress(userId);
-    const formations = vrFormationNeeded(mode, progress);
-    const fp = await vrFormationPower(userId, formations);
-
-    const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-    const baseRequired = mode === 'story'
-      ? 650 + storyIndex * 240
-      : mode === 'tower'
-        ? 1050 + progress.towerFloor * 390
-        : 850 + progress.dungeonFloor * 320;
-
-    const required = Math.floor(baseRequired * (1 + ((formations - 1) * 0.75)));
-    const won = fp.power >= required || Math.random() < Math.min(0.25, fp.power / Math.max(1, required) / 4);
-
-    text += `\nRun ${run}: ${vrProgressText(mode, progress)} | F${formations} | ${money(fp.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
-
-    if (!won) break;
-
-    wins++;
-    const rewards = vrModeRewards(mode, required, progress);
-    total.gold += rewards.gold;
-    total.tokens += rewards.tokens;
-    total.rolls += rewards.rolls;
-    total.xp += rewards.xp;
-
-    await vrGiveRewards(userId, rewards, mode);
-    await vrAdvanceProgress(userId, mode, progress);
-
-    if (run % 4 === 0) await interaction.editReply(text.slice(-1500)).catch(() => {});
-  }
-
-  text +=
-    `\n\n**AUTO COMPLETE**\n` +
-    `Wins: **${wins}/${maxRuns}**\n` +
-    `Total Rewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
-
-  return interaction.editReply(text.slice(-1900));
-}
-
-async function vrBossRush(interaction, mode = 'solo') {
-  await interaction.deferReply();
-
-  const userId = interaction.user.id;
-  const fp = await vrFormationPower(userId, mode === 'coop' ? 2 : 1);
-  const bossHp = mode === 'coop' ? 1800000 : 900000;
-  const bossPower = mode === 'coop' ? 450000 : 230000;
-
-  let damage = 0;
-  let text =
-    `**${mode === 'coop' ? 'CO-OP ' : ''}BOSS RUSH**\n` +
-    `Boss HP: **${money(bossHp)}**\n` +
-    `Boss Power: **${money(bossPower)}**\n` +
-    `Your Formation Power: **${money(fp.power)}**\n`;
-
-  for (let r = 1; r <= 6; r++) {
-    const hit = Math.floor((fp.power / (3 + r)) * (1 + fp.buffs.length * 0.07) + Math.random() * 6000);
-    damage += hit;
-    text += `\nRound ${r}: dealt **${money(hit)}** damage.`;
-    if (r % 3 === 0) await interaction.editReply(text.slice(-1500)).catch(() => {});
-  }
-
-  const clear = damage >= bossHp || fp.power >= bossPower;
-  const rewards = {
-    gold: Math.floor(damage * 0.4),
-    tokens: Math.max(5, Math.floor(damage / 50000)),
-    rolls: clear ? 8 : 3,
-    xp: clear ? 180 : 85
-  };
-
-  await vrGiveRewards(userId, rewards, 'boss-rush');
-
-  text +=
-    `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\n` +
-    `Total Damage: **${money(damage)}**\n` +
-    `Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**`;
-
-  return interaction.editReply(text.slice(-1900));
-}
-// ===== END PATCH =====
-
-
-// ===== FINAL CLEAN SYSTEM PATCH =====
-async function cleanEnsureReply(i) {
-  if (!i.deferred && !i.replied) {
-    await i.deferReply().catch(() => null);
-  }
-}
-
-function cleanNorm(v = '') {
-  return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function cleanName(character) {
-  return cleanNorm(character?.name || '');
-}
-
-function cleanText(character) {
-  return `${cleanNorm(character?.name)} ${cleanNorm(character?.anime)}`;
-}
-
-function cleanHasName(character, keys) {
-  const n = cleanName(character);
-  return keys.some(k => n.includes(cleanNorm(k)));
-}
-
-const CLEAN_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul'];
-
-function cleanHash(v = '') {
-  let h = 0;
-  for (const ch of String(v)) h = ((h << 5) - h) + ch.charCodeAt(0);
-  return Math.abs(h);
-}
-
-function cleanElement(character) {
-  const current = String(character?.element || '').trim();
-  if (current && !['Neutral','Anime','undefined','null'].includes(current)) return current;
-
-  const text = cleanText(character);
-  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse|muzan)/.test(text)) return 'Dark';
-  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid kagenou|eminence)/.test(text)) return 'Shadow';
-  if (/(gojo|rimuru|gilgamesh|aizen|yhwach|void|space|time|accelerator)/.test(text)) return 'Void';
-  if (/(saber|artoria|goku|naruto|luffy|saitama|all might|hero|saint)/.test(text)) return 'Light';
-  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto|endeavor|gabimaru)/.test(text)) return 'Fire';
-  if (/(killua|zenitsu|kakashi|thunder|lightning|misaka)/.test(text)) return 'Lightning';
-  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(text)) return 'Soul';
-  if (/(ice|frost|snow|todoroki)/.test(text)) return 'Ice';
-  return CLEAN_ELEMENTS[cleanHash(text) % CLEAN_ELEMENTS.length];
-}
-
-function cleanRole(character) {
-  if (cleanHasName(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet','senku'])) return 'Control';
-  if (cleanHasName(character, ['c c','cc','rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','rem'])) return 'Support';
-  if (cleanHasName(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard','naofumi'])) return 'Tank';
-  if (cleanHasName(character, ['gabimaru','killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito','yor forger'])) return 'Assassin';
-  if (cleanHasName(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad','asta'])) return 'Mage';
-  return 'DPS';
-}
-
-function cleanPassive(character) {
-  const n = cleanName(character);
-  const t = cleanText(character);
-
-  const exact = [
-    [['lelouch'], 'Geass Command: controls the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
-    [['c c','cc'], 'Immortal Witch: regenerates every round and gives extra energy to the strongest ally.'],
-    [['gabimaru'], 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after ultimate.'],
-    [['nanami'], 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
-    [['sung jin','jinwoo','jin woo'], 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
-    [['gojo'], 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
-    [['geto'], 'Cursed Spirit Manipulation: increases summon damage and weakens enemy DEF.'],
-    [['saber','artoria'], 'Avalon: grants a starting shield and reduces burst damage.'],
-    [['gilgamesh'], 'Gate of Babylon: high penetration and massive ultimate burst.'],
-    [['makima'], 'Control Devil: lowers enemy ATK and increases control chance.'],
-    [['reze'], 'Bomb Devil: ultimate applies explosive burst damage over time.'],
-    [['denji'], 'Chainsaw Heart: lifesteal and damage increase when HP is low.'],
-    [['power'], 'Blood Fiend: crit chance rises after taking damage.'],
-    [['aki hayakawa'], 'Future Contract: chance to dodge and counter.'],
-    [['luffy'], 'Nika Rhythm: gains ATK and speed every round.'],
-    [['zoro'], 'Three Sword Style: critical damage increases against bosses.'],
-    [['sanji'], 'Diable Jambe: fire damage and dodge chance.'],
-    [['law'], 'Room: ignores part of enemy DEF and increases team penetration.'],
-    [['naruto'], 'Nine-Tails Chakra: small healing and Light ally boost.'],
-    [['sasuke'], 'Sharingan: crit and counter chance.'],
-    [['itachi'], 'Tsukuyomi: chance to delay enemy ultimate.'],
-    [['madara'], 'Uchiha Dominion: increases AoE ultimate damage.'],
-    [['obito'], 'Kamui: dodge chance and enemy accuracy reduction.'],
-    [['pain','nagato'], 'Rinnegan Pressure: lowers enemy DEF and control resistance.'],
-    [['ichigo'], 'Bankai Pressure: Soul damage and speed increase.'],
-    [['aizen'], 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
-    [['rukia'], 'Sode no Shirayuki: Ice damage and enemy speed reduction.'],
-    [['kenpachi'], 'Battle Thirst: ATK rises as HP drops.'],
-    [['killua'], 'Godspeed: very high speed and crit burst.'],
-    [['gon'], 'Jajanken: huge single-target ultimate damage.'],
-    [['kurapika'], 'Chain Judgment: bonus damage against villain teams.'],
-    [['hisoka'], 'Bungee Gum: dodge chance and critical damage.'],
-    [['chrollo'], 'Skill Hunter: copies a minor enemy buff.'],
-    [['toji'], 'Heavenly Restriction: ignores part of enemy DEF.'],
-    [['sukuna'], 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
-    [['yuji'], 'Black Flash Chain: crit chance increases after each attack.'],
-    [['megumi'], 'Ten Shadows: summons add bonus Shadow damage.'],
-    [['nobara'], 'Resonance: marks enemies and increases team burst damage.'],
-    [['yuta'], 'Rika Bond: support shield and curse burst.'],
-    [['rimuru'], 'Predator: copies a small part of enemy buffs.'],
-    [['ainz'], 'Overlord: boosts Dark allies and lowers enemy resistance.'],
-    [['albedo'], 'Guardian Overseer: shields frontline and boosts Tank DEF.'],
-    [['vegeta'], 'Saiyan Pride: gains ATK after taking damage.'],
-    [['goku'], 'Limit Breaker: ultimate damage scales with battle rounds.'],
-    [['saitama'], 'One Punch Pressure: massive single-hit scaling against bosses.'],
-    [['tanjiro'], 'Hinokami Kagura: Fire burst and small team heal.'],
-    [['nezuko'], 'Demon Blood Art: team regen and Dark resistance.'],
-    [['zenitsu'], 'Thunder Breathing: first ultimate charges faster.'],
-    [['inosuke'], 'Beast Instinct: bonus crit and lifesteal.'],
-    [['rengoku'], 'Flame Hashira: boosts Fire allies and frontline damage.'],
-    [['todoroki'], 'Half-Cold Half-Hot: alternates Ice slow and Fire burst.'],
-    [['bakugo'], 'Explosion Rush: crit damage increases after ultimate.'],
-    [['midoriya','deku'], 'One For All: ATK and speed scale through rounds.'],
-    [['all might'], 'Symbol of Peace: protects allies and boosts Light damage.'],
-    [['levi'], 'Humanity’s Strongest: high dodge and boss damage.'],
-    [['eren'], 'Titan Shifter: gains HP and ATK after first ultimate.'],
-    [['mikasa'], 'Ackerman Instinct: crit chance and counterattack.']
-  ];
-
-  for (const [keys, passive] of exact) {
-    if (keys.some(k => n.includes(cleanNorm(k)))) return passive;
-  }
-
-  if (t.includes('code geass')) return 'Tactical Order: increases control chance and ultimate charge.';
-  if (t.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
-  if (t.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
-  if (t.includes('jujutsu')) return 'Cursed Energy: penetration and control resistance.';
-  if (t.includes('jigokuraku') || t.includes('hells paradise')) return 'Tao Flow: dodge and burst damage rise after ultimate.';
-  if (t.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
-  if (t.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
-  if (t.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
-  if (t.includes('hunter')) return 'Nen Flow: crit and energy regen.';
-  if (t.includes('demon slayer')) return 'Breathing Style: speed and burst damage.';
-  if (t.includes('dragon ball')) return 'Ki Surge: ATK increases each round.';
-
-  const role = cleanRole(character);
-  const element = cleanElement(character);
-  const options = {
-    Tank: [`Iron Guard: +DEF scaling and ${element} resistance.`, 'Frontline Wall: absorbs part of ally damage.', 'Last Stand: gains shield when HP is low.'],
-    Support: ['Battle Support: increases team energy regen.', 'Guardian Aid: grants small shield to weakest ally.', 'Tactical Heal: improves sustain during long fights.'],
-    Control: ['Mind Game: reduces enemy ultimate charge.', 'Pressure Field: lowers enemy accuracy.', 'Command Aura: increases control chance.'],
-    Assassin: ['Killer Tempo: high crit after first attack.', 'Silent Step: bonus speed and dodge chance.', 'Weak Point: ignores part of DEF.'],
-    Mage: [`${element} Burst: ultimate damage scales with penetration.`, 'Arcane Pressure: weakens enemy resistance.', 'Mana Surge: faster ultimate charge.'],
-    DPS: ['Battle Instinct: ATK rises every round.', 'Power Strike: bonus damage to bosses.', `${element} Edge: basic attacks gain elemental damage.`]
-  };
-  const arr = options[role] || options.DPS;
-  return arr[cleanHash(t) % arr.length];
-}
-
-const CLEAN_TEAMUPS = [
-  { name: 'Zero Requiem', keys: ['lelouch','c c'], buff: '+20% control chance, +15% ultimate charge' },
-  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
-  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
-  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
-  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
-  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
-  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% penetration, +12% shield' },
-  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
-  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
-  { name: 'Saiyan Rivalry', keys: ['goku','vegeta'], buff: '+18% ATK after round 3' },
-  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ultimate charge' },
-  { name: 'Demon Slayer Trio', keys: ['tanjiro','zenitsu','inosuke'], buff: '+12% speed, +12% crit' },
-  { name: 'Shadow Army', keys: ['sung jin','igris'], buff: '+15% Shadow damage' },
-  { name: 'Akatsuki Pressure', keys: ['pain','obito','itachi'], buff: '+15% Dark damage, enemy DEF down' }
-];
-
-function cleanTeamUpsForCharacter(character) {
-  const n = cleanName(character);
-  return CLEAN_TEAMUPS
-    .filter(rule => rule.keys.some(k => n.includes(cleanNorm(k))))
-    .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
-}
-
-function cleanTeamUpsForCards(cards) {
-  const names = cards.map(c => cleanName(c.character || c)).join(' | ');
-  const active = [];
-  for (const rule of CLEAN_TEAMUPS) {
-    if (rule.keys.every(k => names.includes(cleanNorm(k)))) active.push(rule);
-  }
-
-  const counts = {};
-  for (const c of cards) {
-    const e = cleanElement(c.character || c);
-    counts[e] = (counts[e] || 0) + 1;
-  }
-  for (const [element, count] of Object.entries(counts)) {
-    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team damage and HP' : '+12% team damage and HP' });
-  }
-
-  return active;
-}
-
-function cleanRarityBase(rarity) {
-  return {
-    COMMON: 80,
-    RARE: 180,
-    EPIC: 360,
-    LEGENDARY: 700,
-    MYTHIC: 1200,
-    DIVINE: 1900,
-    SECRET: 2800
-  }[rarity] || 100;
-}
-
-function cleanStats(card, character) {
-  const rarity = character?.rarity || 'COMMON';
-  const role = cleanRole(character);
-  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
-
-  // Balanced scaling: level 99 is strong, not broken.
-  const base = Math.max(cleanRarityBase(rarity), Number(character?.basePower || card?.power || cleanRarityBase(rarity)));
-  const normalized = Math.max(cleanRarityBase(rarity), Math.min(base, cleanRarityBase(rarity) * 4));
-  const levelMult = 1 + ((level - 1) * 0.028);
-
-  let atkScale = 1.0, hpScale = 7.0, defScale = 0.55, spd = 100, crit = 10, critDmg = 150, pen = 0, energy = 100, shield = 0;
-
-  if (role === 'Tank') { atkScale = 0.72; hpScale = 13; defScale = 1.2; spd = 88; shield = 18; crit = 7; }
-  if (role === 'Support') { atkScale = 0.78; hpScale = 8.6; defScale = 0.82; spd = 108; energy = 135; shield = 10; }
-  if (role === 'Control') { atkScale = 0.88; hpScale = 8.2; defScale = 0.76; spd = 116; energy = 125; crit = 12; }
-  if (role === 'Assassin') { atkScale = 1.28; hpScale = 5.6; defScale = 0.42; spd = 138; crit = 28; critDmg = 205; pen = 12; }
-  if (role === 'Mage') { atkScale = 1.34; hpScale = 6.0; defScale = 0.48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
-  if (role === 'DPS') { atkScale = 1.14; hpScale = 7.0; defScale = 0.56; spd = 104; crit = 16; critDmg = 175; }
-
-  if (cleanHasName(character, ['nanami'])) { crit = 40; critDmg = 235; pen = Math.max(pen, 12); }
-  if (cleanHasName(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 16; }
-
-  return {
-    atk: Math.floor(normalized * atkScale * levelMult),
-    hp: Math.floor(normalized * hpScale * levelMult),
-    def: Math.floor(normalized * defScale * levelMult),
-    spd: Math.floor(spd + (level * 0.2)),
-    crit,
-    critDmg,
-    pen,
-    energy,
-    shield
-  };
-}
-
-function cleanStatsBlock(card, character) {
-  const s = cleanStats(card, character);
-  const teamups = cleanTeamUpsForCharacter(character);
-  return (
-    `Class: **${cleanRole(character)}** | Element: **${cleanElement(character)}**\n` +
-    `Level **${Math.max(1, Math.min(99, Number(card?.level || 1)))}/99** • ATK **${money(s.atk)}** • HP **${money(s.hp)}** • DEF **${money(s.def)}** • SPD **${s.spd}**\n` +
-    `CRIT **${s.crit}%** • CRIT DMG **${s.critDmg}%** • PEN **${s.pen}%** • Energy **${s.energy}%** • Shield **${s.shield}%**\n` +
-    `Character Passive: ${cleanPassive(character)}` +
-    (teamups.length ? `\n\nTeam Up Buffs:\n${teamups.join('\n')}` : `\n\nTeam Up Buffs:\nNone`)
-  );
-}
-
-async function cleanFindOwned(userId, q) {
-  const tokens = cleanNorm(q).split(/\s+/).filter(Boolean);
-  const owned = await prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take: 400
-  });
-
-  return owned
-    .map(card => {
-      const full = cleanText(card.character);
-      let score = 0;
-      for (const t of tokens) {
-        if (full.includes(t)) score += 50;
-        if (cleanName(card.character).includes(t)) score += 70;
-        if (cleanNorm(card.character.anime).includes(t)) score += 30;
-      }
-      if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-      return { card, score };
-    })
-    .filter(x => x.score > 0)
-    .sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))
-    .map(x => x.card);
-}
-
-async function cleanGetFormation(userId, formation) {
-  const start = ((formation - 1) * 6) + 1;
-  const end = start + 5;
-  const slots = await prisma.teamSlot.findMany({
-    where: { userId, slot: { gte: start, lte: end } },
-    include: { card: { include: { character: true } } },
-    orderBy: { slot: 'asc' }
-  }).catch(() => []);
-  return slots.map(s => s.card).filter(Boolean).slice(0, 6);
-}
-
-async function cleanSetFormation(userId, formation, cards) {
-  const start = ((formation - 1) * 6) + 1;
-  const end = start + 5;
-  await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: end } } }).catch(() => {});
-  for (let i = 0; i < Math.min(6, cards.length); i++) {
-    const slot = start + i;
-    await prisma.teamSlot.upsert({
-      where: { userId_slot: { userId, slot } },
-      update: { cardId: cards[i].id },
-      create: { id: `${userId}_${slot}`, userId, slot, cardId: cards[i].id }
-    }).catch(async () => {
-      await prisma.teamSlot.create({ data: { id: `${userId}_${Date.now()}_${slot}`, userId, slot, cardId: cards[i].id } }).catch(() => {});
-    });
-  }
-}
-
-async function cleanFormationPower(userId, count = 1) {
-  const owned = await prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take: count * 6
-  });
-
-  const teams = [];
-  let total = 0;
-  const buffs = [];
-
-  for (let f = 1; f <= count; f++) {
-    let team = await cleanGetFormation(userId, f);
-    if (!team.length) team = owned.slice((f - 1) * 6, f * 6);
-    teams.push(team);
-
-    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
-    const b = cleanTeamUpsForCards(team);
-    total += Math.floor(base * (1 + b.length * 0.08));
-    buffs.push(...b.map(x => `${x.name}: ${x.buff}`));
-  }
-
-  return { teams, power: total, buffs: [...new Set(buffs)] };
-}
-
-function cleanFormationNeeded(mode, progress) {
-  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
-  if (value >= 60) return 6;
-  if (value >= 48) return 5;
-  if (value >= 36) return 4;
-  if (value >= 24) return 3;
-  if (value >= 12) return 2;
-  return 1;
-}
-
-function cleanModeRewards(mode, required, progress) {
-  const progressNumber = mode === 'story'
-    ? (((progress.chapter - 1) * 30) + progress.stage)
-    : mode === 'tower'
-      ? progress.towerFloor
-      : progress.dungeonFloor;
-  return {
-    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
-    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
-    rolls: mode === 'story' ? 3 : 2,
-    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
-  };
-}
-
-async function cleanGiveRewards(userId, rewards, mode) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      gold: { increment: rewards.gold },
-      tokens: { increment: rewards.tokens },
-      rolls: { increment: rewards.rolls }
-    }
-  });
-  if (typeof addUserXp === 'function') await addUserXp(userId, rewards.xp, mode).catch(() => null);
-}
-
-async function cleanAdvanceProgress(userId, mode, progress) {
-  if (mode === 'story') {
-    let nextStage = progress.stage + 1;
-    let nextChapter = progress.chapter;
-    if (nextStage > 30) { nextStage = 1; nextChapter += 1; }
-    if (nextChapter > 80) { nextChapter = 80; nextStage = 30; }
-    return prisma.storyProgress.update({ where: { userId }, data: { chapter: nextChapter, stage: nextStage } });
-  }
-  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: progress.towerFloor + 1 } });
-  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: progress.dungeonFloor + 1 } });
-}
-
-async function cleanRunFight(i, mode, autoRuns = 1) {
-  const userId = i.user.id;
-  const maxRuns = Math.max(1, Math.min(30, autoRuns));
-  let wins = 0;
-  const total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
-  let text = `**${autoRuns > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
-
-  for (let run = 1; run <= maxRuns; run++) {
-    const progress = await getOrCreateProgress(userId);
-    const formations = cleanFormationNeeded(mode, progress);
-    const fp = await cleanFormationPower(userId, formations);
-    const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-
-    const baseRequired = mode === 'story'
-      ? 650 + storyIndex * 300
-      : mode === 'tower'
-        ? 1100 + progress.towerFloor * 520
-        : 900 + progress.dungeonFloor * 430;
-
-    // late game becomes much harder
-    const lateMultiplier = 1 + (formations - 1) * 0.95 + (mode === 'story' ? Math.max(0, progress.chapter - 40) * 0.035 : 0);
-    const required = Math.floor(baseRequired * lateMultiplier);
-
-    const title = mode === 'story'
-      ? `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`
-      : mode === 'tower'
-        ? `Tower Floor ${progress.towerFloor}`
-        : `Dungeon Floor ${progress.dungeonFloor}`;
-
-    let fightLog = `\nRun ${run}: **${title}** | Formations **${formations}** | ${money(fp.power)} vs ${money(required)}\n`;
-
-    let energy = 0;
-    for (let round = 1; round <= 4; round++) {
-      const dmg = Math.floor((fp.power / (4 + round)) * (1 + fp.buffs.length * 0.06) + Math.random() * 600);
-      energy += 28 + fp.buffs.length * 2;
-      fightLog += `• Round ${round}: team dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
-      if (energy >= 100) {
-        const ult = Math.floor(dmg * (2.2 + Math.min(0.6, fp.buffs.length * 0.08)));
-        fightLog += `  🔥 **ULTIMATE COMBO ACTIVATED!** dealt **${money(ult)}** damage!\n`;
-        energy = 0;
-      }
-    }
-
-    const won = fp.power >= required || Math.random() < Math.min(0.22, fp.power / Math.max(1, required) / 4);
-    fightLog += won ? `✅ **Victory**\n` : `❌ **Defeat**\n`;
-    text += fightLog;
-
-    if (!won) break;
-
-    // Re-read progress right before rewards to block duplicate spam on the same stage.
-    const latestProgress = await getOrCreateProgress(userId);
-    const sameProgress = mode === 'story'
-      ? (latestProgress.chapter === progress.chapter && latestProgress.stage === progress.stage)
-      : mode === 'tower'
-        ? (latestProgress.towerFloor === progress.towerFloor)
-        : (latestProgress.dungeonFloor === progress.dungeonFloor);
-
-    if (!sameProgress) {
-      text += `\nDuplicate run blocked: progress already advanced.`;
-      break;
-    }
-
-    const rewards = cleanModeRewards(mode, required, progress);
-    wins++;
-    total.gold += rewards.gold;
-    total.tokens += rewards.tokens;
-    total.rolls += rewards.rolls;
-    total.xp += rewards.xp;
-
-    await cleanAdvanceProgress(userId, mode, progress);
-    await cleanGiveRewards(userId, rewards, mode);
-
-    if (run % 3 === 0) await i.editReply(text.slice(-1800)).catch(() => {});
-  }
-
-  text += `\n**RESULT**\nWins: **${wins}/${maxRuns}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
-  return i.editReply(text.slice(-1900));
-}
-
-async function cleanBossRush(i, coop = false) {
-  const userId = i.user.id;
-  const formations = coop ? 2 : 1;
-  const fp = await cleanFormationPower(userId, formations);
-  const bossHp = coop ? 2200000 : 1100000;
-  const bossPower = coop ? 550000 : 280000;
-
-  let damage = 0;
-  let energy = 0;
-  let text = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nBoss Power: **${money(bossPower)}**\nYour Power: **${money(fp.power)}**\n`;
-
-  for (let round = 1; round <= 7; round++) {
-    const hit = Math.floor((fp.power / (3 + round)) * (1 + fp.buffs.length * 0.07) + Math.random() * 8000);
-    damage += hit;
-    energy += 22 + fp.buffs.length * 2;
-    text += `\nRound ${round}: dealt **${money(hit)}** damage. Energy ${Math.min(100, energy)}/100`;
-    if (energy >= 100) {
-      const ult = Math.floor(hit * 2.7);
-      damage += ult;
-      text += `\n🔥 **BOSS RUSH ULTIMATE!** extra **${money(ult)}** damage.`;
-      energy = 0;
-    }
-  }
-
-  const clear = damage >= bossHp || fp.power >= bossPower;
-  const rewards = {
-    gold: Math.floor(damage * 0.45),
-    tokens: Math.max(8, Math.floor(damage / 45000)),
-    rolls: clear ? 10 : 4,
-    xp: clear ? 220 : 100
-  };
-  await cleanGiveRewards(userId, rewards, 'boss-rush');
-
-  text += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nTotal Damage: **${money(damage)}**\nRewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**`;
-  return i.editReply(text.slice(-1900));
-}
-
-async function cleanFinalHandler(i, userId, commandName) {
-  if (commandName === 'bot-check') return i.reply('✅ VoidRoll is responding.');
-
-  if (commandName === 'characters-count') {
-    const total = await prisma.character.count({ where: { active: true } });
-    return i.reply(`📚 **${total}**`);
-  }
-
-  if (commandName === 'search') {
-    const q = i.options.getString('name', true);
-    const tokens = cleanNorm(q).split(/\s+/).filter(Boolean);
-
-    const candidates = await prisma.character.findMany({
-      where: { active: true, OR: tokens.map(t => ({ OR: [{ name: { contains: t, mode: 'insensitive' } }, { anime: { contains: t, mode: 'insensitive' } }] })) },
-      take: 80
-    });
-
-    const chars = candidates.map(c => {
-      const full = cleanText(c);
-      let score = 0;
-      for (const t of tokens) {
-        if (full.includes(t)) score += 40;
-        if (cleanName(c).includes(t)) score += 60;
-        if (cleanNorm(c.anime).includes(t)) score += 35;
-      }
-      if (tokens.every(t => full.includes(t))) score += 140;
-      score += { SECRET: 70, DIVINE: 55, MYTHIC: 40, LEGENDARY: 28, EPIC: 16, RARE: 8, COMMON: 0 }[c.rarity] || 0;
-      return { c, score };
-    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score).slice(0, 10).map(x => x.c);
-
-    if (!chars.length) return i.reply(`No characters found for **${q}**.`);
-    const first = chars[0];
-
-    const embed = new EmbedBuilder()
-      .setTitle(`Search: ${q}`)
-      .setDescription(`**Best Match**\n${rarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n${cleanStatsBlock({ power: first.basePower, level: 1 }, first)}\n\n**Results**\n${chars.map((c, idx) => `${idx+1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)} • ${cleanRole(c)} • ${cleanElement(c)}`).join('\n')}`)
-      .setColor(embedColor(getAura(first).color));
-    if (first.imageUrl) embed.setThumbnail(first.imageUrl);
-    return i.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'inv-search') {
-    const q = i.options.getString('name', true);
-    const matches = (await cleanFindOwned(userId, q)).slice(0, 10);
-    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
-    const first = matches[0];
-
-    const embed = new EmbedBuilder()
-      .setTitle(`Inventory Search: ${q}`)
-      .setDescription(`**Best Owned Match**\n${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${cleanStatsBlock(first, first.character)}\n\n**Owned Results**\n${matches.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)} • ${cleanRole(c.character)} • ${cleanElement(c.character)}`).join('\n')}`)
-      .setColor(embedColor(getAura(first.character).color));
-    if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
-    return i.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'stats') {
-    const q = i.options.getString('name', true);
-    const matches = await cleanFindOwned(userId, q);
-    const card = matches[0] || await phase2FindUserCardByName(userId, q);
-    return i.reply(`${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n${cleanStatsBlock(card, card.character)}`);
-  }
-
-  if (commandName === 'team-buffs') {
-    const team = await cleanGetFormation(userId, 1);
-    if (!team.length) return i.reply('No formation equipped. Use /autoteam first.');
-    const buffs = cleanTeamUpsForCards(team);
-    if (!buffs.length) return i.reply('No active team-up buffs in Formation 1.');
-    return i.reply(`**Formation 1 Team Up Buffs**\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}`);
-  }
-
-  if (commandName === 'autoteam') {
-    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
-    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: count * 6 });
-    if (!cards.length) return i.reply('You do not have any cards yet.');
-    for (let f = 1; f <= count; f++) await cleanSetFormation(userId, f, cards.slice((f-1)*6, f*6));
-    return i.reply(`✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**. Use /formations to view.`);
-  }
-
-  if (commandName === 'formations') {
-    const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
-    const lines = [`**Your Formations**`, `6 formations max • each formation has 6 characters.`];
-    for (let f = 1; f <= count; f++) {
-      const team = await cleanGetFormation(userId, f);
-      const buffs = cleanTeamUpsForCards(team);
-      lines.push(`\n**Formation ${f}**`);
-      if (!team.length) lines.push('Empty.');
-      else {
-        lines.push(...team.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
-        if (buffs.length) lines.push(`Buffs: ${buffs.map(b => `${b.name} (${b.buff})`).join(' | ')}`);
-      }
-    }
-    return i.reply(lines.join('\n').slice(0, 1900));
-  }
-
-  if (commandName === 'formation-set') {
-    const formation = Math.max(1, Math.min(6, i.options.getInteger('formation', true)));
-    const names = ['slot1','slot2','slot3','slot4','slot5','slot6'].map(x => i.options.getString(x)).filter(Boolean);
-    const cards = [];
-    const used = new Set();
-    for (const name of names) {
-      const found = (await cleanFindOwned(userId, name))[0];
-      if (found && !used.has(found.id)) { used.add(found.id); cards.push(found); }
-    }
-    if (!cards.length) return i.reply('No owned characters found from the names you entered.');
-    await cleanSetFormation(userId, formation, cards);
-    const buffs = cleanTeamUpsForCards(cards);
-    return i.reply(`✅ **Formation ${formation} updated**\n${cards.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}${buffs.length ? `\n\nBuffs:\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}` : ''}`);
-  }
-
-  if (commandName === 'story' || commandName === 'tower' || commandName === 'dungeon') {
-    return withRewardLock(i, commandName, () => cleanRunFight(i, commandName, 1));
-  }
-
-  if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
-    const mode = commandName.replace('auto-', '');
-    return withRewardLock(i, mode, () => cleanRunFight(i, mode, i.options.getInteger('runs') || 10));
-  }
-
-  if (commandName === 'boss-rush') return withRewardLock(i, 'boss-rush', () => cleanBossRush(i, false));
-  if (commandName === 'coop-boss-rush') return withRewardLock(i, 'coop-boss-rush', () => cleanBossRush(i, true));
-
-  return false;
-}
-// ===== END CLEAN PATCH =====
-
-
-// ===== REWARD LOCK / ANTI SPAM PATCH =====
-const activeModeRuns = new Set();
-
-function rewardLockKey(userId, mode) {
-  return `${userId}:${mode}`;
-}
-
-async function withRewardLock(interaction, mode, fn) {
-  const key = rewardLockKey(interaction.user.id, mode);
-  if (activeModeRuns.has(key)) {
-    return interaction.reply(`⏳ You already have **${mode}** running. Wait until it finishes.`);
-  }
-
-  activeModeRuns.add(key);
-  try {
-    return await fn();
-  } finally {
-    activeModeRuns.delete(key);
-  }
-}
-// ===== END REWARD LOCK PATCH =====
-
-
-// ===== FINAL BALANCE + MODE ALIAS FIX =====
-function finalPowerRange(rarity) {
-  return {
-    COMMON: [80, 160],
-    RARE: [170, 330],
-    EPIC: [340, 620],
-    LEGENDARY: [650, 1050],
-    MYTHIC: [1100, 1650],
-    DIVINE: [1700, 2300],
-    SECRET: [2400, 3200]
-  }[rarity] || [100, 220];
-}
-
-function finalStableHash(value = '') {
-  let h = 0;
-  for (const ch of String(value)) h = ((h << 5) - h) + ch.charCodeAt(0);
-  return Math.abs(h);
-}
-
-function finalBalancedPower(character) {
-  const [min, max] = finalPowerRange(character?.rarity || 'COMMON');
-  const seed = finalStableHash(`${character?.id || ''}:${character?.name || ''}:${character?.anime || ''}`);
-  return min + (seed % Math.max(1, max - min));
-}
-
-async function finalApplyPowerBalance() {
-  const chars = await prisma.character.findMany({
-    where: { active: true },
-    select: { id: true, name: true, anime: true, rarity: true, basePower: true, element: true }
-  });
-
-  let characters = 0;
-  for (const c of chars) {
-    const power = finalBalancedPower(c);
-    const element = typeof cleanElement === 'function' ? cleanElement(c) : (c.element || 'Light');
-
-    await prisma.character.update({
-      where: { id: c.id },
-      data: {
-        basePower: power,
-        baseFarm: Math.max(1, Math.floor(power / 8)),
-        baseLuck: Math.max(1, Math.floor(power / 20)),
-        element
-      }
-    }).catch(() => {});
-    characters++;
-  }
-
-  const cards = await prisma.userCard.findMany({
-    include: { character: true },
-    select: { id: true, level: true, power: true, character: true }
-  });
-
-  let userCards = 0;
-  for (const card of cards) {
-    const base = finalBalancedPower(card.character);
-    const level = Math.max(1, Math.min(99, Number(card.level || 1)));
-    const power = Math.floor(base * (1 + ((level - 1) * 0.035)));
-
-    await prisma.userCard.update({
-      where: { id: card.id },
-      data: { power }
-    }).catch(() => {});
-    userCards++;
-  }
-
-  return { characters, userCards };
-}
-
-function finalModeFromCommand(commandName) {
-  if (commandName === 'story' || commandName === 'story-start') return 'story';
-  if (commandName === 'tower' || commandName === 'tower-start') return 'tower';
-  if (commandName === 'dungeon' || commandName === 'dungeon-start') return 'dungeon';
-  if (commandName === 'auto-story') return 'auto-story';
-  if (commandName === 'auto-tower') return 'auto-tower';
-  if (commandName === 'auto-dungeon') return 'auto-dungeon';
-  return null;
-}
-
-async function finalModeAliasHandler(i, userId, commandName) {
-  const modeAlias = finalModeFromCommand(commandName);
-
-  if (commandName === 'admin-final-balance') {
-    const ok = i.options.getString('confirm', true);
-    if (ok !== 'YES') return i.reply('Type YES to confirm.');
-    const result = await finalApplyPowerBalance();
-    return i.reply(`✅ Final balance applied.\nCharacters updated: **${result.characters}**\nUser cards updated: **${result.userCards}**`);
-  }
-
-  if (modeAlias === 'story' || modeAlias === 'tower' || modeAlias === 'dungeon') {
-    if (typeof withRewardLock === 'function') {
-      return withRewardLock(i, modeAlias, () => cleanRunFight(i, modeAlias, 1));
-    }
-    return cleanRunFight(i, modeAlias, 1);
-  }
-
-  if (modeAlias === 'auto-story' || modeAlias === 'auto-tower' || modeAlias === 'auto-dungeon') {
-    const mode = modeAlias.replace('auto-', '');
-    const runs = i.options.getInteger('runs') || 10;
-    if (typeof withRewardLock === 'function') {
-      return withRewardLock(i, mode, () => cleanRunFight(i, mode, runs));
-    }
-    return cleanRunFight(i, mode, runs);
-  }
-
-  if (commandName === 'class-tower') {
-    return cleanRunFight(i, 'tower', 1);
-  }
-
-  return false;
-}
-// ===== END FINAL BALANCE + MODE ALIAS FIX =====
-
-
-// ===== NO-HANG MODES + REMOVE CORES ROLL PATCH =====
-const fastModeLocks = new Set();
-
-function fastModeKey(userId, mode) {
-  return `${userId}:${mode}`;
-}
-
-async function fastGetProgress(userId) {
-  let progress = await prisma.storyProgress.findUnique({ where: { userId } }).catch(() => null);
-  if (!progress) {
-    progress = await prisma.storyProgress.create({
-      data: {
-        userId,
-        chapter: 1,
-        stage: 1,
-        towerFloor: 1,
-        dungeonFloor: 1
-      }
-    }).catch(async () => getOrCreateProgress(userId));
-  }
-  return progress;
-}
-
-async function fastTeamPower(userId, formations = 1) {
-  const take = Math.max(1, Math.min(6, formations)) * 6;
-  const cards = await prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take
-  });
-
-  const power = cards.reduce((sum, c) => sum + Number(c.power || 0), 0);
-  return { cards, power };
-}
-
-function fastModeNeed(mode, progress) {
-  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
-  if (value >= 60) return 6;
-  if (value >= 48) return 5;
-  if (value >= 36) return 4;
-  if (value >= 24) return 3;
-  if (value >= 12) return 2;
-  return 1;
-}
-
-function fastRequired(mode, progress, formations) {
-  const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-  const base = mode === 'story'
-    ? 650 + storyIndex * 300
-    : mode === 'tower'
-      ? 1100 + progress.towerFloor * 520
-      : 900 + progress.dungeonFloor * 430;
-
-  const late = mode === 'story' ? Math.max(0, progress.chapter - 40) * 0.035 : 0;
-  return Math.floor(base * (1 + ((formations - 1) * 0.95) + late));
-}
-
-function fastRewards(mode, required, progress) {
-  const progressNumber = mode === 'story'
-    ? (((progress.chapter - 1) * 30) + progress.stage)
-    : mode === 'tower'
-      ? progress.towerFloor
-      : progress.dungeonFloor;
-
-  return {
-    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
-    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
-    rolls: mode === 'story' ? 3 : 2,
-    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
-  };
-}
-
-async function fastAdvance(userId, mode, progress) {
-  if (mode === 'story') {
-    let chapter = progress.chapter;
-    let stage = progress.stage + 1;
-
-    if (stage > 30) {
-      stage = 1;
-      chapter += 1;
-    }
-
-    if (chapter > 80) {
-      chapter = 80;
-      stage = 30;
-    }
-
-    return prisma.storyProgress.update({
-      where: { userId },
-      data: { chapter, stage }
-    });
-  }
-
-  if (mode === 'tower') {
-    return prisma.storyProgress.update({
-      where: { userId },
-      data: { towerFloor: progress.towerFloor + 1 }
-    });
-  }
-
-  return prisma.storyProgress.update({
-    where: { userId },
-    data: { dungeonFloor: progress.dungeonFloor + 1 }
-  });
-}
-
-async function fastGive(userId, rewards, mode) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      gold: { increment: rewards.gold },
-      tokens: { increment: rewards.tokens },
-      rolls: { increment: rewards.rolls }
-    }
-  });
-
-  if (typeof addUserXp === 'function') {
-    await addUserXp(userId, rewards.xp, mode).catch(() => null);
-  }
-}
-
-async function fastRunMode(i, mode, runs = 1) {
-  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
-
-  const userId = i.user.id;
-  const key = fastModeKey(userId, mode);
-
-  if (fastModeLocks.has(key)) {
-    return i.editReply(`⏳ You already have **${mode}** running. Wait until it finishes.`);
-  }
-
-  fastModeLocks.add(key);
-
-  try {
-    const maxRuns = Math.max(1, Math.min(30, runs));
-    let wins = 0;
-    let totalGold = 0;
-    let totalTokens = 0;
-    let totalRolls = 0;
-    let totalXp = 0;
-    let text = `**${maxRuns > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
-
-    for (let run = 1; run <= maxRuns; run++) {
-      const progress = await fastGetProgress(userId);
-      const formations = fastModeNeed(mode, progress);
-      const team = await fastTeamPower(userId, formations);
-      const required = fastRequired(mode, progress, formations);
-
-      const label = mode === 'story'
-        ? `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`
-        : mode === 'tower'
-          ? `Tower Floor ${progress.towerFloor}`
-          : `Dungeon Floor ${progress.dungeonFloor}`;
-
-      let energy = 0;
-      text += `\nRun ${run}: **${label}** | F${formations} | ${money(team.power)} vs ${money(required)}\n`;
-
-      for (let r = 1; r <= 3; r++) {
-        const dmg = Math.floor(team.power / (4 + r) + Math.random() * 500);
-        energy += 34;
-        text += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
-        if (energy >= 100) {
-          text += `  🔥 **ULTIMATE COMBO!** Your formation unleashed a finisher.\n`;
-          energy = 0;
-        }
-      }
-
-      const won = team.power >= required || Math.random() < Math.min(0.18, team.power / Math.max(1, required) / 5);
-      if (!won) {
-        text += `❌ **Defeat.** Upgrade your formations.\n`;
-        break;
-      }
-
-      const latest = await fastGetProgress(userId);
-      const same = mode === 'story'
-        ? latest.chapter === progress.chapter && latest.stage === progress.stage
-        : mode === 'tower'
-          ? latest.towerFloor === progress.towerFloor
-          : latest.dungeonFloor === progress.dungeonFloor;
-
-      if (!same) {
-        text += `⛔ Duplicate reward blocked. Progress already advanced.\n`;
-        break;
-      }
-
-      const rewards = fastRewards(mode, required, progress);
-      await fastAdvance(userId, mode, progress);
-      await fastGive(userId, rewards, mode);
-
-      wins++;
-      totalGold += rewards.gold;
-      totalTokens += rewards.tokens;
-      totalRolls += rewards.rolls;
-      totalXp += rewards.xp;
-
-      text += `✅ **Victory!** Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**\n`;
-
-      if (run % 4 === 0) await i.editReply(text.slice(-1800)).catch(() => null);
-    }
-
-    text += `\n**TOTAL**\nWins: **${wins}/${maxRuns}**\nRewards: **${money(totalGold)} Gold**, **${totalTokens} Tokens**, **${totalRolls} Rolls**, **${totalXp} XP**`;
-    return i.editReply(text.slice(-1900));
-  } finally {
-    fastModeLocks.delete(key);
-  }
-}
-
-async function fastNoHangHandler(i, userId, commandName) {
-  if (commandName === 'story' || commandName === 'story-start') return fastRunMode(i, 'story', 1);
-  if (commandName === 'tower' || commandName === 'tower-start' || commandName === 'class-tower') return fastRunMode(i, 'tower', 1);
-  if (commandName === 'dungeon' || commandName === 'dungeon-start') return fastRunMode(i, 'dungeon', 1);
-  if (commandName === 'auto-story') return fastRunMode(i, 'story', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-tower') return fastRunMode(i, 'tower', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-dungeon') return fastRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
-  if (commandName === 'cores-roll') return i.reply('This command was removed.');
-  return false;
-}
-// ===== END NO-HANG MODES PATCH =====
-
-
-// ===== EMERGENCY CORE COMMANDS STABLE HANDLER =====
-async function emDefer(i) {
+async function vrDefer(i) {
   if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
 }
 
-function emNorm(v = '') {
-  return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function emRarityEmoji(r) {
-  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
-}
-
-function emRole(c) {
-  if (typeof cleanRole === 'function') return cleanRole(c);
-  if (typeof finalRole === 'function') return finalRole(c);
-  if (typeof vrCharacterRole === 'function') return vrCharacterRole(c);
-  if (typeof characterRole === 'function') return characterRole(c);
-  return 'DPS';
-}
-
-function emElement(c) {
-  if (typeof cleanElement === 'function') return cleanElement(c);
-  if (typeof finalElement === 'function') return finalElement(c);
-  if (typeof vrSafeElement === 'function') return vrSafeElement(c);
-  if (typeof characterElement === 'function') return characterElement(c);
-  return c?.element || 'Light';
-}
-
-function emPassive(c) {
-  if (typeof cleanPassive === 'function') return cleanPassive(c);
-  if (typeof finalPassive === 'function') return finalPassive(c);
-  if (typeof vrCharacterPassive === 'function') return vrCharacterPassive(c);
-  return 'Battle Instinct: ATK rises every round.';
-}
-
-function emStatsBlock(card, c) {
-  if (typeof cleanStatsBlock === 'function') return cleanStatsBlock(card, c);
-  if (typeof finalFullBlock === 'function') return finalFullBlock(card, c);
-  if (typeof vrFullStatsBlock === 'function') return vrFullStatsBlock(card, c, true);
-
-  const p = Math.max(1, Number(card?.power || c?.basePower || 100));
-  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
-  const base = Math.min(p, 3500);
-  const mult = 1 + ((level - 1) * 0.03);
-  const role = emRole(c);
-  const atk = Math.floor(base * (role === 'Tank' ? 0.7 : role === 'Mage' ? 1.3 : role === 'Assassin' ? 1.25 : 1.05) * mult);
-  const hp = Math.floor(base * (role === 'Tank' ? 13 : role === 'Assassin' ? 5.8 : 7.2) * mult);
-  const def = Math.floor(base * (role === 'Tank' ? 1.2 : 0.55) * mult);
-  const crit = emNorm(c?.name).includes('nanami') ? 40 : role === 'Assassin' ? 28 : 15;
-  return `Class: **${role}** | Element: **${emElement(c)}**\nLevel **${level}/99** • ATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${role === 'Assassin' ? 138 : 105}**\nCRIT **${crit}%** • PEN **${role === 'Mage' ? 22 : role === 'Assassin' ? 12 : 0}%**\nCharacter Passive: ${emPassive(c)}`;
-}
-
-async function emFindOwned(userId, q, limit = 10) {
-  const tokens = emNorm(q).split(/\s+/).filter(Boolean);
-  const cards = await prisma.userCard.findMany({
-    where: { userId },
-    include: { character: true },
-    orderBy: { power: 'desc' },
-    take: 500
-  });
-
-  return cards.map(card => {
-    const full = `${emNorm(card.character.name)} ${emNorm(card.character.anime)}`;
-    let score = 0;
-    for (const t of tokens) {
-      if (full.includes(t)) score += 50;
-      if (emNorm(card.character.name).includes(t)) score += 70;
-      if (emNorm(card.character.anime).includes(t)) score += 30;
-    }
-    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-    return { card, score };
-  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0)).slice(0, limit).map(x => x.card);
-}
-
-async function emGetProgress(userId) {
-  let p = await prisma.storyProgress.findUnique({ where: { userId } }).catch(() => null);
-  if (!p) {
-    p = await prisma.storyProgress.create({ data: { userId, chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 } }).catch(() => null);
-  }
-  return p || { userId, chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 };
-}
-
-async function emAdvance(userId, mode, p) {
-  if (mode === 'story') {
-    let stage = p.stage + 1;
-    let chapter = p.chapter;
-    if (stage > 30) { stage = 1; chapter += 1; }
-    if (chapter > 80) { chapter = 80; stage = 30; }
-    return prisma.storyProgress.update({ where: { userId }, data: { chapter, stage } }).catch(() => null);
-  }
-  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: p.towerFloor + 1 } }).catch(() => null);
-  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: p.dungeonFloor + 1 } }).catch(() => null);
-}
-
-function emNeed(mode, p) {
-  const v = mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
-  if (v >= 60) return 6;
-  if (v >= 48) return 5;
-  if (v >= 36) return 4;
-  if (v >= 24) return 3;
-  if (v >= 12) return 2;
-  return 1;
-}
-
-async function emTeamPower(userId, formations = 1) {
-  const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: formations * 6 });
-  return { cards, power: cards.reduce((s,c) => s + Number(c.power || 0), 0) };
-}
-
-function emRequired(mode, p, formations) {
-  const storyIndex = ((p.chapter - 1) * 30) + p.stage;
-  const base = mode === 'story' ? 650 + storyIndex * 300 : mode === 'tower' ? 1100 + p.towerFloor * 520 : 900 + p.dungeonFloor * 430;
-  const late = mode === 'story' ? Math.max(0, p.chapter - 40) * 0.035 : 0;
-  return Math.floor(base * (1 + ((formations - 1) * 0.95) + late));
-}
-
-function emRewards(mode, required, p) {
-  const progressNumber = mode === 'story' ? (((p.chapter - 1) * 30) + p.stage) : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
-  return { gold: Math.floor(required * 0.8), tokens: Math.max(2, Math.floor(progressNumber / 4) + 2), rolls: mode === 'story' ? 3 : 2, xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65 };
-}
-
-const emLocks = new Set();
-
-async function emRunMode(i, mode, runs = 1) {
-  await emDefer(i);
-  const userId = i.user.id;
-  const key = `${userId}:${mode}`;
-  if (emLocks.has(key)) return i.editReply(`⏳ You already have **${mode}** running.`);
-  emLocks.add(key);
-  try {
-    let wins = 0, total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
-    let out = `**${runs > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
-    const max = Math.max(1, Math.min(30, runs));
-
-    for (let run = 1; run <= max; run++) {
-      const p = await emGetProgress(userId);
-      const f = emNeed(mode, p);
-      const team = await emTeamPower(userId, f);
-      const req = emRequired(mode, p, f);
-      const label = mode === 'story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode === 'tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
-      out += `\nRun ${run}: **${label}** | F${f} | ${money(team.power)} vs ${money(req)}\n`;
-      let energy = 0;
-      for (let r = 1; r <= 3; r++) {
-        const dmg = Math.floor(team.power / (4 + r) + Math.random() * 500);
-        energy += 34;
-        out += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
-        if (energy >= 100) { out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`; energy = 0; }
-      }
-
-      const won = team.power >= req || Math.random() < Math.min(0.18, team.power / Math.max(1, req) / 5);
-      if (!won) { out += `❌ **Defeat.** Upgrade your formations.\n`; break; }
-
-      const latest = await emGetProgress(userId);
-      const same = mode === 'story' ? latest.chapter === p.chapter && latest.stage === p.stage : mode === 'tower' ? latest.towerFloor === p.towerFloor : latest.dungeonFloor === p.dungeonFloor;
-      if (!same) { out += `⛔ Duplicate reward blocked.\n`; break; }
-
-      const rw = emRewards(mode, req, p);
-      await emAdvance(userId, mode, p);
-      await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
-      if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, mode).catch(() => null);
-      wins++; total.gold += rw.gold; total.tokens += rw.tokens; total.rolls += rw.rolls; total.xp += rw.xp;
-      out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
-      if (run % 4 === 0) await i.editReply(out.slice(-1800)).catch(() => null);
-    }
-
-    out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
-    return i.editReply(out.slice(-1900));
-  } finally { emLocks.delete(key); }
-}
-
-async function emCoreHandler(i, userId, commandName) {
-  // Core stable commands; everything here returns before old broken handlers.
-  if (commandName === 'bot-check') return i.reply('✅ VoidRoll is responding.');
-
-  if (commandName === 'characters-count') {
-    const total = await prisma.character.count({ where: { active: true } });
-    return i.reply(`📚 **${total}**`);
-  }
-
-  if (commandName === 'profile') {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    const cards = await prisma.userCard.count({ where: { userId } });
-    return i.reply(`**${i.user.username} Profile**\nGold: **${money(user?.gold || 0)}**\nTokens: **${money(user?.tokens || 0)}**\nRolls: **${money(user?.rolls || 0)}**\nLevel: **${user?.level || 1}** | XP: **${user?.xp || 0}**\nCards: **${cards}**`);
-  }
-
-  if (commandName === 'daily') {
-    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: 15000 }, tokens: { increment: 15 }, rolls: { increment: 10 } } }).catch(() => null);
-    return i.reply('🎁 **Daily claimed:** 15,000 Gold • 15 Tokens • 10 Rolls');
-  }
-
-  if (commandName === 'roll' || commandName === 'r' || commandName === 'i') {
-    await emDefer(i);
-    const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if ((user?.rolls || 0) < amount) return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
-    await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: amount } } });
-    const lines = [];
-    const embeds = [];
-    for (let x = 0; x < amount; x++) {
-      const result = await rollCard(userId);
-      lines.push(`${x+1}. ${emRarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${money(result.card.power)}`);
-      if (x < 3) {
-        const embed = new EmbedBuilder()
-          .setTitle(`${x+1}. ${emRarityEmoji(result.character.rarity)} ${result.character.name}`)
-          .setDescription(`Anime: **${result.character.anime}**\nRarity: **${result.character.rarity}**\nPower: **${money(result.card.power)}**\n${emStatsBlock(result.card, result.character)}`)
-          .setColor(embedColor(getAura(result.character).color));
-        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
-        embeds.push(embed);
-      }
-    }
-    return i.editReply({ content: (`**ROLL x${amount}**\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900), embeds });
-  }
-
-  if (commandName === 'inventory') {
-    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: 25 });
-    if (!cards.length) return i.reply('You do not have any cards yet.');
-    return i.reply(`**Top Inventory**\n${cards.map((c,idx) => `${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)}`).join('\n')}`.slice(0,1900));
-  }
-
-  if (commandName === 'search') {
-    const q = i.options.getString('name', true);
-    const tokens = emNorm(q).split(/\s+/).filter(Boolean);
-    const chars = await prisma.character.findMany({ where: { active: true, OR: tokens.map(t => ({ OR: [{ name: { contains: t, mode: 'insensitive' } }, { anime: { contains: t, mode: 'insensitive' } }] })) }, take: 80 });
-    const ranked = chars.map(c => {
-      const full = `${emNorm(c.name)} ${emNorm(c.anime)}`;
-      let score = 0; for (const t of tokens) { if (full.includes(t)) score += 40; if (emNorm(c.name).includes(t)) score += 70; }
-      return { c, score };
-    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0)).slice(0,10).map(x=>x.c);
-    if (!ranked.length) return i.reply(`No characters found for **${q}**.`);
-    const first = ranked[0];
-    const embed = new EmbedBuilder().setTitle(`Search: ${q}`).setDescription(`**Best Match**\n${emRarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n${emStatsBlock({ power: first.basePower, level: 1 }, first)}\n\n**Results**\n${ranked.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)}`).join('\n')}`).setColor(embedColor(getAura(first).color));
-    if (first.imageUrl) embed.setThumbnail(first.imageUrl);
-    return i.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'inv-search' || commandName === 'stats') {
-    const q = i.options.getString('name', true);
-    const matches = await emFindOwned(userId, q, 10);
-    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
-    const first = matches[0];
-    const embed = new EmbedBuilder().setTitle(commandName === 'stats' ? `Stats: ${first.character.name}` : `Inventory Search: ${q}`).setDescription(`${emRarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${emStatsBlock(first, first.character)}${commandName === 'inv-search' ? `\n\n**Owned Results**\n${matches.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}` : ''}`).setColor(embedColor(getAura(first.character).color));
-    if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
-    return i.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'story' || commandName === 'story-start') return emRunMode(i, 'story', 1);
-  if (commandName === 'tower' || commandName === 'tower-start' || commandName === 'class-tower') return emRunMode(i, 'tower', 1);
-  if (commandName === 'dungeon' || commandName === 'dungeon-start') return emRunMode(i, 'dungeon', 1);
-  if (commandName === 'auto-story') return emRunMode(i, 'story', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-tower') return emRunMode(i, 'tower', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-dungeon') return emRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
-
-  if (commandName === 'autoteam') {
-    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
-    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: count * 6 });
-    if (!cards.length) return i.reply('You do not have any cards yet.');
-    for (let f = 1; f <= count; f++) {
-      const start = ((f-1)*6)+1;
-      await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: start+5 } } }).catch(()=>null);
-      for (let x=0; x<cards.slice((f-1)*6,f*6).length; x++) {
-        const slot = start+x, card = cards[((f-1)*6)+x];
-        await prisma.teamSlot.upsert({ where: { userId_slot: { userId, slot } }, update: { cardId: card.id }, create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id } }).catch(()=>null);
-      }
-    }
-    return i.reply(`✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**.`);
-  }
-
-  if (commandName === 'formations') {
-    const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
-    const slots = await prisma.teamSlot.findMany({ where: { userId, slot: { lte: count*6 } }, include: { card: { include: { character: true } } }, orderBy: { slot: 'asc' } }).catch(()=>[]);
-    const lines = ['**Your Formations**'];
-    for (let f=1; f<=count; f++) {
-      lines.push(`\n**Formation ${f}**`);
-      const team = slots.filter(s => s.slot >= ((f-1)*6)+1 && s.slot <= ((f-1)*6)+6).map(s=>s.card).filter(Boolean);
-      if (!team.length) lines.push('Empty.');
-      else lines.push(...team.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
-    }
-    return i.reply(lines.join('\n').slice(0,1900));
-  }
-
-  if (commandName === 'boss-rush' || commandName === 'coop-boss-rush') {
-    await emDefer(i);
-    const coop = commandName === 'coop-boss-rush';
-    const team = await emTeamPower(userId, coop ? 2 : 1);
-    const bossHp = coop ? 2200000 : 1100000;
-    let dmg = 0, out = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nYour Power: **${money(team.power)}**\n`;
-    for (let r=1; r<=6; r++) { const hit = Math.floor(team.power/(3+r)+Math.random()*8000); dmg += hit; out += `\nRound ${r}: dealt **${money(hit)}** damage.`; if (r===3 || r===6) out += `\n🔥 **ULTIMATE COMBO!**`; }
-    const clear = dmg >= bossHp;
-    const rw = { gold: Math.floor(dmg*.45), tokens: Math.max(8, Math.floor(dmg/45000)), rolls: clear ? 10 : 4, xp: clear ? 220 : 100 };
-    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(()=>null);
-    if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, 'boss-rush').catch(()=>null);
-    out += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
-    return i.editReply(out.slice(0,1900));
-  }
-
-  // Let old handlers try anything else.
-  return false;
-}
-// ===== END EMERGENCY CORE COMMANDS =====
-
-
-// ===== FINAL RESCUE STABLE HANDLER =====
-async function rescueDefer(i) {
-  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
-}
-
-async function rescueReply(i, payload) {
+async function vrReply(i, payload) {
   if (i.deferred || i.replied) return i.editReply(payload).catch(() => null);
   return i.reply(payload).catch(() => null);
 }
 
-function rescueNorm(v = '') {
+function vrNorm(v = '') {
   return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function rescueEmoji(r) {
-  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
-}
-
-function rescueRole(c) {
-  const n = rescueNorm(c?.name || '');
-  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami)/.test(n)) return 'Control';
+function vrRole(c) {
+  const n = vrNorm(c?.name || '');
+  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami|senku)/.test(n)) return 'Control';
   if (/(c c|cc|rimuru|megumi|kakashi|sakura|orihime|shoko|chopper|tsunade)/.test(n)) return 'Support';
-  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo)/.test(n)) return 'Tank';
+  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo|naofumi)/.test(n)) return 'Tank';
   if (/(gabimaru|killua|toji|levi|hisoka|zenitsu|yoroichi|akame|kirito)/.test(n)) return 'Assassin';
-  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren)/.test(n)) return 'Mage';
+  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren|sinbad)/.test(n)) return 'Mage';
   return 'DPS';
 }
 
-function rescueElement(c) {
-  const text = `${rescueNorm(c?.name)} ${rescueNorm(c?.anime)}`;
+function vrElement(c) {
   const current = String(c?.element || '').trim();
   if (current && !['Neutral', 'Anime', 'undefined', 'null'].includes(current)) return current;
-  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse|muzan)/.test(text)) return 'Dark';
-  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid kagenou)/.test(text)) return 'Shadow';
-  if (/(gojo|rimuru|gilgamesh|aizen|yhwach|void|space|time)/.test(text)) return 'Void';
-  if (/(saber|artoria|goku|naruto|luffy|saitama|all might)/.test(text)) return 'Light';
-  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto|gabimaru)/.test(text)) return 'Fire';
-  if (/(killua|zenitsu|kakashi|thunder|lightning)/.test(text)) return 'Lightning';
-  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(text)) return 'Soul';
-  if (/(ice|frost|snow|todoroki)/.test(text)) return 'Ice';
+  const t = `${vrNorm(c?.name)} ${vrNorm(c?.anime)}`;
+  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse|muzan)/.test(t)) return 'Dark';
+  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid kagenou)/.test(t)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|yhwach|void|space|time)/.test(t)) return 'Void';
+  if (/(saber|artoria|goku|naruto|luffy|saitama|all might|hero)/.test(t)) return 'Light';
+  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|kakashi|thunder|lightning)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(t)) return 'Soul';
+  if (/(ice|frost|snow|todoroki)/.test(t)) return 'Ice';
   return 'Light';
 }
 
-function rescuePassive(c) {
-  const n = rescueNorm(c?.name || '');
-  const exact = [
+function vrPassive(c) {
+  const n = vrNorm(c?.name || '');
+  const passives = [
     [/lelouch/, 'Geass Command: controls the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
     [/c c|^cc$/, 'Immortal Witch: regenerates every round and gives extra energy to the strongest ally.'],
     [/gabimaru/, 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after ultimate.'],
@@ -4023,6 +1714,7 @@ function rescuePassive(c) {
     [/geto/, 'Cursed Spirit Manipulation: increases summon damage and weakens enemy DEF.'],
     [/sung jin|jinwoo|jin woo/, 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
     [/saber|artoria/, 'Avalon: grants a starting shield and reduces burst damage.'],
+    [/gilgamesh/, 'Gate of Babylon: high penetration and massive ultimate burst.'],
     [/goku/, 'Limit Breaker: ultimate damage scales with battle rounds.'],
     [/vegeta/, 'Saiyan Pride: gains ATK after taking damage.'],
     [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
@@ -4035,11 +1727,16 @@ function rescuePassive(c) {
     [/zoro/, 'Three Sword Style: critical damage increases against bosses.'],
     [/sanji/, 'Diable Jambe: fire damage and dodge chance.'],
     [/ichigo/, 'Bankai Pressure: Soul damage and speed increase.'],
-    [/makima/, 'Control Devil: lowers enemy ATK and increases control chance.']
+    [/makima/, 'Control Devil: lowers enemy ATK and increases control chance.'],
+    [/tanjiro/, 'Hinokami Kagura: Fire burst and small team heal.'],
+    [/nezuko/, 'Demon Blood Art: team regen and Dark resistance.'],
+    [/rengoku/, 'Flame Hashira: boosts Fire allies and frontline damage.'],
+    [/levi/, 'Humanity’s Strongest: high dodge and boss damage.']
   ];
-  for (const [rx, p] of exact) if (rx.test(n)) return p;
-  const role = rescueRole(c);
-  const element = rescueElement(c);
+  for (const [rx, text] of passives) if (rx.test(n)) return text;
+
+  const role = vrRole(c);
+  const element = vrElement(c);
   if (role === 'Tank') return `Iron Guard: DEF scaling and ${element} resistance.`;
   if (role === 'Support') return 'Battle Support: increases team energy regeneration.';
   if (role === 'Control') return 'Command Aura: increases control chance and reduces enemy ultimate charge.';
@@ -4048,15 +1745,15 @@ function rescuePassive(c) {
   return 'Battle Instinct: ATK rises every round.';
 }
 
-function rescuePowerCap(rarity) {
+function vrStatCap(rarity) {
   return { COMMON: 180, RARE: 360, EPIC: 700, LEGENDARY: 1150, MYTHIC: 1750, DIVINE: 2400, SECRET: 3300 }[rarity] || 250;
 }
 
-function rescueStats(card, c) {
-  const role = rescueRole(c);
+function vrStats(card, c) {
   const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
   const raw = Number(card?.power || c?.basePower || 100);
-  const base = Math.min(Math.max(raw, 80), rescuePowerCap(c?.rarity));
+  const base = Math.min(Math.max(raw, 80), vrStatCap(c?.rarity));
+  const role = vrRole(c);
   const mult = 1 + ((level - 1) * 0.03);
 
   let atkS = 1.05, hpS = 7.2, defS = 0.55, spd = 105, crit = 15, critDmg = 170, pen = 0;
@@ -4074,279 +1771,308 @@ function rescueStats(card, c) {
     spd: Math.floor(spd + level * .2),
     crit,
     critDmg,
-    pen
+    pen,
+    level
   };
 }
 
-function rescueStatsBlock(card, c) {
-  const s = rescueStats(card, c);
-  return `Class: **${rescueRole(c)}** | Element: **${rescueElement(c)}**
-Level **${Math.max(1, Math.min(99, Number(card?.level || 1)))}/99** • ATK **${money(s.atk)}** • HP **${money(s.hp)}** • DEF **${money(s.def)}** • SPD **${s.spd}**
+function vrStatsBlock(card, c) {
+  const s = vrStats(card, c);
+  return `Class: **${vrRole(c)}** | Element: **${vrElement(c)}**
+Level **${s.level}/99** • ATK **${money(s.atk)}** • HP **${money(s.hp)}** • DEF **${money(s.def)}** • SPD **${s.spd}
 CRIT **${s.crit}%** • CRIT DMG **${s.critDmg}%** • PEN **${s.pen}%**
-Character Passive: ${rescuePassive(c)}`;
+Character Passive: ${vrPassive(c)}`;
 }
 
-async function rescueFindOwned(userId, q, limit = 10) {
-  const tokens = rescueNorm(q).split(/\s+/).filter(Boolean);
-  const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: 500 });
+const VR_TEAMUPS = [
+  { name: 'Zero Requiem', keys: ['lelouch', 'c c'], buff: '+20% control chance, +15% ultimate charge' },
+  { name: 'Strongest Past', keys: ['gojo', 'geto'], buff: '+18% Void damage, +10% ultimate charge' },
+  { name: 'Hunter Bond', keys: ['gon', 'killua'], buff: '+15% speed, +12% crit' },
+  { name: 'Monster Trio', keys: ['luffy', 'zoro', 'sanji'], buff: '+18% ATK, +10% speed' },
+  { name: 'Saiyan Rivalry', keys: ['goku', 'vegeta'], buff: '+18% ATK after round 3' },
+  { name: 'Jujutsu Core', keys: ['yuji', 'megumi', 'nobara'], buff: '+12% ATK, +15% ultimate charge' },
+  { name: 'Shadow Army', keys: ['sung jin', 'igris'], buff: '+15% Shadow damage' }
+];
+
+function vrTeamBuffs(cards) {
+  const names = cards.map(c => vrNorm(c.character?.name || c.name || '')).join(' | ');
+  return VR_TEAMUPS.filter(t => t.keys.every(k => names.includes(vrNorm(k))));
+}
+
+async function vrFindOwned(userId, q, limit = 10) {
+  const tokens = vrNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 500
+  });
+
   return cards.map(card => {
-    const full = `${rescueNorm(card.character.name)} ${rescueNorm(card.character.anime)}`;
+    const full = `${vrNorm(card.character.name)} ${vrNorm(card.character.anime)}`;
     let score = 0;
     for (const t of tokens) {
       if (full.includes(t)) score += 50;
-      if (rescueNorm(card.character.name).includes(t)) score += 70;
-      if (rescueNorm(card.character.anime).includes(t)) score += 30;
+      if (vrNorm(card.character.name).includes(t)) score += 70;
+      if (vrNorm(card.character.anime).includes(t)) score += 30;
     }
     if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
     return { card, score };
   }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0)).slice(0, limit).map(x => x.card);
 }
 
-const rescueLocks = new Set();
-
-async function rescueProgress(userId) {
-  let p = await prisma.storyProgress.findUnique({ where: { userId } }).catch(() => null);
-  if (!p) p = await prisma.storyProgress.create({ data: { userId, chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 } }).catch(() => null);
-  return p || { chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 };
+async function vrGetProgress(userId) {
+  return getOrCreateProgress(userId);
 }
 
-function rescueNeed(mode, p) {
+function vrNeededFormations(mode, p) {
   const v = mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
-  if (v >= 60) return 6; if (v >= 48) return 5; if (v >= 36) return 4; if (v >= 24) return 3; if (v >= 12) return 2; return 1;
+  if (v >= 60) return 6;
+  if (v >= 48) return 5;
+  if (v >= 36) return 4;
+  if (v >= 24) return 3;
+  if (v >= 12) return 2;
+  return 1;
 }
 
-async function rescueTeamPower(userId, formations) {
-  const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: formations * 6 });
-  return { cards, power: cards.reduce((s,c) => s + Number(c.power || 0), 0) };
+async function vrFormationCards(userId, formation) {
+  const start = ((formation - 1) * 6) + 1;
+  const end = start + 5;
+  const slots = await prisma.teamSlot.findMany({
+    where: { userId, slot: { gte: start, lte: end } },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  return slots.map(s => s.card).filter(Boolean).slice(0, 6);
 }
 
-function rescueRequired(mode, p, f) {
-  const storyIndex = ((p.chapter - 1) * 30) + p.stage;
-  const base = mode === 'story' ? 650 + storyIndex * 300 : mode === 'tower' ? 1100 + p.towerFloor * 520 : 900 + p.dungeonFloor * 430;
-  const late = mode === 'story' ? Math.max(0, p.chapter - 40) * .035 : 0;
-  return Math.floor(base * (1 + (f - 1) * .95 + late));
-}
+async function vrTotalPower(userId, formations) {
+  const fallback = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: formations * 6
+  });
 
-function rescueReward(mode, req, p) {
-  const progressNumber = mode === 'story' ? (((p.chapter - 1) * 30) + p.stage) : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
-  return { gold: Math.floor(req * .8), tokens: Math.max(2, Math.floor(progressNumber / 4) + 2), rolls: mode === 'story' ? 3 : 2, xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65 };
-}
+  let total = 0;
+  const allBuffs = [];
 
-async function rescueAdvance(userId, mode, p) {
-  if (mode === 'story') {
-    let stage = p.stage + 1, chapter = p.chapter;
-    if (stage > 30) { stage = 1; chapter++; }
-    if (chapter > 80) { chapter = 80; stage = 30; }
-    return prisma.storyProgress.update({ where: { userId }, data: { chapter, stage } }).catch(() => null);
+  for (let f = 1; f <= formations; f++) {
+    let cards = await vrFormationCards(userId, f);
+    if (!cards.length) cards = fallback.slice((f - 1) * 6, f * 6);
+    const base = cards.reduce((sum, c) => sum + Number(c.power || 0), 0);
+    const buffs = vrTeamBuffs(cards);
+    total += Math.floor(base * (1 + buffs.length * .08));
+    allBuffs.push(...buffs.map(b => `${b.name}: ${b.buff}`));
   }
-  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: p.towerFloor + 1 } }).catch(() => null);
-  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: p.dungeonFloor + 1 } }).catch(() => null);
+
+  return { total, buffs: [...new Set(allBuffs)] };
 }
 
-async function rescueRunMode(i, mode, runs = 1) {
-  await rescueDefer(i);
-  const userId = i.user.id;
-  const key = `${userId}:${mode}`;
-  if (rescueLocks.has(key)) return rescueReply(i, `⏳ You already have **${mode}** running.`);
-  rescueLocks.add(key);
+function vrRequired(mode, p, formations) {
+  const storyIndex = ((p.chapter - 1) * 30) + p.stage;
+  const base = mode === 'story'
+    ? 650 + storyIndex * 300
+    : mode === 'tower'
+      ? 1100 + p.towerFloor * 520
+      : 900 + p.dungeonFloor * 430;
+  const late = mode === 'story' ? Math.max(0, p.chapter - 40) * .035 : 0;
+  return Math.floor(base * (1 + ((formations - 1) * .95) + late));
+}
+
+function vrRewards(mode, required, p) {
+  const progressNo = mode === 'story' ? (((p.chapter - 1) * 30) + p.stage) : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  return {
+    gold: Math.floor(required * .8),
+    tokens: Math.max(2, Math.floor(progressNo / 4) + 2),
+    rolls: mode === 'story' ? 3 : 2,
+    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
+  };
+}
+
+async function vrAdvance(userId, mode, p) {
+  if (mode === 'story') {
+    let stage = p.stage + 1;
+    let chapter = p.chapter;
+    if (stage > 30) { stage = 1; chapter += 1; }
+    if (chapter > 80) { chapter = 80; stage = 30; }
+    return prisma.storyProgress.update({ where: { userId }, data: { chapter, stage } });
+  }
+  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: p.towerFloor + 1 } });
+  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: p.dungeonFloor + 1 } });
+}
+
+async function vrRunMode(i, mode, runs = 1) {
+  await vrDefer(i);
+  const key = `${i.user.id}:${mode}`;
+  if (vrActiveRuns.has(key)) return vrReply(i, `⏳ You already have **${mode}** running.`);
+  vrActiveRuns.add(key);
+
   try {
     const max = Math.max(1, Math.min(30, runs));
-    let wins = 0, total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
+    let wins = 0;
+    const total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
     let out = `**${max > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
+
     for (let run = 1; run <= max; run++) {
-      const p = await rescueProgress(userId);
-      const f = rescueNeed(mode, p);
-      const team = await rescueTeamPower(userId, f);
-      const req = rescueRequired(mode, p, f);
-      const label = mode === 'story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode === 'tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
-      out += `\nRun ${run}: **${label}** | F${f} | ${money(team.power)} vs ${money(req)}\n`;
+      const p = await vrGetProgress(i.user.id);
+      const formations = vrNeededFormations(mode, p);
+      const power = await vrTotalPower(i.user.id, formations);
+      const required = vrRequired(mode, p, formations);
+      const title = mode === 'story'
+        ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30`
+        : mode === 'tower'
+          ? `Tower Floor ${p.towerFloor}`
+          : `Dungeon Floor ${p.dungeonFloor}`;
+
+      out += `\nRun ${run}: **${title}** | Formations **${formations}** | ${money(power.total)} vs ${money(required)}\n`;
+      if (power.buffs.length) out += `Buffs: ${power.buffs.slice(0, 2).join(' | ')}\n`;
+
       let energy = 0;
       for (let r = 1; r <= 3; r++) {
-        const dmg = Math.floor(team.power / (4 + r) + Math.random() * 500);
+        const dmg = Math.floor(power.total / (4 + r) + Math.random() * 500);
         energy += 34;
         out += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
-        if (energy >= 100) { out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`; energy = 0; }
+        if (energy >= 100) {
+          out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`;
+          energy = 0;
+        }
       }
-      const won = team.power >= req || Math.random() < Math.min(.18, team.power / Math.max(1, req) / 5);
+
+      const won = power.total >= required || Math.random() < Math.min(.18, power.total / Math.max(1, required) / 5);
       if (!won) { out += `❌ **Defeat.** Upgrade your formations.\n`; break; }
-      const latest = await rescueProgress(userId);
-      const same = mode === 'story' ? latest.chapter === p.chapter && latest.stage === p.stage : mode === 'tower' ? latest.towerFloor === p.towerFloor : latest.dungeonFloor === p.dungeonFloor;
+
+      const latest = await vrGetProgress(i.user.id);
+      const same = mode === 'story'
+        ? latest.chapter === p.chapter && latest.stage === p.stage
+        : mode === 'tower'
+          ? latest.towerFloor === p.towerFloor
+          : latest.dungeonFloor === p.dungeonFloor;
       if (!same) { out += `⛔ Duplicate reward blocked.\n`; break; }
-      const rw = rescueReward(mode, req, p);
-      await rescueAdvance(userId, mode, p);
-      await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
-      if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, mode).catch(() => null);
-      wins++; total.gold += rw.gold; total.tokens += rw.tokens; total.rolls += rw.rolls; total.xp += rw.xp;
+
+      const rw = vrRewards(mode, required, p);
+      await vrAdvance(i.user.id, mode, p);
+      await prisma.user.update({
+        where: { id: i.user.id },
+        data: {
+          gold: { increment: rw.gold },
+          tokens: { increment: rw.tokens },
+          rolls: { increment: rw.rolls }
+        }
+      });
+      await addUserXp(i.user.id, rw.xp, mode).catch(() => null);
+
+      wins++;
+      total.gold += rw.gold;
+      total.tokens += rw.tokens;
+      total.rolls += rw.rolls;
+      total.xp += rw.xp;
       out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
-      if (run % 4 === 0) await rescueReply(i, out.slice(-1800));
+
+      if (run % 4 === 0) await vrReply(i, out.slice(-1800));
     }
+
     out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
-    return rescueReply(i, out.slice(-1900));
+    return vrReply(i, out.slice(-1900));
   } finally {
-    rescueLocks.delete(key);
+    vrActiveRuns.delete(key);
   }
 }
 
-async function rescueMainHandler(i, userId, commandName) {
-  if (commandName === 'bot-check') return rescueReply(i, '✅ VoidRoll is responding.');
-
-  if (commandName === 'characters-count') {
-    const total = await prisma.character.count({ where: { active: true } });
-    return rescueReply(i, `📚 **${total}**`);
-  }
-
-  if (commandName === 'profile') {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    const cards = await prisma.userCard.count({ where: { userId } });
-    return rescueReply(i, `**${i.user.username} Profile**\nGold: **${money(user?.gold || 0)}**\nTokens: **${money(user?.tokens || 0)}**\nRolls: **${money(user?.rolls || 0)}**\nLevel: **${user?.level || 1}** | XP: **${user?.xp || 0}**\nCards: **${cards}**`);
-  }
-
-  if (commandName === 'daily') {
-    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: 15000 }, tokens: { increment: 15 }, rolls: { increment: 10 } } }).catch(() => null);
-    return rescueReply(i, '🎁 **Daily claimed:** 15,000 Gold • 15 Tokens • 10 Rolls');
-  }
-
-  if (commandName === 'roll' || commandName === 'r') {
-    await rescueDefer(i);
-    const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if ((user?.rolls || 0) < amount) return rescueReply(i, `You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
-    await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: amount } } });
-    const lines = [], embeds = [];
-    for (let x = 0; x < amount; x++) {
-      const result = await rollCard(userId);
-      lines.push(`${x + 1}. ${rescueEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${money(result.card.power)}`);
-      if (x < 3) {
-        const embed = new EmbedBuilder().setTitle(`${x + 1}. ${rescueEmoji(result.character.rarity)} ${result.character.name}`).setDescription(`Anime: **${result.character.anime}**\nRarity: **${result.character.rarity}**\nPower: **${money(result.card.power)}**\n${rescueStatsBlock(result.card, result.character)}`).setColor(embedColor(getAura(result.character).color));
-        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
-        embeds.push(embed);
-      }
-    }
-    return rescueReply(i, { content: (`**ROLL x${amount}**\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900), embeds });
-  }
-
-  if (commandName === 'inventory') {
-    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: 25 });
-    if (!cards.length) return rescueReply(i, 'You do not have any cards yet.');
-    return rescueReply(i, (`**Top Inventory**\n${cards.map((c, idx) => `${idx + 1}. ${rescueEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)}`).join('\n')}`).slice(0, 1900));
-  }
-
-  if (commandName === 'search') {
+async function vrCleanPhaseHandler(i, userId, commandName) {
+  if (commandName === 'stats' || commandName === 'inv-search') {
     const q = i.options.getString('name', true);
-    const tokens = rescueNorm(q).split(/\s+/).filter(Boolean);
-    const chars = await prisma.character.findMany({ where: { active: true, OR: tokens.map(t => ({ OR: [{ name: { contains: t, mode: 'insensitive' } }, { anime: { contains: t, mode: 'insensitive' } }] })) }, take: 80 });
-    const ranked = chars.map(c => {
-      const full = `${rescueNorm(c.name)} ${rescueNorm(c.anime)}`;
-      let score = 0;
-      for (const t of tokens) { if (full.includes(t)) score += 40; if (rescueNorm(c.name).includes(t)) score += 70; }
-      return { c, score };
-    }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || Number(b.c.basePower || 0) - Number(a.c.basePower || 0)).slice(0, 10).map(x => x.c);
-    if (!ranked.length) return rescueReply(i, `No characters found for **${q}**.`);
-    const first = ranked[0];
-    const embed = new EmbedBuilder().setTitle(`Search: ${q}`).setDescription(`**Best Match**\n${rescueEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n${rescueStatsBlock({ power: first.basePower, level: 1 }, first)}\n\n**Results**\n${ranked.map((c, idx) => `${idx + 1}. ${rescueEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)}`).join('\n')}`).setColor(embedColor(getAura(first).color));
-    if (first.imageUrl) embed.setThumbnail(first.imageUrl);
-    return rescueReply(i, { embeds: [embed] });
-  }
-
-  if (commandName === 'inv-search' || commandName === 'stats') {
-    const q = i.options.getString('name', true);
-    const matches = await rescueFindOwned(userId, q, 10);
-    if (!matches.length) return rescueReply(i, `No owned characters found for **${q}**.`);
+    const matches = await vrFindOwned(userId, q, 10);
+    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
     const first = matches[0];
-    const embed = new EmbedBuilder().setTitle(commandName === 'stats' ? `Stats: ${first.character.name}` : `Inventory Search: ${q}`).setDescription(`${rescueEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${rescueStatsBlock(first, first.character)}${commandName === 'inv-search' ? `\n\n**Owned Results**\n${matches.map((c, idx) => `${idx + 1}. ${rescueEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}` : ''}`).setColor(embedColor(getAura(first.character).color));
+    const embed = new EmbedBuilder()
+      .setTitle(commandName === 'stats' ? `Stats: ${first.character.name}` : `Inventory Search: ${q}`)
+      .setDescription(`${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${vrStatsBlock(first, first.character)}${commandName === 'inv-search' ? `\n\n**Owned Results**\n${matches.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}` : ''}`)
+      .setColor(embedColor(getAura(first.character).color));
     if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
-    return rescueReply(i, { embeds: [embed] });
+    return i.reply({ embeds: [embed] });
   }
 
-  if (commandName === 'story' || commandName === 'story-start') return rescueRunMode(i, 'story', 1);
-  if (commandName === 'tower' || commandName === 'tower-start') return rescueRunMode(i, 'tower', 1);
-  if (commandName === 'dungeon' || commandName === 'dungeon-start') return rescueRunMode(i, 'dungeon', 1);
-  if (commandName === 'auto-story') return rescueRunMode(i, 'story', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-tower') return rescueRunMode(i, 'tower', i.options.getInteger('runs') || 10);
-  if (commandName === 'auto-dungeon') return rescueRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
+  if (commandName === 'story' || commandName === 'story-start') return vrRunMode(i, 'story', 1);
+  if (commandName === 'tower' || commandName === 'tower-start') return vrRunMode(i, 'tower', 1);
+  if (commandName === 'dungeon' || commandName === 'dungeon-start') return vrRunMode(i, 'dungeon', 1);
+  if (commandName === 'auto-story') return vrRunMode(i, 'story', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-tower') return vrRunMode(i, 'tower', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-dungeon') return vrRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
 
   if (commandName === 'autoteam') {
-    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
+    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || i.options.getInteger('teams') || 6));
     const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: count * 6 });
-    if (!cards.length) return rescueReply(i, 'You do not have any cards yet.');
+    if (!cards.length) return i.reply('You do not have any cards yet.');
+
     for (let f = 1; f <= count; f++) {
       const start = ((f - 1) * 6) + 1;
       await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: start + 5 } } }).catch(() => null);
       for (let x = 0; x < cards.slice((f - 1) * 6, f * 6).length; x++) {
-        const slot = start + x, card = cards[((f - 1) * 6) + x];
-        await prisma.teamSlot.upsert({ where: { userId_slot: { userId, slot } }, update: { cardId: card.id }, create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id } }).catch(() => null);
+        const slot = start + x;
+        const card = cards[((f - 1) * 6) + x];
+        await prisma.teamSlot.upsert({
+          where: { userId_slot: { userId, slot } },
+          update: { cardId: card.id },
+          create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id }
+        }).catch(() => null);
       }
     }
-    return rescueReply(i, `✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**.`);
+
+    return i.reply(`✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**.`);
   }
 
   if (commandName === 'formations') {
     const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
-    const slots = await prisma.teamSlot.findMany({ where: { userId, slot: { lte: count * 6 } }, include: { card: { include: { character: true } } }, orderBy: { slot: 'asc' } }).catch(() => []);
-    const lines = ['**Your Formations**'];
-    for (let f = 1; f <= count; f++) {
-      lines.push(`\n**Formation ${f}**`);
-      const team = slots.filter(s => s.slot >= ((f - 1) * 6) + 1 && s.slot <= ((f - 1) * 6) + 6).map(s => s.card).filter(Boolean);
-      if (!team.length) lines.push('Empty.');
-      else lines.push(...team.map((c, idx) => `${idx + 1}. ${rescueEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
-    }
-    return rescueReply(i, lines.join('\n').slice(0, 1900));
-  }
+    const lines = ['**Your Formations**', '6 formations max • each formation has 6 characters.'];
 
-  if (commandName === 'formation-set') {
-    const formation = Math.max(1, Math.min(6, i.options.getInteger('formation', true)));
-    const names = ['slot1','slot2','slot3','slot4','slot5','slot6'].map(x => i.options.getString(x)).filter(Boolean);
-    const cards = [];
-    const used = new Set();
-    for (const name of names) {
-      const found = (await rescueFindOwned(userId, name, 1))[0];
-      if (found && !used.has(found.id)) { used.add(found.id); cards.push(found); }
+    for (let f = 1; f <= count; f++) {
+      const cards = await vrFormationCards(userId, f);
+      const buffs = vrTeamBuffs(cards);
+      lines.push(`\n**Formation ${f}**`);
+      if (!cards.length) lines.push('Empty.');
+      else {
+        lines.push(...cards.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
+        if (buffs.length) lines.push(`Buffs: ${buffs.map(b => `${b.name} (${b.buff})`).join(' | ')}`);
+      }
     }
-    if (!cards.length) return rescueReply(i, 'No owned characters found from those names.');
-    const start = ((formation - 1) * 6) + 1;
-    await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: start + 5 } } }).catch(() => null);
-    for (let x = 0; x < cards.length; x++) {
-      const slot = start + x, card = cards[x];
-      await prisma.teamSlot.upsert({ where: { userId_slot: { userId, slot } }, update: { cardId: card.id }, create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id } }).catch(() => null);
-    }
-    return rescueReply(i, `✅ Formation ${formation} updated.\n${cards.map((c, idx) => `${idx+1}. ${rescueEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}`);
+
+    return i.reply(lines.join('\n').slice(0, 1900));
   }
 
   if (commandName === 'boss-rush' || commandName === 'coop-boss-rush') {
-    await rescueDefer(i);
+    await vrDefer(i);
     const coop = commandName === 'coop-boss-rush';
-    const team = await rescueTeamPower(userId, coop ? 2 : 1);
+    const formations = coop ? 2 : 1;
+    const power = await vrTotalPower(userId, formations);
     const bossHp = coop ? 2200000 : 1100000;
-    let dmg = 0, out = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nYour Power: **${money(team.power)}**\n`;
+    let damage = 0;
+    let out = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nYour Power: **${money(power.total)}**\n`;
+
     for (let r = 1; r <= 6; r++) {
-      const hit = Math.floor(team.power / (3 + r) + Math.random() * 8000);
-      dmg += hit; out += `\nRound ${r}: dealt **${money(hit)}** damage.`;
+      const hit = Math.floor(power.total / (3 + r) + Math.random() * 8000);
+      damage += hit;
+      out += `\nRound ${r}: dealt **${money(hit)}** damage.`;
       if (r === 3 || r === 6) out += `\n🔥 **ULTIMATE COMBO!**`;
     }
-    const clear = dmg >= bossHp;
-    const rw = { gold: Math.floor(dmg * .45), tokens: Math.max(8, Math.floor(dmg / 45000)), rolls: clear ? 10 : 4, xp: clear ? 220 : 100 };
-    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
-    if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, 'boss-rush').catch(() => null);
-    out += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
-    return rescueReply(i, out.slice(0, 1900));
-  }
 
-  if (commandName === 'admin-final-balance') {
-    const confirm = i.options.getString('confirm', true);
-    if (confirm !== 'YES') return rescueReply(i, 'Type YES to confirm.');
-    return rescueReply(i, '✅ Balance is now applied dynamically in stats and battles. No long database update needed.');
+    const clear = damage >= bossHp;
+    const rw = { gold: Math.floor(damage * .45), tokens: Math.max(8, Math.floor(damage / 45000)), rolls: clear ? 10 : 4, xp: clear ? 220 : 100 };
+    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } });
+    await addUserXp(userId, rw.xp, 'boss-rush').catch(() => null);
+    out += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
+    return vrReply(i, out.slice(0, 1900));
   }
 
   return false;
 }
-// ===== END FINAL RESCUE STABLE HANDLER =====
+// ===== END VOIDROLL CLEAN PHASES PATCH =====
 
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
-      await finalSafeInteraction(i);
-
-    await ensureUser(i.user);
+      await ensureUser(i.user);
       if (i.customId.startsWith('inv_')) {
         const [, dir, raw] = i.customId.split('_');
         const current = Number(raw || 0);
@@ -4459,134 +2185,21 @@ client.on('interactionCreate', async (i) => {
 
     if (!i.isChatInputCommand()) return;
 
-    await emDefer(i);
-
-    await cleanEnsureReply(i);
-
-    await vrPrepareInteraction(i);
-
     await ensureUser(i.user);
 
     const userId = i.user.id;
     const commandName = i.commandName;
     const fusionResults = [];
 
-    if (commandName === 'bot-check') {
-      return i.reply('✅ VoidRoll is responding.');
-    }
-
 
     if (commandName === 'characters-count') {
       const total = await prisma.character.count({ where: { active: true } });
-      return i.reply(`📚 **${total}**`);
-    }
-
-
-    if (commandName === 'team-buffs') {
-      const slots = await prisma.teamSlot.findMany({
-        where: { userId },
-        include: { card: { include: { character: true } } },
-        orderBy: { slot: 'asc' }
-      }).catch(() => []);
-      const cards = slots.map(s => s.card).filter(Boolean).slice(0, 6);
-      if (!cards.length) return i.reply('No team equipped. Use /autoteam first.');
-
-      const buffs = finalTeamUpsForCards(cards);
-      if (!buffs.length) return i.reply('No active team-up buffs in current formation.');
-
-      return i.reply(`**Current Team Up Buffs**\n` + buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n'));
-    }
-
-    if (commandName === 'stats') {
-      const name = i.options.getString('name', true);
-      const card = await phase2FindUserCardByName(userId, name);
-
-      const slots = await prisma.teamSlot.findMany({
-        where: { userId },
-        include: { card: { include: { character: true } } },
-        orderBy: { slot: 'asc' }
-      }).catch(() => []);
-
-      const teamCards = slots.map(s => s.card).filter(Boolean).slice(0, 6);
-      const activeBuffs = finalTeamUpsForCards(teamCards);
-
+      const saber = await prisma.character.findFirst({
+        where: { name: { contains: 'Saber', mode: 'insensitive' } }
+      });
       return i.reply(
-        `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
-        finalFullBlock(card, card.character) +
-        (activeBuffs.length ? `\n\nCurrent Formation Buffs:\n${activeBuffs.map(s => `• **${s.name}**: ${s.buff}`).join('\n')}` : '')
-      );
-    }
-
-    if (commandName === 'admin-mal-stability') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      await i.deferReply({ ephemeral: true });
-      const result = await keepOnlyMalCharactersAndBalance();
-
-      return i.editReply(
-        `✅ MAL Global Release Stability applied.\n` +
-        `Disabled old/non-MAL: **${result.disabled}**\n` +
-        `Active MAL characters: **${result.activeMal}**\n` +
-        `Balanced: **${result.balanced}**\n` +
-        `Images fixed: **${result.fixedImages}**`
-      );
-    }
-
-    if (commandName === 'formations') {
-      const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
-      const teams = await vrGetFormations(userId, count);
-      const lines = [`**Your Formations**`, `Like MLA: **6 formations**, each formation has up to **6 characters**.`];
-
-      for (let f = 1; f <= count; f++) {
-        const team = teams[f - 1] || [];
-        const buffs = vrCalcTeamBuffs(team);
-        lines.push(`\n**Formation ${f}**`);
-        if (!team.length) lines.push('Empty.');
-        else {
-          lines.push(...team.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
-          if (buffs.length) lines.push(`Buffs: ${buffs.map(b => `${b.name} (${b.buff})`).join(' | ')}`);
-        }
-      }
-
-      return i.reply(lines.join('\n').slice(0, 1900));
-    }
-
-    if (commandName === 'autoteam') {
-      const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
-      const cards = await vrGetOwnedCards(userId, count * 6);
-
-      if (!cards.length) return i.reply('You do not have any cards yet.');
-
-      for (let f = 1; f <= count; f++) {
-        await vrSetFormation(userId, f, cards.slice((f - 1) * 6, f * 6));
-      }
-
-      return i.reply(`✅ Auto team equipped **${count} formation(s)**.\nEach formation has up to **6 characters**.\nUse **/formations count:${count}** to view them.`);
-    }
-
-    if (commandName === 'formation-set') {
-      const formation = Math.max(1, Math.min(6, i.options.getInteger('formation', true)));
-      const names = [
-        i.options.getString('slot1', true),
-        i.options.getString('slot2', false),
-        i.options.getString('slot3', false),
-        i.options.getString('slot4', false),
-        i.options.getString('slot5', false),
-        i.options.getString('slot6', false)
-      ];
-
-      const cards = await vrSetManualFormationByNames(userId, formation, names);
-
-      if (!cards.length) return i.reply(`No owned characters found from the names you entered.`);
-
-      const buffs = vrCalcTeamBuffs(cards);
-
-      return i.reply(
-        `✅ **Formation ${formation} updated manually**\n` +
-        cards.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)}`).join('\n') +
-        (buffs.length ? `\n\nBuffs:\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}` : '')
+        `📚 Active characters: **${total}**\n` +
+        `Saber: **${saber ? `${saber.rarity} • PWR ${money(saber.basePower)}` : 'Missing'}**`
       );
     }
 
@@ -4607,7 +2220,7 @@ client.on('interactionCreate', async (i) => {
         `/story /dungeon /tower - Progress battles\n` +
         `/farm-claim - Claim passive farm\n` +
         `/gold-shop /gold-buy /train - Spend gold\n` +
-        `/cores-shop /cores-roll /ascend - Upgrade and guaranteed rolls\n` +
+        `/core-shop /core-roll /ascend - Upgrade and guaranteed rolls\n` +
         `/shop /banner /pack - Multiple rotating banners\n` +
         `/transfer /list /buy - Market\n` +
         `/admin-spawn-boss - Admin boss event`
@@ -4755,7 +2368,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `Anime: **${result.character.anime}**\n` +
             `Rarity: **${result.character.rarity}**\n` +
             `Power: **${result.card.power}**\n` +
-            finalFullBlock(result.card, result.character) + `\n` +
             `Card ID: \`${result.card.id}\`` + fusionText(fusionResults) + fusionText(fusionResults)
           )
           .setColor(embedColor(aura.color));
@@ -4785,75 +2397,68 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
     }
 
     if (commandName === 'search') {
-      const q = i.options.getString('name', true);
-      const tokens = finalNorm(q).split(/\s+/).filter(Boolean);
+      const query = i.options.getString('name', true).trim().toLowerCase();
 
-      const candidates = await prisma.character.findMany({
-        where: {
-          active: true,
-          OR: tokens.length ? tokens.map(t => ({
-            OR: [
-              { name: { contains: t, mode: 'insensitive' } },
-              { anime: { contains: t, mode: 'insensitive' } }
-            ]
-          })) : [
-            { name: { contains: q, mode: 'insensitive' } },
-            { anime: { contains: q, mode: 'insensitive' } }
-          ]
-        },
-        take: 80
+      const allChars = await prisma.character.findMany({
+        where: { active: true },
+        orderBy: { basePower: 'desc' },
+        take: 1000
       });
 
-      const chars = candidates
-        .map(c => {
-          const full = finalText(c);
-          let score = 0;
-          for (const t of tokens) {
-            if (full.includes(t)) score += 40;
-            if (finalNorm(c.name).includes(t)) score += 60;
-            if (finalNorm(c.anime).includes(t)) score += 35;
-          }
-          if (tokens.length && tokens.every(t => full.includes(t))) score += 140;
-          score += { SECRET: 70, DIVINE: 55, MYTHIC: 40, LEGENDARY: 28, EPIC: 16, RARE: 8, COMMON: 0 }[c.rarity] || 0;
-          return { c, score };
-        })
-        .filter(x => x.score > 0)
-        .sort((a, b) => b.score - a.score || Number(b.c.basePower || 0) - Number(a.c.basePower || 0))
-        .slice(0, 10)
-        .map(x => x.c);
+      const chars = allChars.filter(c => `${c.name} ${c.anime}`.toLowerCase().includes(query)).slice(0, 10);
 
-      if (!chars.length) return i.reply(`No characters found for **${q}**.`);
+      if (!chars.length) return i.reply('No characters found.');
 
       const first = chars[0];
+      const aura = getAura(first);
+      const globalOwned = await prisma.userCard.count({ where: { characterId: first.id } });
+      const matches = chars
+        .map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${c.basePower}`)
+        .join('\n');
+
       const embed = new EmbedBuilder()
-        .setTitle(`Search: ${q}`)
+        .setTitle(`Search Results for "${query}"`)
         .setDescription(
-          `**Best Match**\n` +
-          `${rarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n` +
-          finalFullBlock({ power: first.basePower, level: 1 }, first) +
-          `\n\n**Results**\n` +
-          chars.map((c, idx) =>
-            `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)} • ${finalRole(c)} • ${finalElement(c)}`
-          ).join('\n')
+          `**Best Match Preview**\n` +
+          `${rarityEmoji(first.rarity)} **${first.name}**\n` +
+          `Anime: **${first.anime}**\n` +
+          `Rarity: **${first.rarity}**\n` +
+          `Base Power: **${first.basePower}**\n` +
+          `Global Owned: **${globalOwned}**\n` +
+          `Technique: **${aura.name}**\n\n` +
+          `**Matches**\n${matches}`
         )
-        .setColor(embedColor(getAura(first).color));
-      if (first.imageUrl) embed.setThumbnail(first.imageUrl);
-      return i.reply({ embeds: [embed] });
+        .setColor(embedColor(aura.color));
+
+      try {
+        const preview = await renderCard({
+          card: { id: 'preview', serial: 0, power: first.basePower },
+          character: first
+        });
+
+        const file = new AttachmentBuilder(preview, { name: 'search-preview.png' });
+        embed.setImage('attachment://search-preview.png');
+        return i.reply({ embeds: [embed], files: [file] });
+      } catch (_) {
+        if (first.imageUrl) embed.setImage(first.imageUrl);
+        return i.reply({ embeds: [embed] });
+      }
     }
 
     if (commandName === 'secrets') {
+      await applySecretCharacterBoosts();
+    await syncAllCardPowers(prisma);
+
       const chars = await prisma.character.findMany({
-        where: { rarity: 'SECRET', active: true },
+        where: { rarity: 'SECRET' },
         orderBy: { basePower: 'desc' },
-        take: 50
+        take: 25
       });
 
-      if (!chars.length) return i.reply('No SECRET characters found.');
+      if (!chars.length) return i.reply('No SECRET characters found yet.');
 
-      return i.reply(
-        ('**SECRET Characters**\n' +
-        chars.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)}\n${vrStatsLine({ power: c.basePower, level: 1 }, c)}`).join('\n\n')).slice(0, 1900)
-      );
+      const content = (`**SECRET CHARACTERS**\n\n` + chars.map(c => `${c.name} • ${c.anime} • PWR ${c.basePower}`).join('\n')).slice(0, 1900);
+      return i.reply(content);
     }
 
     if (commandName === 'rarity') {
@@ -4868,58 +2473,507 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
 
     if (commandName === 'inv-search') {
-      const q = i.options.getString('name', true);
-      const tokens = finalNorm(q).split(/\s+/).filter(Boolean);
+      const query = i.options.getString('name', true).trim().toLowerCase();
 
-      const owned = await prisma.userCard.findMany({
+      const cards = await prisma.userCard.findMany({
         where: { userId },
         include: { character: true },
         orderBy: { power: 'desc' },
-        take: 400
+        take: 10000
       });
 
-      const matches = owned
-        .map(card => {
-          const full = finalText(card.character);
-          let score = 0;
-          for (const t of tokens) {
-            if (full.includes(t)) score += 50;
-            if (finalNorm(card.character.name).includes(t)) score += 70;
-            if (finalNorm(card.character.anime).includes(t)) score += 35;
-          }
-          if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-          return { card, score };
-        })
-        .filter(x => x.score > 0)
-        .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))
-        .slice(0, 10)
-        .map(x => x.card);
+      const matches = cards.filter(c => `${c.character.name} ${c.character.anime}`.toLowerCase().includes(query)).slice(0, 15);
 
-      if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
+      if (!matches.length) return i.reply('No matching cards found in your inventory.');
 
       const first = matches[0];
+      const aura = getAura(first.character);
+
       const embed = new EmbedBuilder()
-        .setTitle(`Inventory Search: ${q}`)
-        .setDescription(
-          `**Best Owned Match**\n` +
-          `${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n` +
-          finalFullBlock(first, first.character) +
-          `\n\n**Owned Results**\n` +
-          matches.map((c, idx) =>
-            `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)} • ${finalRole(c.character)} • ${finalElement(c.character)}`
-          ).join('\n')
-        )
-        .setColor(embedColor(getAura(first.character).color));
-      if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
+        .setTitle(`Inventory Search: "${query}"`)
+        .setDescription(matches.map((c, idx) =>
+          `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}${starLabel(c)}** • ${c.character.rarity} • PWR ${c.power} • ID: \`${c.id}\``
+        ).join('\n'))
+        .setColor(embedColor(aura.color));
+
+      if (first.character.imageUrl) embed.setImage(first.character.imageUrl);
+
       return i.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'boss-rush') {
-      return vrBossRush(i, 'solo');
+    if (commandName === 'inventory') {
+      const data = await inventoryEmbed(userId, 0);
+      if (data.empty) return i.reply('You do not have any cards yet.');
+      return i.reply({ embeds: [data.embed], components: [data.row] });
     }
 
-    if (commandName === 'coop-boss-rush') {
-      return vrBossRush(i, 'coop');
+    if (commandName === 'equipment') {
+      const eq = await prisma.userEquipment.findMany({
+        where: { userId },
+        include: { template: true },
+        take: 15,
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (!eq.length) return i.reply('You do not have any items yet. Use /roll type:item.');
+      return i.reply(('**Equipment**\n' + eq.map(itemLine).join('\n')).slice(0, 1900));
+    }
+
+    if (commandName === 'shop' || commandName === 'banner') {
+      const banners = bannerSystem.activeBanners();
+      const lines = [];
+
+      for (const b of banners) {
+        const pity = await bannerSystem.getPity(prisma, userId, b.id);
+        lines.push(
+          `**${b.name}** \`${b.id}\`\n` +
+          `Featured: **${b.featuredDisplay}**\n` +
+          `Cost: **1000 Tokens** per 10-pull • Guaranteed SECRET: **50 multis**\n` +
+          `Your pity: **${pity}/50**\n` +
+          `Ends: <t:${Math.floor(b.endsAt.getTime() / 1000)}:R>\n` +
+          `Pool: ${b.pool.join(', ')}\n`
+        );
+      }
+
+      return i.reply(
+        `🎯 **ACTIVE LIMITED BANNERS**\n\n` +
+        lines.join('\n') +
+        `\nUse **/pack banner:<id>**. Anime packs and Secret Pack are removed.`
+      );
+    }
+
+    if (commandName === 'pack') {
+      await i.deferReply();
+
+      const bannerId = i.options.getString('banner', true);
+      const pull = await bannerSystem.rollBanner(prisma, userId, bannerId);
+
+      const embeds = [];
+      const files = [];
+      const lines = [];
+
+      for (let x = 0; x < pull.results.length; x++) {
+        const result = pull.results[x];
+        const aura = getAura(result.character);
+        lines.push(`${x + 1}. ${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.rarity} • PWR ${result.card.power}${result.guaranteed ? ' • GUARANTEED' : ''}`);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`${x + 1}. ${result.character.name}`)
+          .setDescription(
+            `Banner: **${pull.banner.name}**\n` +
+            `Anime: **${result.character.anime}**\n` +
+            `Rarity: **${result.character.rarity}**\n` +
+            `Power: **${result.card.power}**\n` +
+            `Level: **${result.card.level || 1}/99**\n` +
+            characterStatsText(result.card, result.character) + `\n` +
+            `${result.guaranteed ? '✅ **Guaranteed SECRET triggered!**' : ''}`
+          )
+          .setColor(embedColor(aura.color));
+
+        try {
+          const png = await renderCard({ card: result.card, character: result.character });
+          const fileName = `banner-${x + 1}.png`;
+          const file = new AttachmentBuilder(png, { name: fileName });
+          embed.setImage(`attachment://${fileName}`);
+          files.push(file);
+        } catch (_) {
+          if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+        }
+
+        embeds.push(embed);
+      }
+
+      return i.editReply({
+        embeds: embeds.slice(0, 10),
+        files: files.slice(0, 10),
+        content:
+          `🎯 **${pull.banner.name} Pull x${pull.results.length}**\n` +
+          `Cost: **${pull.cost} Tokens** • Pity: **${pull.pity}/20**\n\n` +
+          lines.join('\n')
+      });
+    }
+
+
+
+    if (commandName === 'class-tower') {
+      await i.deferReply();
+
+      const element = i.options.getString('element', true);
+      const progress = await getOrCreateProgress(userId);
+      const requiredTeams = teamRequirementFor('tower', progress);
+      const teams = await getUserTeams(userId, requiredTeams);
+      const allCards = teams.flat();
+      const matching = allCards.filter(c => phase2Normalize(characterElement(c.character)) === phase2Normalize(element));
+
+      if (matching.length < requiredTeams) {
+        return i.editReply(`You need more **${element}** characters in your teams. Required teams: **${requiredTeams}**.`);
+      }
+
+      const power = matching.reduce((sum, c) => sum + Number(c.power || 0), 0);
+      const required = Math.floor((1500 + progress.towerFloor * 500) * enemyTeamMultiplier(requiredTeams));
+      const won = power >= required || Math.random() < Math.min(0.20, power / Math.max(1, required) / 4);
+
+      if (!won) {
+        return i.editReply(
+          `**${element} Tower** Floor ${progress.towerFloor}\n` +
+          `Element Power: **${money(power)}**\n` +
+          `Required: **${money(required)}**\n` +
+          `Result: **Defeat**`
+        );
+      }
+
+      await prisma.storyProgress.update({
+        where: { userId },
+        data: { towerFloor: progress.towerFloor + 1 }
+      });
+
+      const gold = Math.floor(required * 0.7);
+      const tokens = progress.towerFloor % 5 === 0 ? Math.max(1, Math.floor(progress.towerFloor / 5)) * 4 : 0;
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { increment: gold },
+          tokens: { increment: tokens }
+        }
+      });
+
+      return i.editReply(
+        `**${element} Tower Victory!**\n` +
+        `Floor cleared: **${progress.towerFloor}**\n` +
+        `Teams Required: **${requiredTeams}**\n` +
+        `Rewards: **${money(gold)} Gold**, **${tokens} Tokens**`
+      );
+    }
+
+    if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
+      await i.deferReply();
+      const mode = commandName.replace('auto-', '');
+      const maxRuns = Math.max(1, Math.min(25, i.options.getInteger('runs') || 10));
+      let text = `**AUTO ${mode.toUpperCase()} STARTED**\n`;
+      let wins = 0;
+
+      for (let run = 1; run <= maxRuns; run++) {
+        const progress = await getOrCreateProgress(userId);
+        const requiredTeams = teamRequirementFor(mode, progress);
+        const teamData = await getMultiTeamPower(userId, requiredTeams);
+        const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+        const baseRequired = mode === 'story'
+          ? 700 + storyIndex * 260
+          : mode === 'tower'
+            ? 1200 + progress.towerFloor * 420
+            : 900 + progress.dungeonFloor * 330;
+        const required = Math.floor(baseRequired * enemyTeamMultiplier(requiredTeams));
+        const won = teamData.power >= required || Math.random() < Math.min(0.25, teamData.power / Math.max(1, required) / 4);
+
+        text += `\nRun ${run}: ${getProgressTitle(mode, progress)} | Teams ${requiredTeams} | Power ${money(teamData.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
+
+        if (!won) break;
+
+        wins++;
+        const progressNumber = mode === 'story'
+          ? (((progress.chapter - 1) * 30) + progress.stage)
+          : mode === 'tower'
+            ? progress.towerFloor
+            : progress.dungeonFloor;
+        const gold = Math.floor(required * 0.55);
+        const tokens = progressNumber % 5 === 0 ? Math.max(1, Math.floor(progressNumber / 5)) * (mode === 'story' ? 5 : 4) : 0;
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            gold: { increment: gold },
+            tokens: { increment: tokens },
+            rolls: { increment: 1 }
+          }
+        });
+
+        await updateProgressAfterWin(userId, mode, progress);
+
+        if (run % 3 === 0) await i.editReply(text.slice(-1900)).catch(() => {});
+      }
+
+      text += `\n\nFinished. Wins: **${wins}**`;
+      return i.editReply(text.slice(-1900));
+    }
+
+    if (commandName === 'story' || commandName === 'dungeon' || commandName === 'tower') {
+      const action = i.options.getString('action') || 'info';
+      const mode = commandName;
+      const progress = await getOrCreateProgress(userId);
+      const teamPower = await getTeamPower(userId);
+
+      const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+      const required = mode === 'story'
+        ? 700 + storyIndex * 260
+        : mode === 'tower'
+          ? 1200 + progress.towerFloor * 420
+          : 900 + progress.dungeonFloor * 330;
+
+      if (action === 'start') return runProgressBattle(i, mode);
+
+      return i.reply(
+        `**${mode.toUpperCase()}**\n` +
+        `Current: **${getProgressTitle(mode, progress)}**\n` +
+        `Your Team Power: **${money(teamPower)}**\n` +
+        `Recommended Power: **${money(required)}**\n\n` +
+        `Use **/${mode} action:start** to fight.`
+      );
+    }
+
+    if (commandName === 'farm-claim') {
+      await i.deferReply();
+      const r = await passiveFarmClaim(userId);
+      const xpResult = await addUserXp(userId, r.hours * 10, 'passive farm');
+      return i.editReply(
+        `**Passive Farm Claimed**\n` +
+        `Farmed Hours: **${r.hours}h**\n` +
+        `Team Power: **${money(r.teamPower)}**\n` +
+        `Gold: **${money(r.gold)}**\n` +
+        `Tokens: **${r.tokens}**\n` +
+        `Rolls: **${r.rolls}**` + levelUpText(xpResult)
+      );
+    }
+
+    if (commandName === 'gold-shop') {
+      return i.reply(
+        `**GOLD SHOP**\n\n` +
+        `rolls_5 = 5 Rolls → **6,000 Gold**\n` +
+        `rolls_10 = 10 Rolls → **10,000 Gold**\n` +
+        `rolls_25 = 25 Rolls → **22,000 Gold**\n` +
+        `token_1 = 1 Token → **10,000 Gold**\n\n` +
+        `legendary_orb → **300,000 Gold**\n` +
+        `mythic_orb → **900,000 Gold**\n` +
+        `divine_orb → **2,500,000 Gold**\n` +
+        `secret_orb → **9,000,000 Gold**\n\n` +
+        `Use /gold-buy item:<item>.`
+      );
+    }
+
+    if (commandName === 'gold-buy') {
+      await i.deferReply();
+
+      const itemKey = i.options.getString('item', true);
+      const item = GOLD_SHOP_ITEMS[itemKey];
+
+      if (!item) return i.editReply('Invalid gold shop item. Use /gold-shop.');
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < item.gold) {
+        return i.editReply(`You need **${money(item.gold)} Gold** to buy **${item.name}**.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { gold: { decrement: item.gold } }
+      });
+
+      if (item.tokens) {
+        const updated = await prisma.user.update({ where: { id: userId }, data: { tokens: { increment: item.tokens } } });
+        return i.editReply(`Bought **${item.name}** for **${money(item.gold)} Gold**.\nNew Tokens: **${updated.tokens}**`);
+      }
+
+      if (item.rolls) {
+        const updated = await prisma.user.update({
+          where: { id: userId },
+          data: { rolls: { increment: item.rolls } }
+        });
+
+        return i.editReply(`Bought **${item.name}** for **${money(item.gold)} Gold**.\nNew Rolls: **${updated.rolls}**`);
+      }
+
+      if (item.rarity) {
+        const result = await guaranteedCharacterRoll(userId, item.rarity);
+          return i.editReply(
+          `**Gold Shop ${item.rarity} Roll**\n` +
+          `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
+          `Power: **${result.card.power}**\n` +
+          `Card ID: \`${result.card.id}\``
+        );
+      }
+
+      return i.editReply('Purchase completed.');
+    }
+
+    if (commandName === 'train') {
+      const cardId = i.options.getString('card_id', true);
+      const amount = i.options.getInteger('amount') || 1;
+      const cost = trainingCost(amount);
+
+      const card = await prisma.userCard.findFirst({
+        where: { id: cardId, userId },
+        include: { character: true }
+      });
+
+      if (!card) return i.reply({ content: 'Card not found in your inventory.', ephemeral: true });
+
+      const cap = TRAIN_POWER_CAPS[card.character.rarity] || 1500;
+
+      if (card.power >= cap) {
+        return i.reply(
+          `**${card.character.name}** reached the power cap for **${card.character.rarity}**.\n` +
+          `Cap: **${cap} Power**\n` +
+          `Use **/ascend** to raise rarity and continue training.`
+        );
+      }
+
+      const allowedGain = Math.max(0, cap - card.power);
+      const finalGain = Math.min(cost.powerGain, allowedGain);
+      const finalGold = Math.ceil(cost.gold * (finalGain / Math.max(1, cost.powerGain)));
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < finalGold) {
+        return i.reply(`You need **${money(finalGold)} Gold** for this training.\nPower Gain: **+${finalGain}**`);
+      }
+
+      await prisma.user.update({ where: { id: userId }, data: { gold: { decrement: finalGold } } });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: { power: { increment: finalGain } },
+        include: { character: true }
+      });
+
+      const capText = updated.power >= cap ? `\nPower cap reached. Use **/ascend** to continue.` : '';
+
+      const xpResult = await addUserXp(userId, Math.max(5, Math.floor(finalGain / 60)), 'training');
+
+      return i.reply(
+        `**TRAINING COMPLETE**\n` +
+        `${rarityEmoji(updated.character.rarity)} **${updated.character.name}** gained **+${finalGain} Power**.\n` +
+        `Cost: **${money(finalGold)} Gold**\n` +
+        `New Power: **${updated.power}/${cap}**${capText}` + levelUpText(xpResult)
+      );
+    }
+
+    if (commandName === 'core-shop') {
+      return i.reply(
+        `**core MARKET**\n\n` +
+        `Legendary core Roll: **100 tokens**\n` +
+        `Mythic core Roll: **250 tokens**\n` +
+        `Divine core Roll: **350 tokens**\n` +
+        `Secret core Roll: **500 tokens**\n\n` +
+        `Use /core-roll rarity:<rarity>.`
+      );
+    }
+
+    if (commandName === 'core-roll') {
+      await i.deferReply();
+
+      const rarityKey = i.options.getString('rarity', true);
+      const cfg = ORB_ROLL_COSTS[rarityKey];
+
+      if (!cfg) return i.editReply('Invalid core rarity.');
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.tokens || 0) < cfg.tokens) {
+        return i.editReply(`You need **${cfg.tokens} tokens** for this guaranteed roll.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { tokens: { decrement: cfg.tokens } }
+      });
+
+      const result = await guaranteedCharacterRoll(userId, cfg.rarity);
+      return i.editReply(
+        `**Guaranteed ${cfg.rarity} core Roll**\n` +
+        `${rarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime}\n` +
+        `Power: **${result.card.power}**\n` +
+        `Card ID: \`${result.card.id}\``
+      );
+    }
+
+    if (commandName === 'ascend') {
+      const cardId = i.options.getString('card_id', true);
+      const target = i.options.getString('rarity', true);
+      const cfg = RARITY_UPGRADE_COSTS[target];
+
+      if (!cfg) return i.reply({ content: 'Invalid rarity.', ephemeral: true });
+
+      const card = await prisma.userCard.findFirst({
+        where: { id: cardId, userId },
+        include: { character: true }
+      });
+
+      if (!card) return i.reply({ content: 'Card not found.', ephemeral: true });
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if ((user.gold || 0) < cfg.gold || (user.tokens || 0) < cfg.tokens) {
+        return i.reply(`You need **${money(cfg.gold)} gold** and **${cfg.tokens} tokens** to ascend to **${target}**.`);
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          gold: { decrement: cfg.gold },
+          tokens: { decrement: cfg.tokens }
+        }
+      });
+
+      await prisma.character.update({
+        where: { id: card.characterId },
+        data: {
+          rarity: target,
+          basePower: Math.max(card.character.basePower || 0, cfg.power)
+        }
+      });
+
+      const updated = await prisma.userCard.update({
+        where: { id: card.id },
+        data: { power: Math.max(card.power || 0, cfg.power + Math.floor(Math.random() * 500)) },
+        include: { character: true }
+      });
+
+      return i.reply(`**ASCENSION COMPLETE**\n${updated.character.name} is now **${target}**.\nNew Power: **${updated.power}**`);
+    }
+
+    if (commandName === 'autoteam') {
+      const count = Math.max(1, Math.min(6, i.options.getInteger('teams') || 1));
+      const cards = await autoBuildTeams(userId, count);
+
+      if (!cards.length) return i.reply('You do not have any cards yet.');
+
+      const lines = [];
+      for (let t = 1; t <= count; t++) {
+        const teamCards = cards.slice((t - 1) * 5, t * 5);
+        lines.push(`\n**Team ${t}**`);
+        lines.push(...teamCards.map((c, idx) => `Slot ${idx + 1}: ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
+      }
+
+      return i.reply((`**Auto Teams Equipped!**\n` + lines.join('\n')).slice(0, 1900));
+    }
+
+    if (commandName === 'teams') {
+      const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
+      const teams = await getUserTeams(userId, count);
+      const lines = [];
+
+      for (let t = 1; t <= count; t++) {
+        const team = teams[t - 1] || [];
+        const syn = calculateSynergies(team);
+        lines.push(`\n**Team ${t}** • Power ${money(team.reduce((s,c)=>s+Number(c.power||0),0))}`);
+        if (syn.active.length) lines.push(`Synergy: ${syn.active.map(x => x.name).join(', ')}`);
+        lines.push(...team.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${characterRole(c.character)} • ${characterElement(c.character)} • PWR ${money(c.power)}`));
+      }
+
+      return i.reply(lines.join('\n').slice(0, 1900));
+    }
+
+    if (commandName === 'synergy') {
+      const cards = await getUserBattleTeam(userId);
+      const syn = calculateSynergies(cards);
+
+      if (!syn.active.length) return i.reply('No active synergies in your main team.');
+
+      return i.reply(
+        `**Active Synergies**\n` +
+        syn.active.map(s => `• **${s.name}**`).join('\n') +
+        `\n\nEstimated Bonus Score: **${Math.round(syn.bonus * 100)}%**`
+      );
     }
 
     if (commandName === 'pvp') {
@@ -5119,7 +3173,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
 
     if (commandName === 'lvl') {
-      const name = i.options.getString('name', true);
+      const name = i.options.getString('name') || i.options.getString('card_id');
       const amount = i.options.getInteger('amount') || 1;
       const card = await phase2FindUserCardByName(userId, name);
       const cost = Math.max(1, amount) * 2500;
@@ -5453,77 +3507,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       return i.reply(`Added **${amount} tokens** to **${target.username}**. New tokens: **${updated.tokens}**`);
-    }
-
-
-
-
-
-    if (commandName === 'admin-fix-elements') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      const chars = await prisma.character.findMany({
-        where: { active: true },
-        select: { id: true, element: true, name: true }
-      });
-
-      let fixed = 0;
-
-      for (const c of chars) {
-        const clean = cleanElement(c.element);
-        if (clean !== c.element) {
-          await prisma.character.update({
-            where: { id: c.id },
-            data: { element: clean }
-          }).catch(() => {});
-          fixed++;
-        }
-      }
-
-      return i.reply({ content: `✅ Elements cleaned: ${fixed}`, ephemeral: true });
-    }
-
-    if (commandName === 'admin-fix-saber-image') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      await i.deferReply({ ephemeral: true });
-      const result = await hardFixSaberOneCopy();
-
-      return i.editReply(
-        `✅ Saber fixed to ONE copy.\n` +
-        `Kept: **${result.canonical.name}** • ${result.canonical.rarity} • PWR ${result.canonical.basePower}\n` +
-        `Moved player cards: **${result.moved}**\n` +
-        `Hidden duplicate Saber rows: **${result.hidden}**`
-      );
-    }
-
-    if (commandName === 'admin-collapse-variants') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      await i.deferReply({ ephemeral: true });
-      const result = await collapseRosterVariants();
-
-      return i.editReply(
-        `✅ Roster cleaned.\n` +
-        `Canonical fixed: **${result.fixedCanon}**\n` +
-        `Cards moved: **${result.movedCards}**\n` +
-        `Duplicate/ugly characters hidden: **${result.inactiveCharacters}**`
-      );
-    }
-
-    if (commandName === 'admin-fix-variants') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      await fixImportantVariants();
-      return i.reply({ content: '✅ Important duplicate variants fixed.', ephemeral: true });
     }
 
     if (commandName === 'admin-reset-all') {
