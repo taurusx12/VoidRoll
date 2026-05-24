@@ -5043,7 +5043,7 @@ async function pityRoll(i) {
 
 async function pityHandler(i, userId, commandName) {
   if (commandName === 'banner') return pityDailyBanner(i);
-  if (commandName === 'roll' || commandName === 'r') return pityRoll(i);
+  if (false && (commandName === 'roll' || commandName === 'r')) return pityRoll(i);
   return false;
 }
 // ===== END SECRET DAILY BANNER + PITY PATCH =====
@@ -7198,6 +7198,184 @@ async function nrHandler(i, userId, commandName) {
 }
 // ===== END NORMAL ROLL RATES + STATS PATCH =====
 
+
+// ===== NORMAL RATES ONLY + BANNER PITY ONLY PATCH =====
+// /roll and /r are pure normal rates only. No pity text, no pity counter, no soft/hard pity.
+// Banner/pack pity remains only on /pack and /banner.
+
+function roMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function roEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function roClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function roPickRarity() {
+  const r = Math.random();
+  if (r < 0.7200) return 'COMMON';
+  if (r < 0.9400) return 'RARE';
+  if (r < 0.9965) return 'EPIC';
+  if (r < 0.9975) return 'LEGENDARY';
+  if (r < 0.99825) return 'MYTHIC';
+  if (r < 0.99875) return 'DIVINE';
+  return 'SECRET';
+}
+async function roPickCharacter(rarity) {
+  const chars = await prisma.character.findMany({
+    where: { active: true, rarity },
+    take: 500
+  }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+
+  const fallback = await prisma.character.findMany({ where: { active: true }, take: 500 }).catch(() => []);
+  return fallback[Math.floor(Math.random() * Math.max(1, fallback.length))] || null;
+}
+function roId() {
+  return `roll_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function roSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function roCreateCard(userId, character) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: roId(),
+          serial: roSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+function roRole(c) {
+  const n = String(c?.name || '').toLowerCase();
+  if (/(rimuru|sakura|orihime|tsunade|cc|c\.c)/.test(n)) return 'Support';
+  if (/(gojo|sukuna|aizen|madara|gilgamesh|rimuru|frieren)/.test(n)) return 'Mage';
+  if (/(saber|kaido|whitebeard|all might|escanor|naofumi)/.test(n)) return 'Tank';
+  if (/(killua|levi|toji|gabimaru|zenitsu|akame)/.test(n)) return 'Assassin';
+  if (/(lelouch|makima|shikamaru|kurapika)/.test(n)) return 'Control';
+  return 'DPS';
+}
+function roElement(c) {
+  const t = `${String(c?.name || '').toLowerCase()} ${String(c?.anime || '').toLowerCase()}`;
+  if (/(sukuna|aizen|dio|curse|demon|makima)/.test(t)) return 'Dark';
+  if (/(gojo|rimuru|void|time|space|gilgamesh)/.test(t)) return 'Void';
+  if (/(luffy|goku|gokuu|naruto|saber|all might)/.test(t)) return 'Light';
+  if (/(ace|natsu|rengoku|fire|flame|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|lightning|thunder)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|soul|bleach)/.test(t)) return 'Soul';
+  return 'Light';
+}
+function roPassive(c) {
+  const n = String(c?.name || '').toLowerCase();
+  if (/gojo/.test(n)) return 'Limitless Infinity: reduces incoming damage and charges ultimate when attacked.';
+  if (/rimuru/.test(n)) return 'Predator / Great Sage: copies buffs and boosts sustain.';
+  if (/sukuna/.test(n)) return 'Malevolent Shrine: executes weakened enemies and boosts Dark ultimate damage.';
+  if (/goku|gokuu/.test(n)) return 'Limit Breaker: ATK and ultimate damage scale every round.';
+  if (/vegeta/.test(n)) return 'Saiyan Pride: gains ATK after taking damage.';
+  if (/nanami/.test(n)) return 'Ratio Technique: massive critical chance against healthy enemies.';
+  return `${roElement(c)} ${roRole(c)} Passive: improves battle performance.`;
+}
+function roStats(card, c) {
+  const p = Number(card.power || c.basePower || 1000);
+  const role = roRole(c);
+  let atkS = 1.05, hpS = 7.2, defS = .55, spd = 105, crit = 15, critDmg = 170, pen = 0;
+  if (role === 'Tank') { atkS = .72; hpS = 13; defS = 1.2; spd = 90; crit = 8; }
+  if (role === 'Support') { atkS = .8; hpS = 8.8; defS = .82; spd = 110; crit = 10; }
+  if (role === 'Control') { atkS = .9; hpS = 8.4; defS = .76; spd = 118; crit = 12; }
+  if (role === 'Assassin') { atkS = 1.28; hpS = 5.8; defS = .42; spd = 140; crit = 28; critDmg = 205; pen = 12; }
+  if (role === 'Mage') { atkS = 1.34; hpS = 6.1; defS = .48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
+  if (/nanami/i.test(c?.name || '')) { crit = 40; critDmg = 235; pen = Math.max(pen, 12); }
+
+  return `Class: **${role}** | Element: **${roElement(c)}**
+ATK **${roMoney(Math.floor(p * atkS))}** • HP **${roMoney(Math.floor(p * hpS))}** • DEF **${roMoney(Math.floor(p * defS))}** • SPD **${spd}**
+CRIT **${crit}%** • CRIT DMG **${critDmg}%** • PEN **${pen}%**
+Passive: ${roPassive(c)}`;
+}
+async function roNormalRoll(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+
+  if ((user?.rolls || 0) < amount) {
+    return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { rolls: { decrement: amount } }
+  }).catch(() => null);
+
+  const lines = [];
+  const embeds = [];
+
+  for (let n = 0; n < amount; n++) {
+    const rarity = roPickRarity();
+    const character = await roPickCharacter(rarity);
+    if (!character) continue;
+
+    const card = await roCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+
+    lines.push(`${n + 1}. ${roEmoji(character.rarity)} **${roClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${roMoney(power)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${roEmoji(character.rarity)} ${roClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${roMoney(power)}**\n` +
+        `${roStats(card, character)}\n\n` +
+        `**Normal Roll Rates**\n` +
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.5% • Secret 0.1%`
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  return i.editReply({
+    content: (`**NORMAL ROLL x${amount}**\nBased on rates only. Pity is only for banner packs.\n\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function roRates(i) {
+  return i.reply(
+    `**NORMAL ROLL RATES**\n\n` +
+    `Common: **72%**\n` +
+    `Rare: **22%**\n` +
+    `Epic: **5.65%**\n` +
+    `Legendary: **1%**\n` +
+    `Mythic: **0.75%**\n` +
+    `Divine: **0.5%**\n` +
+    `Secret: **0.1%**\n\n` +
+    `Normal rolls are based on rates only.\n` +
+    `Pity exists only in **/pack banner**.`
+  );
+}
+async function roHandler(i, userId, commandName) {
+  if (commandName === 'roll' || commandName === 'r') return roNormalRoll(i);
+  if (commandName === 'rates') return roRates(i);
+  return false;
+}
+// ===== END NORMAL RATES ONLY PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -7379,6 +7557,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const roHandled = await roHandler(i, userId, commandName);
+    if (roHandled !== false) return roHandled;
 
     const nrHandled = await nrHandler(i, userId, commandName);
     if (nrHandled !== false) return nrHandled;

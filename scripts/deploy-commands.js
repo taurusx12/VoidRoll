@@ -22,12 +22,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('roll')
-    .setDescription('Normal roll without pity')
+    .setDescription('Normal roll by rates only')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('r')
-    .setDescription('Quick normal roll without pity')
+    .setDescription('Quick normal roll by rates only')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
