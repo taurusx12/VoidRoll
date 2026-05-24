@@ -2031,6 +2031,36 @@ client.once('ready', async () => {
   setInterval(autoBossLoop, bossInterval);
 });
 
+
+async function vrPrepareInteraction(i) {
+  if (!i.isChatInputCommand()) return;
+
+  const originalReply = i.reply.bind(i);
+  const originalEditReply = i.editReply.bind(i);
+  const originalDeferReply = i.deferReply.bind(i);
+
+  i.deferReply = async function patchedDeferReply(options = {}) {
+    if (i.deferred || i.replied) return null;
+    return originalDeferReply(options).catch(() => null);
+  };
+
+  i.reply = async function patchedReply(payload) {
+    if (i.deferred || i.replied) {
+      return originalEditReply(payload).catch(async () => {
+        try { return await i.followUp(payload); } catch { return null; }
+      });
+    }
+    return originalReply(payload).catch(async () => {
+      try { return await originalDeferReply(); } catch {}
+      return originalEditReply(payload).catch(() => null);
+    });
+  };
+
+  if (!i.deferred && !i.replied) {
+    await originalDeferReply().catch(() => null);
+  }
+}
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -2146,6 +2176,8 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (!i.isChatInputCommand()) return;
+
+    await vrPrepareInteraction(i);
 
     await ensureUser(i.user);
 
