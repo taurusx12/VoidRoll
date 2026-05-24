@@ -5,10 +5,7 @@ const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show total active characters and Saber status'),
-  new SlashCommandBuilder().setName('stats').setDescription('Show character stats').addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
-  new SlashCommandBuilder().setName('story-start').setDescription('Start story battle'),
-  new SlashCommandBuilder().setName('tower-start').setDescription('Start tower battle'),
-  new SlashCommandBuilder().setName('dungeon-start').setDescription('Start dungeon battle'),
+  new SlashCommandBuilder().setName('stats').setDescription('Show character stats').addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),,
   new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
   new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush'),
   new SlashCommandBuilder().setName('formations').setDescription('Show 6 formations').addIntegerOption(o => o.setName('count').setDescription('1-6').setRequired(false)),

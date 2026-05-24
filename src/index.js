@@ -1994,9 +1994,9 @@ async function vrCleanPhaseHandler(i, userId, commandName) {
     return i.reply({ embeds: [embed] });
   }
 
-  if (commandName === 'story' || commandName === 'story-start') return vrRunMode(i, 'story', 1);
-  if (commandName === 'tower' || commandName === 'tower-start') return vrRunMode(i, 'tower', 1);
-  if (commandName === 'dungeon' || commandName === 'dungeon-start') return vrRunMode(i, 'dungeon', 1);
+  if (commandName === 'story') return vrRunMode(i, 'story', 1);
+  if (commandName === 'tower') return vrRunMode(i, 'tower', 1);
+  if (commandName === 'dungeon') return vrRunMode(i, 'dungeon', 1);
   if (commandName === 'auto-story') return vrRunMode(i, 'story', i.options.getInteger('runs') || 10);
   if (commandName === 'auto-tower') return vrRunMode(i, 'tower', i.options.getInteger('runs') || 10);
   if (commandName === 'auto-dungeon') return vrRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
@@ -2068,6 +2068,207 @@ async function vrCleanPhaseHandler(i, userId, commandName) {
   return false;
 }
 // ===== END VOIDROLL CLEAN PHASES PATCH =====
+
+
+// ===== NO-START + RESTORE STATS + REWARDS PATCH =====
+async function vxDefer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+}
+async function vxReply(i, payload) {
+  if (i.deferred || i.replied) return i.editReply(payload).catch(() => null);
+  return i.reply(payload).catch(() => null);
+}
+function vxNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function vxRole(c) {
+  const n = vxNorm(c?.name || '');
+  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami|senku)/.test(n)) return 'Control';
+  if (/(c c|cc|rimuru|megumi|kakashi|sakura|orihime|shoko|chopper|tsunade)/.test(n)) return 'Support';
+  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo|naofumi)/.test(n)) return 'Tank';
+  if (/(gabimaru|killua|toji|levi|hisoka|zenitsu|yoroichi|akame|kirito)/.test(n)) return 'Assassin';
+  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren|sinbad)/.test(n)) return 'Mage';
+  return 'DPS';
+}
+function vxElement(c) {
+  const current = String(c?.element || '').trim();
+  if (current && !['Neutral', 'Anime', 'undefined', 'null'].includes(current)) return current;
+  const t = `${vxNorm(c?.name)} ${vxNorm(c?.anime)}`;
+  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse|muzan)/.test(t)) return 'Dark';
+  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid kagenou)/.test(t)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|yhwach|void|space|time)/.test(t)) return 'Void';
+  if (/(saber|artoria|goku|naruto|luffy|saitama|all might|hero)/.test(t)) return 'Light';
+  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|kakashi|thunder|lightning)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(t)) return 'Soul';
+  if (/(ice|frost|snow|todoroki)/.test(t)) return 'Ice';
+  return 'Light';
+}
+function vxPassive(c) {
+  const n = vxNorm(c?.name || '');
+  const p = [
+    [/lelouch/, 'Geass Command: controls the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
+    [/c c|^cc$/, 'Immortal Witch: regenerates every round and gives extra energy to the strongest ally.'],
+    [/gabimaru/, 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after ultimate.'],
+    [/nanami/, 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
+    [/gojo/, 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [/geto/, 'Cursed Spirit Manipulation: increases summon damage and weakens enemy DEF.'],
+    [/sung jin|jinwoo|jin woo/, 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
+    [/saber|artoria/, 'Avalon: grants a starting shield and reduces burst damage.'],
+    [/gilgamesh/, 'Gate of Babylon: high penetration and massive ultimate burst.'],
+    [/goku/, 'Limit Breaker: ultimate damage scales with battle rounds.'],
+    [/vegeta/, 'Saiyan Pride: gains ATK after taking damage.'],
+    [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
+    [/aizen/, 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [/madara/, 'Uchiha Dominion: increases AoE ultimate damage.'],
+    [/itachi/, 'Tsukuyomi: chance to delay enemy ultimate.'],
+    [/killua/, 'Godspeed: very high speed and crit burst.'],
+    [/gon/, 'Jajanken: huge single-target ultimate damage.'],
+    [/luffy/, 'Nika Rhythm: gains ATK and speed every round.'],
+    [/zoro/, 'Three Sword Style: critical damage increases against bosses.'],
+    [/ichigo/, 'Bankai Pressure: Soul damage and speed increase.'],
+    [/makima/, 'Control Devil: lowers enemy ATK and increases control chance.']
+  ];
+  for (const [rx, text] of p) if (rx.test(n)) return text;
+  const role = vxRole(c), element = vxElement(c);
+  if (role === 'Tank') return `Iron Guard: DEF scaling and ${element} resistance.`;
+  if (role === 'Support') return 'Battle Support: increases team energy regeneration.';
+  if (role === 'Control') return 'Command Aura: increases control chance and reduces enemy ultimate charge.';
+  if (role === 'Assassin') return 'Weak Point: high crit and partial DEF ignore.';
+  if (role === 'Mage') return `${element} Burst: ultimate damage scales with penetration.`;
+  return 'Battle Instinct: ATK rises every round.';
+}
+function vxCap(rarity) {
+  return { COMMON: 180, RARE: 360, EPIC: 700, LEGENDARY: 1150, MYTHIC: 1750, DIVINE: 2400, SECRET: 3300 }[rarity] || 250;
+}
+function vxStats(card, c) {
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  const raw = Number(card?.power || c?.basePower || 100);
+  const base = Math.min(Math.max(raw, 80), vxCap(c?.rarity));
+  const role = vxRole(c), mult = 1 + ((level - 1) * 0.03);
+  let atkS=1.05,hpS=7.2,defS=.55,spd=105,crit=15,critDmg=170,pen=0;
+  if (role === 'Tank') { atkS=.72; hpS=13; defS=1.2; spd=90; crit=8; }
+  if (role === 'Support') { atkS=.8; hpS=8.8; defS=.82; spd=110; crit=10; }
+  if (role === 'Control') { atkS=.9; hpS=8.4; defS=.76; spd=118; crit=12; }
+  if (role === 'Assassin') { atkS=1.28; hpS=5.8; defS=.42; spd=140; crit=28; critDmg=205; pen=12; }
+  if (role === 'Mage') { atkS=1.34; hpS=6.1; defS=.48; spd=108; crit=17; critDmg=185; pen=22; }
+  if (/nanami/i.test(c?.name || '')) { crit=40; critDmg=235; pen=Math.max(pen,12); }
+  return { level, atk:Math.floor(base*atkS*mult), hp:Math.floor(base*hpS*mult), def:Math.floor(base*defS*mult), spd:Math.floor(spd+level*.2), crit, critDmg, pen };
+}
+function vxStatsBlock(card, c) {
+  const s = vxStats(card, c);
+  return `Class: **${vxRole(c)}** | Element: **${vxElement(c)}**
+Level **${s.level}/99** • ATK **${money(s.atk)}** • HP **${money(s.hp)}** • DEF **${money(s.def)}** • SPD **${s.spd}**
+CRIT **${s.crit}%** • CRIT DMG **${s.critDmg}%** • PEN **${s.pen}%**
+Character Passive: ${vxPassive(c)}`;
+}
+async function vxFindOwned(userId, q, limit=10) {
+  const tokens = vxNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({ where:{userId}, include:{character:true}, orderBy:{power:'desc'}, take:500 });
+  return cards.map(card => {
+    const full = `${vxNorm(card.character.name)} ${vxNorm(card.character.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (vxNorm(card.character.name).includes(t)) score += 70;
+      if (vxNorm(card.character.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return {card, score};
+  }).filter(x => x.score > 0).sort((a,b)=>b.score-a.score || Number(b.card.power||0)-Number(a.card.power||0)).slice(0, limit).map(x=>x.card);
+}
+const vxLocks = new Set();
+function vxNeed(mode, p) {
+  const v = mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  if (v >= 60) return 6; if (v >= 48) return 5; if (v >= 36) return 4; if (v >= 24) return 3; if (v >= 12) return 2; return 1;
+}
+async function vxTeamPower(userId, f) {
+  const cards = await prisma.userCard.findMany({ where:{userId}, include:{character:true}, orderBy:{power:'desc'}, take:f*6 });
+  return cards.reduce((s,c)=>s+Number(c.power||0),0);
+}
+function vxReq(mode,p,f) {
+  const storyIndex = ((p.chapter-1)*30)+p.stage;
+  const base = mode==='story' ? 650+storyIndex*300 : mode==='tower' ? 1100+p.towerFloor*520 : 900+p.dungeonFloor*430;
+  const late = mode==='story' ? Math.max(0,p.chapter-40)*.035 : 0;
+  return Math.floor(base*(1+(f-1)*.95+late));
+}
+function vxRewards(mode, req, p) {
+  const no = mode === 'story' ? (((p.chapter-1)*30)+p.stage) : mode==='tower' ? p.towerFloor : p.dungeonFloor;
+  return { gold:Math.floor(req*.8), tokens:Math.max(2,Math.floor(no/4)+2), rolls:mode==='story'?3:2, xp:mode==='story'?75:mode==='tower'?85:65 };
+}
+async function vxAdvance(userId, mode, p) {
+  if (mode==='story') {
+    let stage=p.stage+1, chapter=p.chapter;
+    if (stage>30) { stage=1; chapter++; }
+    if (chapter>80) { chapter=80; stage=30; }
+    return prisma.storyProgress.update({ where:{userId}, data:{chapter, stage} });
+  }
+  if (mode==='tower') return prisma.storyProgress.update({ where:{userId}, data:{towerFloor:p.towerFloor+1} });
+  return prisma.storyProgress.update({ where:{userId}, data:{dungeonFloor:p.dungeonFloor+1} });
+}
+async function vxRunMode(i, mode, runs=1) {
+  await vxDefer(i);
+  const key = `${i.user.id}:${mode}`;
+  if (vxLocks.has(key)) return vxReply(i, `⏳ You already have **${mode}** running.`);
+  vxLocks.add(key);
+  try {
+    const max = Math.max(1, Math.min(30, runs));
+    let wins=0, total={gold:0,tokens:0,rolls:0,xp:0};
+    let out = `**${max>1?'AUTO ':''}${mode.toUpperCase()} STARTED**\n`;
+    for (let run=1; run<=max; run++) {
+      const p = await getOrCreateProgress(i.user.id);
+      const f = vxNeed(mode,p), power = await vxTeamPower(i.user.id,f), req = vxReq(mode,p,f);
+      const title = mode==='story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode==='tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
+      out += `\nRun ${run}: **${title}** | Formations **${f}** | ${money(power)} vs ${money(req)}\n`;
+      let energy=0;
+      for (let r=1;r<=3;r++) {
+        const dmg = Math.floor(power/(4+r)+Math.random()*500);
+        energy += 34;
+        out += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100,energy)}/100\n`;
+        if (energy>=100) { out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`; energy=0; }
+      }
+      const won = power>=req || Math.random()<Math.min(.18,power/Math.max(1,req)/5);
+      if (!won) { out += `❌ **Defeat.** Upgrade your formations.\n`; break; }
+      const latest = await getOrCreateProgress(i.user.id);
+      const same = mode==='story' ? latest.chapter===p.chapter && latest.stage===p.stage : mode==='tower' ? latest.towerFloor===p.towerFloor : latest.dungeonFloor===p.dungeonFloor;
+      if (!same) { out += `⛔ Duplicate reward blocked.\n`; break; }
+      const rw = vxRewards(mode,req,p);
+      await vxAdvance(i.user.id,mode,p);
+      await prisma.user.update({ where:{id:i.user.id}, data:{gold:{increment:rw.gold}, tokens:{increment:rw.tokens}, rolls:{increment:rw.rolls}} });
+      await addUserXp(i.user.id,rw.xp,mode).catch(()=>null);
+      wins++; total.gold+=rw.gold; total.tokens+=rw.tokens; total.rolls+=rw.rolls; total.xp+=rw.xp;
+      out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
+      if (run%4===0) await vxReply(i,out.slice(-1800));
+    }
+    out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+    return vxReply(i,out.slice(-1900));
+  } finally { vxLocks.delete(key); }
+}
+async function vxHandler(i,userId,commandName) {
+  if (commandName === 'story-start' || commandName === 'tower-start' || commandName === 'dungeon-start') {
+    return i.reply('This command was removed. Use /story, /tower, or /dungeon.');
+  }
+  if (commandName === 'stats' || commandName === 'inv-search') {
+    const q = i.options.getString('name', true);
+    const matches = await vxFindOwned(userId,q,10);
+    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
+    const first = matches[0];
+    const embed = new EmbedBuilder()
+      .setTitle(commandName==='stats'?`Stats: ${first.character.name}`:`Inventory Search: ${q}`)
+      .setDescription(`${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${vxStatsBlock(first,first.character)}${commandName==='inv-search'?`\n\n**Owned Results**\n${matches.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}`:''}`)
+      .setColor(embedColor(getAura(first.character).color));
+    if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
+    return i.reply({embeds:[embed]});
+  }
+  if (commandName === 'story') return vxRunMode(i,'story',1);
+  if (commandName === 'tower') return vxRunMode(i,'tower',1);
+  if (commandName === 'dungeon') return vxRunMode(i,'dungeon',1);
+  if (commandName === 'auto-story') return vxRunMode(i,'story',i.options.getInteger('runs')||10);
+  if (commandName === 'auto-tower') return vxRunMode(i,'tower',i.options.getInteger('runs')||10);
+  if (commandName === 'auto-dungeon') return vxRunMode(i,'dungeon',i.options.getInteger('runs')||10);
+  return false;
+}
+// ===== END NO-START + RESTORE STATS + REWARDS PATCH =====
 
 client.on('interactionCreate', async (i) => {
   try {
@@ -2189,6 +2390,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const vxHandled = await vxHandler(i, userId, commandName);
+    if (vxHandled !== false) return vxHandled;
     const fusionResults = [];
 
 
