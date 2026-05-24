@@ -3,6 +3,15 @@ require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
+
+const safeCommands = commands.filter(cmd => {
+  try {
+    return cmd && typeof cmd.toJSON === 'function';
+  } catch {
+    return false;
+  }
+});
+
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder()
@@ -14,7 +23,7 @@ const commands = [
     .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
     .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
-    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),,
+    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
   new SlashCommandBuilder()
     .setName('inventory')
     .setDescription('Show your inventory as image cards with left/right buttons')
@@ -29,6 +38,10 @@ const commands = [
     .setName('ascend')
     .setDescription('Ascend a character by name using duplicate')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('admin-dedupe-characters')
+    .setDescription('Admin: keep one MAL version per character and disable duplicates')
+    .addStringOption(o => o.setName('confirm').setDescription('Type YES').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),

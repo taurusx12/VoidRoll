@@ -3329,6 +3329,117 @@ async function fuFinalHandler(i, userId, commandName) {
 }
 // ===== END FINAL USER FIX =====
 
+
+// ===== MAL ONE VERSION DEDUPE PATCH =====
+// Keeps one best version per character from MAL-style imports.
+// Variants like (Base), (True Power), (Awakened), etc. are treated as the same character.
+
+function malCleanName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function malKey(character) {
+  return `${malCleanName(character?.name || '').toLowerCase()}::${String(character?.anime || '').toLowerCase().trim()}`;
+}
+
+function malRank(character) {
+  const rarityScore = { SECRET: 7, DIVINE: 6, MYTHIC: 5, LEGENDARY: 4, EPIC: 3, RARE: 2, COMMON: 1 }[character?.rarity] || 0;
+  const power = Number(character?.basePower || character?.power || 0);
+  const name = String(character?.name || '');
+  // Prefer the clean MAL/original name without parentheses.
+  const cleanBonus = name.includes('(') ? 0 : 50000;
+  return cleanBonus + (rarityScore * 1000000) + power;
+}
+
+function malUniqueCharacters(chars) {
+  const map = new Map();
+  for (const c of chars) {
+    const key = malKey(c.character || c);
+    const old = map.get(key);
+    const currentChar = c.character || c;
+    const oldChar = old ? (old.character || old) : null;
+    if (!old || malRank(currentChar) > malRank(oldChar)) map.set(key, c);
+  }
+  return [...map.values()];
+}
+
+async function malDedupeDatabase() {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    orderBy: [{ rarity: 'desc' }, { basePower: 'desc' }]
+  });
+
+  const groups = new Map();
+  for (const c of chars) {
+    const key = malKey(c);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+
+  let disabled = 0;
+  let groupsFixed = 0;
+
+  for (const [, list] of groups) {
+    if (list.length <= 1) continue;
+    const sorted = list.sort((a, b) => malRank(b) - malRank(a));
+    const keep = sorted[0];
+    const remove = sorted.slice(1);
+    groupsFixed++;
+
+    // Move owned cards from removed variants to the kept character, then disable removed variants.
+    for (const dead of remove) {
+      await prisma.userCard.updateMany({
+        where: { characterId: dead.id },
+        data: { characterId: keep.id }
+      }).catch(() => null);
+
+      await prisma.marketListing.updateMany({
+        where: { characterId: dead.id },
+        data: { characterId: keep.id }
+      }).catch(() => null);
+
+      await prisma.character.update({
+        where: { id: dead.id },
+        data: { active: false }
+      }).catch(() => null);
+
+      disabled++;
+    }
+  }
+
+  return { groupsFixed, disabled };
+}
+
+async function malOneVersionHandler(i, userId, commandName) {
+  if (commandName === 'admin-dedupe-characters') {
+    const confirm = i.options.getString('confirm', true);
+    if (confirm !== 'YES') return i.reply('Type YES to confirm.');
+    await i.deferReply();
+    const result = await malDedupeDatabase();
+    return i.editReply(
+      `✅ MAL one-version cleanup done.\n` +
+      `Groups fixed: **${result.groupsFixed}**\n` +
+      `Duplicate variants disabled: **${result.disabled}**\n\n` +
+      `From now on, only the best/clean version stays active.`
+    );
+  }
+  return false;
+}
+// ===== END MAL ONE VERSION DEDUPE PATCH =====
+
+// Override display cleanup globally for final handlers.
+if (typeof foBaseName === 'function') {
+  foBaseName = malCleanName;
+}
+if (typeof fuBaseName === 'function') {
+  fuBaseName = malCleanName;
+}
+
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
