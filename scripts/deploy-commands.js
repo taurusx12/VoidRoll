@@ -3,45 +3,8 @@ require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
-
-const safeCommands = commands.filter(cmd => {
-  try {
-    return cmd && typeof cmd.toJSON === 'function';
-  } catch {
-    return false;
-  }
-});
-
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
-  new SlashCommandBuilder()
-    .setName('formation-set')
-    .setDescription('Manually set one formation')
-    .addIntegerOption(o => o.setName('formation').setDescription('Formation number 1-6').setRequired(true))
-    .addStringOption(o => o.setName('slot1').setDescription('Character 1').setRequired(true))
-    .addStringOption(o => o.setName('slot2').setDescription('Character 2').setRequired(false))
-    .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
-    .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
-    .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
-    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
-  new SlashCommandBuilder()
-    .setName('inventory')
-    .setDescription('Show your inventory as image cards with left/right buttons')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('train')
-    .setDescription('Train a character by name using Gold')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('ascend')
-    .setDescription('Ascend a character by name using duplicate')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-  new SlashCommandBuilder()
-    .setName('admin-dedupe-characters')
-    .setDescription('Admin: keep one MAL version per character and disable duplicates')
-    .addStringOption(o => o.setName('confirm').setDescription('Type YES').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),
@@ -81,6 +44,11 @@ const commands = [
     .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('inventory')
+    .setDescription('Show inventory with images and left/right buttons')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
+  new SlashCommandBuilder()
     .setName('autoteam')
     .setDescription('Automatically equip strongest formations')
     .addIntegerOption(o => o.setName('formations').setDescription('Formations 1-6').setRequired(false)),
@@ -89,13 +57,22 @@ const commands = [
     .setName('formations')
     .setDescription('Show formations')
     .addIntegerOption(o => o.setName('count').setDescription('Formations 1-6').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('formation-set')
+    .setDescription('Manually set one formation')
+    .addIntegerOption(o => o.setName('formation').setDescription('Formation number 1-6').setRequired(true))
+    .addStringOption(o => o.setName('slot1').setDescription('Character 1').setRequired(true))
+    .addStringOption(o => o.setName('slot2').setDescription('Character 2').setRequired(false))
+    .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
+    .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
+    .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
+    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
+
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
   new SlashCommandBuilder().setName('banner').setDescription('Show banners'),
-
-  new SlashCommandBuilder()
-    .setName('pack')
-    .setDescription('10-pull character pack'),
+  new SlashCommandBuilder().setName('pack').setDescription('10-pull character pack'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
   new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
@@ -119,24 +96,19 @@ const commands = [
   new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
   new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush'),
 
-  new SlashCommandBuilder().setName('pvp').setDescription('PvP battle'),
-  new SlashCommandBuilder().setName('quests').setDescription('Show quests'),
+  new SlashCommandBuilder()
+    .setName('train')
+    .setDescription('Train a character by name using Gold')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('sell-rarity')
-    .setDescription('Sell cards by rarity')
-    .addStringOption(o => o.setName('rarity').setDescription('COMMON/RARE/EPIC/LEGENDARY/MYTHIC/DIVINE/SECRET').setRequired(true)),
+    .setName('ascend')
+    .setDescription('Ascend a character by name using duplicate')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('fuse')
-    .setDescription('Fuse duplicate characters by name')
-    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
-
-  new SlashCommandBuilder().setName('fuse-list').setDescription('Show duplicate characters available to fuse'),
-
-  new SlashCommandBuilder()
-    .setName('admin-reset-all')
-    .setDescription('Admin: reset all players')
+    .setName('admin-dedupe-characters')
+    .setDescription('Admin: keep one MAL version per character and disable duplicate forms')
     .addStringOption(o => o.setName('confirm').setDescription('Type YES').setRequired(true)),
 
   new SlashCommandBuilder()
@@ -168,14 +140,11 @@ async function main() {
     process.exit(1);
   }
 
-  const body = commands.map(c => c.toJSON());
-  const seen = new Set();
+  const safeCommands = commands.filter(cmd => cmd && typeof cmd.toJSON === 'function');
+  const body = safeCommands.map(cmd => cmd.toJSON()).filter(cmd => cmd && cmd.name && cmd.description);
 
+  const seen = new Set();
   for (const cmd of body) {
-    if (!cmd.name || !cmd.description) {
-      console.error('Invalid command:', cmd);
-      process.exit(1);
-    }
     if (seen.has(cmd.name)) {
       console.error('Duplicate command:', cmd.name);
       process.exit(1);
