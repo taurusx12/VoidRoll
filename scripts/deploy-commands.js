@@ -69,6 +69,10 @@ const commands = [
   new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),
   new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),
 
+  new SlashCommandBuilder().setName('story-start').setDescription('Start story battle'),
+  new SlashCommandBuilder().setName('tower-start').setDescription('Start tower battle'),
+  new SlashCommandBuilder().setName('dungeon-start').setDescription('Start dungeon battle'),
+  new SlashCommandBuilder().setName('admin-final-balance').setDescription('Admin: rebalance all character powers and owned cards').addStringOption(o => o.setName('confirm').setDescription('Type YES').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),

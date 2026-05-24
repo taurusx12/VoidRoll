@@ -3331,6 +3331,120 @@ async function withRewardLock(interaction, mode, fn) {
 }
 // ===== END REWARD LOCK PATCH =====
 
+
+// ===== FINAL BALANCE + MODE ALIAS FIX =====
+function finalPowerRange(rarity) {
+  return {
+    COMMON: [80, 160],
+    RARE: [170, 330],
+    EPIC: [340, 620],
+    LEGENDARY: [650, 1050],
+    MYTHIC: [1100, 1650],
+    DIVINE: [1700, 2300],
+    SECRET: [2400, 3200]
+  }[rarity] || [100, 220];
+}
+
+function finalStableHash(value = '') {
+  let h = 0;
+  for (const ch of String(value)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+
+function finalBalancedPower(character) {
+  const [min, max] = finalPowerRange(character?.rarity || 'COMMON');
+  const seed = finalStableHash(`${character?.id || ''}:${character?.name || ''}:${character?.anime || ''}`);
+  return min + (seed % Math.max(1, max - min));
+}
+
+async function finalApplyPowerBalance() {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    select: { id: true, name: true, anime: true, rarity: true, basePower: true, element: true }
+  });
+
+  let characters = 0;
+  for (const c of chars) {
+    const power = finalBalancedPower(c);
+    const element = typeof cleanElement === 'function' ? cleanElement(c) : (c.element || 'Light');
+
+    await prisma.character.update({
+      where: { id: c.id },
+      data: {
+        basePower: power,
+        baseFarm: Math.max(1, Math.floor(power / 8)),
+        baseLuck: Math.max(1, Math.floor(power / 20)),
+        element
+      }
+    }).catch(() => {});
+    characters++;
+  }
+
+  const cards = await prisma.userCard.findMany({
+    include: { character: true },
+    select: { id: true, level: true, power: true, character: true }
+  });
+
+  let userCards = 0;
+  for (const card of cards) {
+    const base = finalBalancedPower(card.character);
+    const level = Math.max(1, Math.min(99, Number(card.level || 1)));
+    const power = Math.floor(base * (1 + ((level - 1) * 0.035)));
+
+    await prisma.userCard.update({
+      where: { id: card.id },
+      data: { power }
+    }).catch(() => {});
+    userCards++;
+  }
+
+  return { characters, userCards };
+}
+
+function finalModeFromCommand(commandName) {
+  if (commandName === 'story' || commandName === 'story-start') return 'story';
+  if (commandName === 'tower' || commandName === 'tower-start') return 'tower';
+  if (commandName === 'dungeon' || commandName === 'dungeon-start') return 'dungeon';
+  if (commandName === 'auto-story') return 'auto-story';
+  if (commandName === 'auto-tower') return 'auto-tower';
+  if (commandName === 'auto-dungeon') return 'auto-dungeon';
+  return null;
+}
+
+async function finalModeAliasHandler(i, userId, commandName) {
+  const modeAlias = finalModeFromCommand(commandName);
+
+  if (commandName === 'admin-final-balance') {
+    const ok = i.options.getString('confirm', true);
+    if (ok !== 'YES') return i.reply('Type YES to confirm.');
+    const result = await finalApplyPowerBalance();
+    return i.reply(`✅ Final balance applied.\nCharacters updated: **${result.characters}**\nUser cards updated: **${result.userCards}**`);
+  }
+
+  if (modeAlias === 'story' || modeAlias === 'tower' || modeAlias === 'dungeon') {
+    if (typeof withRewardLock === 'function') {
+      return withRewardLock(i, modeAlias, () => cleanRunFight(i, modeAlias, 1));
+    }
+    return cleanRunFight(i, modeAlias, 1);
+  }
+
+  if (modeAlias === 'auto-story' || modeAlias === 'auto-tower' || modeAlias === 'auto-dungeon') {
+    const mode = modeAlias.replace('auto-', '');
+    const runs = i.options.getInteger('runs') || 10;
+    if (typeof withRewardLock === 'function') {
+      return withRewardLock(i, mode, () => cleanRunFight(i, mode, runs));
+    }
+    return cleanRunFight(i, mode, runs);
+  }
+
+  if (commandName === 'class-tower') {
+    return cleanRunFight(i, 'tower', 1);
+  }
+
+  return false;
+}
+// ===== END FINAL BALANCE + MODE ALIAS FIX =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
