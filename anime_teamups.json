@@ -1,0 +1,51 @@
+[
+  {
+    "name": "Zero Requiem",
+    "characters": [
+      "Lelouch",
+      "C.C."
+    ],
+    "buff": "+20% control chance and +15% ultimate charge"
+  },
+  {
+    "name": "Strongest Past",
+    "characters": [
+      "Gojo",
+      "Geto"
+    ],
+    "buff": "+18% Void damage and +10% ultimate charge"
+  },
+  {
+    "name": "Shadow Army",
+    "characters": [
+      "Sung Jin-Woo",
+      "Igris",
+      "Beru"
+    ],
+    "buff": "+15% Shadow damage and summon ATK"
+  },
+  {
+    "name": "Uchiha Bloodline",
+    "characters": [
+      "Itachi",
+      "Sasuke"
+    ],
+    "buff": "+15% critical chance and control resistance"
+  },
+  {
+    "name": "Fate Clash",
+    "characters": [
+      "Saber",
+      "Gilgamesh"
+    ],
+    "buff": "+15% penetration and +12% shield"
+  },
+  {
+    "name": "Hunter Bond",
+    "characters": [
+      "Gon",
+      "Killua"
+    ],
+    "buff": "+15% speed and +12% crit"
+  }
+]

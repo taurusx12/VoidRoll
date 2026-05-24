@@ -1,0 +1,58 @@
+{
+  "Nanami": {
+    "passive": "Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.",
+    "role": "DPS",
+    "element": "Curse"
+  },
+  "Gabimaru": {
+    "passive": "Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after using ultimate.",
+    "role": "Assassin",
+    "element": "Fire",
+    "remove_wrong_teamups": [
+      "Saiyan Rivalry"
+    ]
+  },
+  "Lelouch": {
+    "passive": "Geass Command: lowers enemy control resistance and rapidly charges ally ultimates.",
+    "teamups": [
+      "C.C."
+    ]
+  },
+  "C.C.": {
+    "passive": "Immortal Witch: regenerates HP every round and gives energy to Lelouch.",
+    "teamups": [
+      "Lelouch"
+    ]
+  },
+  "Gojo": {
+    "passive": "Limitless Infinity: reduces incoming damage and boosts Hollow Purple damage after dodging.",
+    "teamups": [
+      "Geto"
+    ]
+  },
+  "Geto": {
+    "passive": "Cursed Spirit Manipulation: increases summon and curse damage for the whole team.",
+    "teamups": [
+      "Gojo"
+    ]
+  },
+  "Sung Jin-Woo": {
+    "passive": "Shadow Monarch: defeated enemies empower Shadow allies and increase ATK stacks.",
+    "teamups": [
+      "Igris",
+      "Beru"
+    ]
+  },
+  "Aizen": {
+    "passive": "Kyoka Suigetsu: lowers enemy accuracy and causes illusion confusion effects."
+  },
+  "Madara": {
+    "passive": "Perfect Susanoo: massive AoE damage and DEF penetration scaling."
+  },
+  "Itachi": {
+    "passive": "Tsukuyomi: chance to silence enemy ultimates and apply burn damage."
+  },
+  "Saber": {
+    "passive": "Avalon: grants a starting shield and reduces incoming burst damage."
+  }
+}
