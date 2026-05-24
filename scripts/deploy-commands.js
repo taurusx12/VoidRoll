@@ -5,6 +5,29 @@ const config = require('../src/lib/config');
 
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
+  new SlashCommandBuilder()
+    .setName('quick-sell')
+    .setDescription('Quick sell unequipped characters by rarity')
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Choose rarity to sell')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Common', value: 'COMMON' },
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Secret', value: 'SECRET' }
+        )
+    )
+    .addStringOption(o =>
+      o.setName('confirm')
+        .setDescription('Type YES to confirm selling')
+        .setRequired(false)
+        .addChoices({ name: 'YES', value: 'YES' })
+    ),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),

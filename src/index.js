@@ -3802,6 +3802,99 @@ async function hxHardHandler(i,userId,commandName){
 }
 // ===== END HARD OVERRIDE FIX =====
 
+
+// ===== QUICK SELL BY RARITY PATCH =====
+function qsRarityValue(rarity) {
+  return {
+    COMMON: 250,
+    RARE: 900,
+    EPIC: 2500,
+    LEGENDARY: 8000,
+    MYTHIC: 18000,
+    DIVINE: 40000,
+    SECRET: 90000
+  }[String(rarity || '').toUpperCase()] || 100;
+}
+
+async function qsQuickSellByRarity(i) {
+  const rarity = String(i.options.getString('rarity', true) || '').toUpperCase();
+  const confirm = String(i.options.getString('confirm', false) || '').toUpperCase();
+
+  if (confirm !== 'YES') {
+    return i.reply(
+      `⚠️ Quick Sell **${rarity}** will sell all unequipped owned characters with this rarity.\n` +
+      `Equipped formation characters are protected.\n\n` +
+      `Run again with **confirm:YES** to sell.`
+    );
+  }
+
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const equipped = await prisma.teamSlot.findMany({
+    where: { userId: i.user.id },
+    select: { cardId: true }
+  }).catch(() => []);
+
+  const protectedIds = new Set(equipped.map(x => x.cardId).filter(Boolean));
+
+  const cards = await prisma.userCard.findMany({
+    where: {
+      userId: i.user.id,
+      character: { rarity }
+    },
+    include: { character: true },
+    take: 1000
+  }).catch(() => []);
+
+  const sellable = cards.filter(c => !protectedIds.has(c.id));
+  const protectedCount = cards.length - sellable.length;
+
+  if (!sellable.length) {
+    return i.editReply(
+      `No unequipped **${rarity}** characters to sell.` +
+      (protectedCount ? `\nProtected equipped cards: **${protectedCount}**` : '')
+    );
+  }
+
+  const gold = sellable.reduce((sum, c) => sum + qsRarityValue(c.character.rarity), 0);
+  const ids = sellable.map(c => c.id);
+
+  await prisma.marketListing.updateMany({
+    where: { cardId: { in: ids }, status: 'ACTIVE' },
+    data: { status: 'CANCELLED' }
+  }).catch(() => null);
+
+  await prisma.userCard.deleteMany({
+    where: { id: { in: ids } }
+  }).catch(async () => {
+    for (const id of ids) {
+      await prisma.userCard.delete({ where: { id } }).catch(() => null);
+    }
+  });
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { gold: { increment: gold } }
+  }).catch(() => null);
+
+  const sample = sellable.slice(0, 10).map(c => `• ${c.character.name} • ${c.character.anime}`).join('\n');
+
+  return i.editReply(
+    `✅ **Quick Sell Complete**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Sold: **${sellable.length}** character(s)\n` +
+    `Gold gained: **${money(gold)}**\n` +
+    (protectedCount ? `Protected equipped: **${protectedCount}**\n` : '') +
+    (sample ? `\nSold examples:\n${sample}` : '')
+  );
+}
+
+async function qsQuickSellHandler(i, userId, commandName) {
+  if (commandName === 'quick-sell') return qsQuickSellByRarity(i);
+  return false;
+}
+// ===== END QUICK SELL BY RARITY PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
