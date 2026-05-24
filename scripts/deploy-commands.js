@@ -66,9 +66,8 @@ const commands = [
     .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-30').setRequired(false)),
 
   new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
-  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),
-,,
-  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),,,,
+  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),,
+  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),,
 
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
@@ -95,15 +94,15 @@ const commands = [
   new SlashCommandBuilder()
     .setName('i')
     .setDescription('Quick item roll')
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),,
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
-  new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),,
+  new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
   new SlashCommandBuilder().setName('admin-fix-variants').setDescription('Admin: fix important duplicated variants'),
   new SlashCommandBuilder().setName('admin-fix-elements').setDescription('Admin: clean wrong character elements'),
   new SlashCommandBuilder().setName('admin-fix-saber-image').setDescription('Admin: force correct female Saber image'),
   new SlashCommandBuilder().setName('admin-collapse-variants').setDescription('Admin: keep one best version per important character and restore images'),
 
-  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),,
+  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
 
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
@@ -120,7 +119,7 @@ const commands = [
         .setRequired(true)
     ),
 
-  new SlashCommandBuilder().setName('events').setDescription('Show active events'),,,
+  new SlashCommandBuilder().setName('events').setDescription('Show active events'),,
 
   new SlashCommandBuilder().setName('farm-claim').setDescription('Claim passive farm rewards'),
   new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, cores, and training info'),
@@ -190,7 +189,7 @@ const commands = [
           { name: 'Divine', value: 'DIVINE' },
           { name: 'Secret', value: 'SECRET' }
         )
-    ),,
+    ),
 
 
   new SlashCommandBuilder()
@@ -422,7 +421,7 @@ const commands = [
       o.setName('confirm')
         .setDescription('Type YES')
         .setRequired(true)
-    ),,,,
+    ),,
 
 
   new SlashCommandBuilder()

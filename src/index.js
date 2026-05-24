@@ -3116,6 +3116,19 @@ async function cleanRunFight(i, mode, autoRuns = 1) {
 
     if (!won) break;
 
+    // Re-read progress right before rewards to block duplicate spam on the same stage.
+    const latestProgress = await getOrCreateProgress(userId);
+    const sameProgress = mode === 'story'
+      ? (latestProgress.chapter === progress.chapter && latestProgress.stage === progress.stage)
+      : mode === 'tower'
+        ? (latestProgress.towerFloor === progress.towerFloor)
+        : (latestProgress.dungeonFloor === progress.dungeonFloor);
+
+    if (!sameProgress) {
+      text += `\nDuplicate run blocked: progress already advanced.`;
+      break;
+    }
+
     const rewards = cleanModeRewards(mode, required, progress);
     wins++;
     total.gold += rewards.gold;
@@ -3123,8 +3136,8 @@ async function cleanRunFight(i, mode, autoRuns = 1) {
     total.rolls += rewards.rolls;
     total.xp += rewards.xp;
 
-    await cleanGiveRewards(userId, rewards, mode);
     await cleanAdvanceProgress(userId, mode, progress);
+    await cleanGiveRewards(userId, rewards, mode);
 
     if (run % 3 === 0) await i.editReply(text.slice(-1800)).catch(() => {});
   }
@@ -3280,19 +3293,43 @@ async function cleanFinalHandler(i, userId, commandName) {
   }
 
   if (commandName === 'story' || commandName === 'tower' || commandName === 'dungeon') {
-    return cleanRunFight(i, commandName, 1);
+    return withRewardLock(i, commandName, () => cleanRunFight(i, commandName, 1));
   }
 
   if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
-    return cleanRunFight(i, commandName.replace('auto-', ''), i.options.getInteger('runs') || 10);
+    const mode = commandName.replace('auto-', '');
+    return withRewardLock(i, mode, () => cleanRunFight(i, mode, i.options.getInteger('runs') || 10));
   }
 
-  if (commandName === 'boss-rush') return cleanBossRush(i, false);
-  if (commandName === 'coop-boss-rush') return cleanBossRush(i, true);
+  if (commandName === 'boss-rush') return withRewardLock(i, 'boss-rush', () => cleanBossRush(i, false));
+  if (commandName === 'coop-boss-rush') return withRewardLock(i, 'coop-boss-rush', () => cleanBossRush(i, true));
 
   return false;
 }
 // ===== END CLEAN PATCH =====
+
+
+// ===== REWARD LOCK / ANTI SPAM PATCH =====
+const activeModeRuns = new Set();
+
+function rewardLockKey(userId, mode) {
+  return `${userId}:${mode}`;
+}
+
+async function withRewardLock(interaction, mode, fn) {
+  const key = rewardLockKey(interaction.user.id, mode);
+  if (activeModeRuns.has(key)) {
+    return interaction.reply(`⏳ You already have **${mode}** running. Wait until it finishes.`);
+  }
+
+  activeModeRuns.add(key);
+  try {
+    return await fn();
+  } finally {
+    activeModeRuns.delete(key);
+  }
+}
+// ===== END REWARD LOCK PATCH =====
 
 client.on('interactionCreate', async (i) => {
   try {
