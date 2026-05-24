@@ -6974,7 +6974,7 @@ async function arAdminHandler(i, userId, commandName) {
 // ===== NORMAL ROLL RATES + STATS PATCH =====
 // Normal /roll and /r use exact rates, no soft pity, no hard pity.
 // Rates:
-// Common 72%, Rare 22%, Epic 5.65%, Legendary 1%, Mythic 0.75%, Divine 0.1%, Secret 0.1%
+// Common 72%, Rare 22%, Epic 5.65%, Legendary 1%, Mythic 0.75%, Divine 0.1%, Secret 0.00001%
 // Roll result shows stats.
 
 function nrMoney(n) {
@@ -7158,7 +7158,7 @@ async function nrNormalRoll(i) {
         `Power: **${nrMoney(power)}**\n` +
         `${nrStatsText(card, character)}\n\n` +
         `Normal Roll Rates:\n` +
-        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.00001%`
       )
       .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
 
@@ -7186,7 +7186,7 @@ async function nrRates(i) {
     `Legendary: **1%**\n` +
     `Mythic: **0.75%**\n` +
     `Divine: **0.1%**\n` +
-    `Secret: **0.1%**\n\n` +
+    `Secret: **0.00001%**\n\n` +
     `Normal rolls have **no soft pity** and **no hard pity**.`
   );
 }
@@ -7342,7 +7342,7 @@ async function roNormalRoll(i) {
         `Power: **${roMoney(power)}**\n` +
         `${roStats(card, character)}\n\n` +
         `**Normal Roll Rates**\n` +
-        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.00001%`
       )
       .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
 
@@ -7364,7 +7364,7 @@ async function roRates(i) {
     `Legendary: **1%**\n` +
     `Mythic: **0.75%**\n` +
     `Divine: **0.1%**\n` +
-    `Secret: **0.1%**\n\n` +
+    `Secret: **0.00001%**\n\n` +
     `Normal rolls are based on rates only.\n` +
     `Pity exists only in **/pack banner**.`
   );
@@ -7798,7 +7798,7 @@ async function uxRoll(i) {
         `Power: **${uxMoney(power)}**\n` +
         `${uxStatsText(card, character)}\n\n` +
         `**Normal Roll Rates**\n` +
-        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.00001%`
       )
       .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
     if (character.imageUrl) embed.setImage(character.imageUrl);
@@ -7962,6 +7962,32 @@ async function brsHandler(i,userId,commandName){
   return false;
 }
 // ===== END BOSS RUSH DAMAGE REWARDS + ULTRA SECRET RATE PATCH =====
+
+
+// ===== SECRET RATE DISPLAY HARD FIX =====
+// Forces /rates to show Secret 0.00001% and keeps normal roll secret rate at 0.00001%.
+
+async function srHardRates(i) {
+  return i.reply(
+    `**NORMAL ROLL RATES**\n\n` +
+    `Character Roll\n` +
+    `Common: **72%**\n` +
+    `Rare: **22%**\n` +
+    `Epic: **5.65%**\n` +
+    `Legendary: **1%**\n` +
+    `Mythic: **0.75%**\n` +
+    `Divine: **0.1%**\n` +
+    `Secret: **0.00001%**\n\n` +
+    `Normal rolls are rates only.\n` +
+    `Pity exists only in **/pack banner**.`
+  );
+}
+
+async function srHardHandler(i, userId, commandName) {
+  if (commandName === 'rates' || commandName === 'rarity') return srHardRates(i);
+  return false;
+}
+// ===== END SECRET RATE DISPLAY HARD FIX =====
 
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
@@ -8144,6 +8170,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const srHandled = await srHardHandler(i, userId, commandName);
+    if (srHandled !== false) return srHandled;
 
     const brsHandled = await brsHandler(i, userId, commandName);
     if (brsHandled !== false) return brsHandled;
@@ -8474,9 +8503,9 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       return i.reply(
         `**NORMAL ROLL RATES**\n\n` +
         `Character Roll\n` +
-        `Common: 72%\nRare: 22%\nEpic: 5.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.1%\n\n` +
+        `Common: 72%\nRare: 22%\nEpic: 5.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.00001%\n\n` +
         `Item Roll\n` +
-        `Common: 65%\nRare: 26%\nEpic: 7.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.1%`
+        `Common: 65%\nRare: 26%\nEpic: 7.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.00001%`
       );
     }
 
