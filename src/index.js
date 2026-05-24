@@ -3440,9 +3440,379 @@ if (typeof fuBaseName === 'function') {
 }
 
 
+
+// ===== HARD OVERRIDE FIX: SECRETS DEDUPE + NO ID UPGRADE + DETAILED LIVE MODES =====
+// This handler must run before old handlers.
+
+function hxNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function hxCleanName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function hxKey(c) {
+  return `${hxNorm(hxCleanName(c?.name || ''))}::${hxNorm(c?.anime || '')}`;
+}
+function hxRank(c) {
+  const rarity = { SECRET: 7, DIVINE: 6, MYTHIC: 5, LEGENDARY: 4, EPIC: 3, RARE: 2, COMMON: 1 }[c?.rarity] || 0;
+  const cleanBonus = String(c?.name || '').includes('(') ? 0 : 50000000;
+  return cleanBonus + rarity * 1000000 + Number(c?.basePower || c?.power || 0);
+}
+function hxUniqueCharacters(list) {
+  const map = new Map();
+  for (const row of list) {
+    const c = row.character || row;
+    const key = hxKey(c);
+    const old = map.get(key);
+    const oldC = old ? (old.character || old) : null;
+    if (!old || hxRank(c) > hxRank(oldC)) map.set(key, row);
+  }
+  return [...map.values()];
+}
+function hxHash(v = '') {
+  let h = 0;
+  for (const ch of String(v)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+function hxRange(rarity) {
+  return { COMMON:[80,180], RARE:[190,360], EPIC:[380,700], LEGENDARY:[720,1150], MYTHIC:[1200,1750], DIVINE:[1800,2400], SECRET:[2450,3300] }[rarity] || [100,250];
+}
+function hxBasePower(c) {
+  const [min, max] = hxRange(c?.rarity || 'COMMON');
+  return min + (hxHash(`${hxCleanName(c?.name)}:${c?.anime}:${c?.rarity}`) % Math.max(1, max - min));
+}
+function hxCardPower(card) {
+  const c = card.character || card;
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  return Math.floor(hxBasePower(c) * (1 + ((level - 1) * .035)));
+}
+function hxRole(c) {
+  const n = hxNorm(c?.name || '');
+  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami|senku)/.test(n)) return 'Control';
+  if (/(c c|cc|rimuru|megumi|kakashi|sakura|orihime|shoko|chopper|tsunade)/.test(n)) return 'Support';
+  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo|naofumi)/.test(n)) return 'Tank';
+  if (/(gabimaru|killua|toji|levi|hisoka|zenitsu|yoroichi|akame|kirito)/.test(n)) return 'Assassin';
+  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren|sinbad)/.test(n)) return 'Mage';
+  return 'DPS';
+}
+function hxElement(c) {
+  const t = `${hxNorm(c?.name)} ${hxNorm(c?.anime)}`;
+  const current = String(c?.element || '').trim();
+  if (current && !['Neutral','Anime','undefined','null'].includes(current)) return current;
+  if (/(sukuna|makima|toji|ainz|dio|devil|demon|curse|muzan)/.test(t)) return 'Dark';
+  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru)/.test(t)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|void|space|time)/.test(t)) return 'Void';
+  if (/(goku|naruto|luffy|saitama|saber|artoria|all might)/.test(t)) return 'Light';
+  if (/(ace|rengoku|natsu|flame|fire|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|thunder|lightning)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit)/.test(t)) return 'Soul';
+  return 'Light';
+}
+function hxPassive(c) {
+  const n = hxNorm(c?.name || '');
+  const p = [
+    [/rimuru/, 'Predator / Great Sage: copies enemy buffs and boosts team sustain.'],
+    [/gojo/, 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [/vegeta/, 'Saiyan Pride: gains ATK after taking damage.'],
+    [/goku|gokuu/, 'Limit Breaker: ultimate damage scales with battle rounds.'],
+    [/lelouch/, 'Geass Command: controls the battlefield and boosts team ultimate charge.'],
+    [/nanami/, 'Ratio Technique: critical chance and critical damage massively increase above 70% enemy HP.'],
+    [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
+    [/aizen/, 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [/madara/, 'Uchiha Dominion: increases AoE ultimate damage.']
+  ];
+  for (const [rx, text] of p) if (rx.test(n)) return text;
+  return `${hxElement(c)} ${hxRole(c)} Passive: improves ${hxRole(c)} performance in long battles.`;
+}
+function hxStatsBlock(card) {
+  const c = card.character || card;
+  const p = hxCardPower(card);
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  const role = hxRole(c);
+  let atkS=1.05,hpS=7.2,defS=.55,spd=105,crit=15,critDmg=170,pen=0;
+  if (role==='Tank') { atkS=.72; hpS=13; defS=1.2; spd=90; crit=8; }
+  if (role==='Support') { atkS=.8; hpS=8.8; defS=.82; spd=110; crit=10; }
+  if (role==='Control') { atkS=.9; hpS=8.4; defS=.76; spd=118; crit=12; }
+  if (role==='Assassin') { atkS=1.28; hpS=5.8; defS=.42; spd=140; crit=28; critDmg=205; pen=12; }
+  if (role==='Mage') { atkS=1.34; hpS=6.1; defS=.48; spd=108; crit=17; critDmg=185; pen=22; }
+  if (/nanami/i.test(c?.name || '')) { crit=40; critDmg=235; pen=Math.max(pen,12); }
+  return `Class: **${role}** | Element: **${hxElement(c)}**
+Level **${level}/99** • ATK **${money(Math.floor(p*atkS))}** • HP **${money(Math.floor(p*hpS))}** • DEF **${money(Math.floor(p*defS))}** • SPD **${Math.floor(spd+level*.2)}
+CRIT **${crit}%** • CRIT DMG **${critDmg}%** • PEN **${pen}%**
+Character Passive: ${hxPassive(c)}`;
+}
+async function hxOwned(userId, take = 1000) {
+  const cards = await prisma.userCard.findMany({ where:{userId}, include:{character:true}, orderBy:{power:'desc'}, take });
+  return hxUniqueCharacters(cards);
+}
+async function hxFindOwned(userId, q, limit=10) {
+  const tokens = hxNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await hxOwned(userId);
+  return cards.map(card => {
+    const c = card.character;
+    const full = `${hxNorm(hxCleanName(c.name))} ${hxNorm(c.name)} ${hxNorm(c.anime)}`;
+    let score=0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 60;
+      if (hxNorm(c.name).includes(t)) score += 80;
+      if (hxNorm(c.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t=>full.includes(t))) score += 160;
+    return {card,score};
+  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||hxCardPower(b.card)-hxCardPower(a.card)).slice(0,limit).map(x=>x.card);
+}
+async function hxDedupeDB() {
+  const chars = await prisma.character.findMany({ where:{active:true}, orderBy:{basePower:'desc'} });
+  const groups = new Map();
+  for (const c of chars) {
+    const key = hxKey(c);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  let disabled = 0, groupsFixed = 0;
+  for (const [, list] of groups) {
+    if (list.length <= 1) continue;
+    const sorted = list.sort((a,b)=>hxRank(b)-hxRank(a));
+    const keep = sorted[0];
+    groupsFixed++;
+    for (const dead of sorted.slice(1)) {
+      await prisma.userCard.updateMany({ where:{characterId:dead.id}, data:{characterId:keep.id} }).catch(()=>null);
+      await prisma.character.update({ where:{id:dead.id}, data:{active:false} }).catch(()=>null);
+      disabled++;
+    }
+  }
+  return {groupsFixed, disabled};
+}
+async function hxInventoryPage(userId, page=0) {
+  const cards = await hxOwned(userId);
+  if (!cards.length) return {empty:true};
+  const safe = Math.max(0, Math.min(page, cards.length-1));
+  const card = cards[safe], c = card.character;
+  const embed = new EmbedBuilder()
+    .setTitle(`${rarityEmoji(c.rarity)} ${hxCleanName(c.name)}`)
+    .setDescription(`Anime: **${c.anime}**\nRarity: **${c.rarity}**\nPower: **${money(hxCardPower(card))}**\n${hxStatsBlock(card)}\n\nUnique Card **${safe+1}/${cards.length}**`)
+    .setColor(embedColor(getAura(c).color))
+    .setFooter({text:'Use buttons to move right/left • No ID needed'});
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hxi_prev_${safe}`).setLabel('⬅️ Left').setStyle(ButtonStyle.Secondary).setDisabled(safe <= 0),
+    new ButtonBuilder().setCustomId(`hxi_next_${safe}`).setLabel('Right ➡️').setStyle(ButtonStyle.Secondary).setDisabled(safe >= cards.length-1)
+  );
+  return {empty:false, embed, row};
+}
+async function hxEnemyPool() {
+  const chars = await prisma.character.findMany({ where:{active:true}, orderBy:{basePower:'desc'}, take:250 }).catch(()=>[]);
+  return hxUniqueCharacters(chars);
+}
+async function hxPickEnemies(count=6, offset=0) {
+  const pool = await hxEnemyPool();
+  if (!pool.length) return [{name:'Sukuna', anime:'Jujutsu Kaisen', rarity:'SECRET', basePower:3000}];
+  const arr = [];
+  for (let i=0;i<count;i++) arr.push(pool[(offset+i*13)%pool.length]);
+  return arr;
+}
+function hxNeeded(mode,p) {
+  const v = mode==='story' ? p.chapter : mode==='tower' ? p.towerFloor : p.dungeonFloor;
+  if (v>=60) return 6; if (v>=48) return 5; if (v>=36) return 4; if (v>=24) return 3; if (v>=12) return 2; return 1;
+}
+async function hxFormation(userId, f) {
+  const start = ((f-1)*6)+1;
+  const slots = await prisma.teamSlot.findMany({ where:{userId, slot:{gte:start,lte:start+5}}, include:{card:{include:{character:true}}}, orderBy:{slot:'asc'} }).catch(()=>[]);
+  return slots.map(s=>s.card).filter(Boolean);
+}
+async function hxTeams(userId,count) {
+  const fallback = await hxOwned(userId);
+  const teams=[];
+  for (let f=1; f<=count; f++) {
+    let team = await hxFormation(userId,f);
+    if (!team.length) team = fallback.slice((f-1)*6, f*6);
+    teams.push(team.slice(0,6));
+  }
+  return teams;
+}
+async function hxPower(userId,count) {
+  const teams = await hxTeams(userId,count);
+  return {teams, total: teams.flat().reduce((s,c)=>s+hxCardPower(c),0)};
+}
+function hxReq(mode,p,f) {
+  const storyIndex = ((p.chapter-1)*30)+p.stage;
+  const base = mode==='story' ? 650+storyIndex*300 : mode==='tower' ? 1100+p.towerFloor*520 : 900+p.dungeonFloor*430;
+  return Math.floor(base*(1+(f-1)*.95+(mode==='story'?Math.max(0,p.chapter-40)*.035:0)));
+}
+function hxRewards(mode,req,p) {
+  const no = mode==='story' ? (((p.chapter-1)*30)+p.stage) : mode==='tower' ? p.towerFloor : p.dungeonFloor;
+  return {gold:Math.floor(req*.8), tokens:Math.max(2,Math.floor(no/4)+2), rolls:mode==='story'?3:2, xp:mode==='story'?75:mode==='tower'?85:65};
+}
+async function hxAdvance(userId, mode, p) {
+  if (mode==='story') {
+    let stage=p.stage+1, chapter=p.chapter;
+    if(stage>30){stage=1;chapter++;}
+    if(chapter>80){chapter=80;stage=30;}
+    return prisma.storyProgress.update({where:{userId},data:{chapter,stage}}).catch(()=>null);
+  }
+  if (mode==='tower') return prisma.storyProgress.update({where:{userId},data:{towerFloor:p.towerFloor+1}}).catch(()=>null);
+  return prisma.storyProgress.update({where:{userId},data:{dungeonFloor:p.dungeonFloor+1}}).catch(()=>null);
+}
+const hxLocks = new Set();
+async function hxBattle(i,mode,runs=1) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(()=>null);
+  const key=`${i.user.id}:${mode}`;
+  if(hxLocks.has(key)) return i.editReply(`⏳ You already have **${mode}** running.`);
+  hxLocks.add(key);
+  try {
+    const max=Math.max(1,Math.min(30,runs));
+    let wins=0,total={gold:0,tokens:0,rolls:0,xp:0};
+    let out=`**${max>1?'AUTO ':''}${mode.toUpperCase()} LIVE BATTLE**\n`;
+    await i.editReply(out).catch(()=>null);
+    await new Promise(r=>setTimeout(r,1200));
+    for(let run=1;run<=max;run++){
+      const p=await getOrCreateProgress(i.user.id);
+      const f=hxNeeded(mode,p), my=await hxPower(i.user.id,f), req=hxReq(mode,p,f), enemies=await hxPickEnemies(f*6,run+(p.chapter||p.towerFloor||p.dungeonFloor||1));
+      let enemyHp=Math.max(1200,req*6), teamHp=Math.max(1200,my.total*6);
+      const title=mode==='story'?`Chapter ${p.chapter}/80 • Stage ${p.stage}/30`:mode==='tower'?`Tower Floor ${p.towerFloor}`:`Dungeon Floor ${p.dungeonFloor}`;
+      out+=`\n**${title}**\nRequired formations: **${f}** × 6 characters\nTeam HP: **${money(teamHp)}** | Enemy HP: **${money(enemyHp)}**\n`;
+      await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1200));
+      for(let round=1;round<=5;round++){
+        const team=my.teams[(round-1)%Math.max(1,my.teams.length)]||[];
+        const hero=team[(round-1)%Math.max(1,team.length)];
+        const enemy=enemies[(round-1)%enemies.length];
+        const heroName=hero?hxCleanName(hero.character.name):'Your Formation';
+        const enemyName=enemy?hxCleanName(enemy.name):'Enemy';
+        const hit=Math.floor(my.total/(4+round)+Math.random()*700);
+        const enemyHit=Math.floor(req/(5+round)+Math.random()*400);
+        enemyHp=Math.max(0,enemyHp-hit);
+        out+=`• Round ${round}: **${heroName}** attacked **${enemyName}** for **${money(hit)}**. Enemy HP left: **${money(enemyHp)}**\n`;
+        await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1300));
+        teamHp=Math.max(0,teamHp-enemyHit);
+        out+=`  **${enemyName}** countered for **${money(enemyHit)}**. Your team HP left: **${money(teamHp)}**\n`;
+        await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1300));
+        if(round===3 || enemyHp<=req*2){
+          const finisher=team[(round+1)%Math.max(1,team.length)] || hero;
+          const ult=Math.floor(hit*1.9);
+          enemyHp=Math.max(0,enemyHp-ult);
+          out+=`  🔥 **ULTIMATE! ${hxCleanName((finisher?.character||finisher||{}).name || heroName)}** used a finisher on **${enemyName}** for **${money(ult)}**. Enemy HP: **${money(enemyHp)}**\n`;
+          await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1500));
+        }
+        if(enemyHp<=0 || teamHp<=0) break;
+      }
+      const won=enemyHp<=0 || (teamHp>0 && my.total>=req);
+      if(!won){out+=`❌ **Defeat.** Enemy survived with **${money(enemyHp)} HP**.\n`; await i.editReply(out.slice(-1850)).catch(()=>null); break;}
+      const latest=await getOrCreateProgress(i.user.id);
+      const same=mode==='story'?latest.chapter===p.chapter&&latest.stage===p.stage:mode==='tower'?latest.towerFloor===p.towerFloor:latest.dungeonFloor===p.dungeonFloor;
+      if(!same){out+=`⛔ Duplicate reward blocked.\n`; await i.editReply(out.slice(-1850)).catch(()=>null); break;}
+      const rw=hxRewards(mode,req,p);
+      await hxAdvance(i.user.id,mode,p);
+      await prisma.user.update({where:{id:i.user.id},data:{gold:{increment:rw.gold},tokens:{increment:rw.tokens},rolls:{increment:rw.rolls}}}).catch(()=>null);
+      if(typeof addUserXp==='function') await addUserXp(i.user.id,rw.xp,mode).catch(()=>null);
+      wins++; total.gold+=rw.gold; total.tokens+=rw.tokens; total.rolls+=rw.rolls; total.xp+=rw.xp;
+      out+=`✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
+      await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1200));
+    }
+    out+=`\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+    return i.editReply(out.slice(-1900)).catch(()=>null);
+  } finally {hxLocks.delete(key);}
+}
+async function hxTrain(i) {
+  if(!i.deferred&&!i.replied) await i.deferReply().catch(()=>null);
+  const card=(await hxFindOwned(i.user.id,i.options.getString('name',true),1))[0];
+  if(!card)return i.editReply(`No owned character found.`);
+  const user=await prisma.user.findUnique({where:{id:i.user.id}});
+  const level=Math.max(1,Number(card.level||1));
+  const cost=500+level*250;
+  if((user?.gold||0)<cost)return i.editReply(`You need **${money(cost)} Gold** to train **${hxCleanName(card.character.name)}**.`);
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{decrement:cost}}}).catch(()=>null);
+  await prisma.userCard.update({where:{id:card.id},data:{level:level+1,power:{increment:25}}}).catch(()=>null);
+  return i.editReply(`✅ **${hxCleanName(card.character.name)}** trained!\nLevel **${level} → ${level+1}**\nNo card ID needed.`);
+}
+async function hxAscend(i) {
+  if(!i.deferred&&!i.replied) await i.deferReply().catch(()=>null);
+  const card=(await hxFindOwned(i.user.id,i.options.getString('name',true),1))[0];
+  if(!card)return i.editReply(`No owned character found.`);
+  const dupes=await prisma.userCard.findMany({where:{userId:i.user.id,characterId:card.characterId},include:{character:true},orderBy:{power:'asc'},take:10});
+  const consume=dupes.find(c=>c.id!==card.id);
+  if(!consume)return i.editReply(`You need a duplicate of **${hxCleanName(card.character.name)}** to ascend.`);
+  await prisma.userCard.delete({where:{id:consume.id}}).catch(()=>null);
+  await prisma.userCard.update({where:{id:card.id},data:{power:{increment:150}}}).catch(()=>null);
+  return i.editReply(`✨ **${hxCleanName(card.character.name)} ascended!**\nConsumed duplicate automatically.\nNo card ID needed.`);
+}
+async function hxBoss(i,coop=false) {
+  if(!i.deferred&&!i.replied) await i.deferReply().catch(()=>null);
+  const formations=coop?2:1, my=await hxPower(i.user.id,formations), enemies=await hxPickEnemies(coop?8:5,coop?50:20), boss=enemies[0];
+  let bossHp=coop?2200000:1100000, teamHp=Math.max(2000,my.total*7);
+  let out=`**${coop?'CO-OP ':'SOLO '}BOSS RUSH LIVE**\nBoss: **${hxCleanName(boss.name)}** • ${boss.anime||'Anime'}\nBoss HP: **${money(bossHp)}** | Team HP: **${money(teamHp)}**\n`;
+  await i.editReply(out).catch(()=>null); await new Promise(r=>setTimeout(r,1200));
+  for(let round=1;round<=8;round++){
+    const team=my.teams[(round-1)%Math.max(1,my.teams.length)]||[], hero=team[(round-1)%Math.max(1,team.length)];
+    const heroName=hero?hxCleanName(hero.character.name):'Your Team';
+    const hit=Math.floor(my.total/(3+round)+Math.random()*9000), bossHit=Math.floor((coop?90000:45000)+Math.random()*5000);
+    bossHp=Math.max(0,bossHp-hit); teamHp=Math.max(0,teamHp-bossHit);
+    out+=`\nRound ${round}: **${heroName}** hit **${hxCleanName(boss.name)}** for **${money(hit)}**. Boss HP: **${money(bossHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1200));
+    out+=`\nBoss countered for **${money(bossHit)}**. Team HP: **${money(teamHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,1200));
+    if(round===3||round===6){const ult=Math.floor(hit*2.2);bossHp=Math.max(0,bossHp-ult);out+=`\n🔥 **ULTIMATE! ${heroName}** dealt extra **${money(ult)}**. Boss HP: **${money(bossHp)}**`;await i.editReply(out.slice(-1850)).catch(()=>null);await new Promise(r=>setTimeout(r,1400));}
+    if(bossHp<=0||teamHp<=0)break;
+  }
+  const clear=bossHp<=0, damage=(coop?2200000:1100000)-bossHp, rw={gold:Math.floor(damage*.45),tokens:Math.max(8,Math.floor(damage/45000)),rolls:clear?10:4,xp:clear?220:100};
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{increment:rw.gold},tokens:{increment:rw.tokens},rolls:{increment:rw.rolls}}}).catch(()=>null);
+  if(typeof addUserXp==='function') await addUserXp(i.user.id,rw.xp,'boss-rush').catch(()=>null);
+  out+=`\n\n**${clear?'Boss Cleared!':'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
+  return i.editReply(out.slice(-1900)).catch(()=>null);
+}
+async function hxHardHandler(i,userId,commandName){
+  if(commandName==='admin-dedupe-characters'){
+    const confirm=i.options.getString('confirm',true);
+    if(confirm!=='YES') return i.reply('Type YES to confirm.');
+    await i.deferReply();
+    const r=await hxDedupeDB();
+    return i.editReply(`✅ MAL cleanup done.\nGroups fixed: **${r.groupsFixed}**\nDuplicate variants disabled: **${r.disabled}**`);
+  }
+  if(commandName==='secrets'){
+    const chars=hxUniqueCharacters(await prisma.character.findMany({where:{active:true,rarity:'SECRET'},orderBy:{basePower:'desc'},take:250}));
+    return i.reply((`**SECRET CHARACTERS**\n\n${chars.slice(0,25).map(c=>`**${hxCleanName(c.name)}** • ${c.anime} • PWR ${money(hxBasePower(c))}`).join('\n')}`).slice(0,1900));
+  }
+  if(commandName==='inventory'){
+    const data=await hxInventoryPage(userId,i.options.getInteger('page')||0);
+    if(data.empty)return i.reply('You do not have any cards yet.');
+    return i.reply({embeds:[data.embed],components:[data.row]});
+  }
+  if(commandName==='stats'||commandName==='inv-search'){
+    const card=(await hxFindOwned(userId,i.options.getString('name',true),10))[0];
+    if(!card)return i.reply(`No owned character found.`);
+    const c=card.character;
+    const embed=new EmbedBuilder().setTitle(`${commandName==='stats'?'Stats':'Inventory Search'}: ${hxCleanName(c.name)}`).setDescription(`${rarityEmoji(c.rarity)} **${hxCleanName(c.name)}** • ${c.anime} • PWR **${money(hxCardPower(card))}**\n${hxStatsBlock(card)}`).setColor(embedColor(getAura(c).color));
+    if(c.imageUrl)embed.setThumbnail(c.imageUrl);
+    return i.reply({embeds:[embed]});
+  }
+  if(commandName==='train') return hxTrain(i);
+  if(commandName==='ascend') return hxAscend(i);
+  if(commandName==='story') return hxBattle(i,'story',1);
+  if(commandName==='tower') return hxBattle(i,'tower',1);
+  if(commandName==='dungeon') return hxBattle(i,'dungeon',1);
+  if(commandName==='auto-story') return hxBattle(i,'story',i.options.getInteger('runs')||10);
+  if(commandName==='auto-tower') return hxBattle(i,'tower',i.options.getInteger('runs')||10);
+  if(commandName==='auto-dungeon') return hxBattle(i,'dungeon',i.options.getInteger('runs')||10);
+  if(commandName==='boss-rush') return hxBoss(i,false);
+  if(commandName==='coop-boss-rush') return hxBoss(i,true);
+  return false;
+}
+// ===== END HARD OVERRIDE FIX =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
+      if (i.customId.startsWith('hxi_')) {
+        const [, dir, raw] = i.customId.split('_');
+        const current = Number(raw || 0);
+        const next = dir === 'next' ? current + 1 : current - 1;
+        const data = await hxInventoryPage(i.user.id, next);
+        if (data.empty) return i.reply({ content: 'You do not have any cards yet.', ephemeral: true });
+        return i.update({ embeds: [data.embed], components: [data.row] });
+      }
       if (i.customId.startsWith('vri_')) {
         const [, dir, raw] = i.customId.split('_');
         const current = Number(raw || 0);
@@ -3568,6 +3938,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const hxHandled = await hxHardHandler(i, userId, commandName);
+    if (hxHandled !== false) return hxHandled;
 
     const foHandled = await foFinalHandler(i, userId, commandName);
     if (foHandled !== false) return foHandled;
