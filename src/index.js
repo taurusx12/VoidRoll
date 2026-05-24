@@ -6629,7 +6629,254 @@ async function psHandler(i, userId, commandName) {
 }
 // ===== END PACK SERIAL + IMAGES FINAL =====
 
+
+// ===== BANNER ROTATE CHANGE + DAILY CONFIRM PATCH =====
+// Changes the current banner picks and confirms the banner is date-based.
+// It updates automatically every UTC day because the seed is Math.floor(Date.now() / 86400000).
+
+async function brDailySecrets() {
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 500
+  }).catch(() => []);
+
+  const unique = [];
+  const seen = new Set();
+
+  for (const c of all) {
+    const clean = typeof psClean === 'function'
+      ? psClean(c.name)
+      : String(c.name || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+
+    const key = `${clean.toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+
+  const seed = Math.floor(Date.now() / 86400000);
+
+  // New rotation formula intentionally changed from the previous banner.
+  // This shifts today's 4 featured characters and still changes every day.
+  const picks = [];
+  if (!unique.length) return picks;
+
+  const start = (seed * 53 + 97) % unique.length;
+  const steps = [0, 37, 79, 131];
+
+  for (const step of steps) {
+    const c = unique[(start + step) % unique.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+  }
+
+  // Fill if duplicates happened because the pool is small.
+  let extra = 1;
+  while (picks.length < Math.min(4, unique.length)) {
+    const c = unique[(start + extra * 17) % unique.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    extra++;
+  }
+
+  return picks.slice(0, 4);
+}
+
+async function brPackChoices() {
+  const picks = await brDailySecrets();
+  return picks.map(c => ({
+    name: `Rate Up: ${(typeof psClean === 'function' ? psClean(c.name) : c.name)}`,
+    value: `br:${c.id}`
+  })).slice(0, 25);
+}
+
+async function brAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await brPackChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+
+async function brSelected(value) {
+  const choices = await brPackChoices();
+  let id = null;
+  const v = String(value || '');
+
+  if (v.startsWith('br:')) id = v.replace('br:', '');
+  else if (v.startsWith('ps:')) id = v.replace('ps:', '');
+  else if (v.startsWith('ul:')) id = v.replace('ul:', '');
+  else if (v.startsWith('featured:')) id = v.replace('featured:', '');
+  else id = choices[0]?.value?.replace('br:', '');
+
+  if (!id) return null;
+
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+
+async function brBanner(i) {
+  const picks = await brDailySecrets();
+  const seed = Math.floor(Date.now() / 86400000);
+  const ends = Math.floor(((seed + 1) * 86400000) / 1000);
+
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = typeof psGetPity === 'function'
+      ? await psGetPity(i.user.id, c.id)
+      : 0;
+    const clean = typeof psClean === 'function' ? psClean(c.name) : c.name;
+    lines.push(`${idx + 1}. **${clean}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `✅ Banner rotation is automatic and date-based.\n` +
+      `It changes every day at UTC reset.\n` +
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+
+async function brPickByRarity(rarity) {
+  if (typeof psPickByRarity === 'function') return psPickByRarity(rarity);
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 400 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return null;
+}
+
+async function brCreateCard(userId, character) {
+  if (typeof psCreateCard === 'function') return psCreateCard(userId, character);
+
+  return prisma.userCard.create({
+    data: {
+      id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      serial: Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000),
+      userId: String(userId),
+      characterId: String(character.id),
+      power: Number(character.basePower || 1000)
+    }
+  });
+}
+
+async function brPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await brSelected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${(typeof psMoney === 'function' ? psMoney(cost) : cost)} Tokens** for 10 pulls.\nYou have **${(typeof psMoney === 'function' ? psMoney(user?.tokens || 0) : (user?.tokens || 0))} Tokens**.`);
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = typeof psGetPity === 'function'
+    ? await psGetPity(i.user.id, selected.id)
+    : 0;
+  const before = pity;
+
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSecret = true;
+      pity = 0;
+    } else {
+      character = await brPickByRarity(rarities[n]);
+    }
+
+    if (!character) continue;
+
+    const card = await brCreateCard(i.user.id, character);
+    const clean = typeof psClean === 'function' ? psClean(character.name) : character.name;
+    const moneyText = typeof psMoney === 'function' ? psMoney(card.power || character.basePower) : (card.power || character.basePower);
+    const emoji = typeof psEmoji === 'function' ? psEmoji(character.rarity) : '⭐';
+
+    lines.push(`${n + 1}. ${emoji} **${clean}** • ${character.anime} • ${character.rarity} • PWR ${moneyText}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${emoji} ${clean}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${moneyText}**\n` +
+        (typeof psStatsText === 'function' ? `${psStatsText(card, character)}\n` : '') +
+        `Selected Rate Up: **${typeof psClean === 'function' ? psClean(selected.name) : selected.name}**\n` +
+        `This character pity: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  if (typeof psSavePity === 'function') await psSavePity(i.user.id, selected.id, pity);
+
+  const left = (user?.tokens || 0) - cost;
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${typeof psClean === 'function' ? psClean(selected.name) : selected.name}**\n` +
+      `Cost: **${typeof psMoney === 'function' ? psMoney(cost) : cost} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSecret ? `🔥 SECRET pulled! Pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${typeof psMoney === 'function' ? psMoney(left) : left}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+
+async function brHandler(i, userId, commandName) {
+  if (commandName === 'banner') return brBanner(i);
+  if (commandName === 'pack') return brPack(i);
+  return false;
+}
+// ===== END BANNER ROTATE CHANGE PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const brAuto = await brAutocomplete(i);
+      if (brAuto) return;
+      return;
+    }
+
     if (i.isAutocomplete()) {
       const psAuto = await psAutocomplete(i);
       if (psAuto) return;
@@ -6804,6 +7051,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const brHandled = await brHandler(i, userId, commandName);
+    if (brHandled !== false) return brHandled;
 
     const psHandled = await psHandler(i, userId, commandName);
     if (psHandled !== false) return psHandled;
