@@ -3666,6 +3666,308 @@ async function fastNoHangHandler(i, userId, commandName) {
 }
 // ===== END NO-HANG MODES PATCH =====
 
+
+// ===== EMERGENCY CORE COMMANDS STABLE HANDLER =====
+async function emDefer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+}
+
+function emNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function emRarityEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+
+function emRole(c) {
+  if (typeof cleanRole === 'function') return cleanRole(c);
+  if (typeof finalRole === 'function') return finalRole(c);
+  if (typeof vrCharacterRole === 'function') return vrCharacterRole(c);
+  if (typeof characterRole === 'function') return characterRole(c);
+  return 'DPS';
+}
+
+function emElement(c) {
+  if (typeof cleanElement === 'function') return cleanElement(c);
+  if (typeof finalElement === 'function') return finalElement(c);
+  if (typeof vrSafeElement === 'function') return vrSafeElement(c);
+  if (typeof characterElement === 'function') return characterElement(c);
+  return c?.element || 'Light';
+}
+
+function emPassive(c) {
+  if (typeof cleanPassive === 'function') return cleanPassive(c);
+  if (typeof finalPassive === 'function') return finalPassive(c);
+  if (typeof vrCharacterPassive === 'function') return vrCharacterPassive(c);
+  return 'Battle Instinct: ATK rises every round.';
+}
+
+function emStatsBlock(card, c) {
+  if (typeof cleanStatsBlock === 'function') return cleanStatsBlock(card, c);
+  if (typeof finalFullBlock === 'function') return finalFullBlock(card, c);
+  if (typeof vrFullStatsBlock === 'function') return vrFullStatsBlock(card, c, true);
+
+  const p = Math.max(1, Number(card?.power || c?.basePower || 100));
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  const base = Math.min(p, 3500);
+  const mult = 1 + ((level - 1) * 0.03);
+  const role = emRole(c);
+  const atk = Math.floor(base * (role === 'Tank' ? 0.7 : role === 'Mage' ? 1.3 : role === 'Assassin' ? 1.25 : 1.05) * mult);
+  const hp = Math.floor(base * (role === 'Tank' ? 13 : role === 'Assassin' ? 5.8 : 7.2) * mult);
+  const def = Math.floor(base * (role === 'Tank' ? 1.2 : 0.55) * mult);
+  const crit = emNorm(c?.name).includes('nanami') ? 40 : role === 'Assassin' ? 28 : 15;
+  return `Class: **${role}** | Element: **${emElement(c)}**\nLevel **${level}/99** • ATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${role === 'Assassin' ? 138 : 105}**\nCRIT **${crit}%** • PEN **${role === 'Mage' ? 22 : role === 'Assassin' ? 12 : 0}%**\nCharacter Passive: ${emPassive(c)}`;
+}
+
+async function emFindOwned(userId, q, limit = 10) {
+  const tokens = emNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 500
+  });
+
+  return cards.map(card => {
+    const full = `${emNorm(card.character.name)} ${emNorm(card.character.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (emNorm(card.character.name).includes(t)) score += 70;
+      if (emNorm(card.character.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0)).slice(0, limit).map(x => x.card);
+}
+
+async function emGetProgress(userId) {
+  let p = await prisma.storyProgress.findUnique({ where: { userId } }).catch(() => null);
+  if (!p) {
+    p = await prisma.storyProgress.create({ data: { userId, chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 } }).catch(() => null);
+  }
+  return p || { userId, chapter: 1, stage: 1, towerFloor: 1, dungeonFloor: 1 };
+}
+
+async function emAdvance(userId, mode, p) {
+  if (mode === 'story') {
+    let stage = p.stage + 1;
+    let chapter = p.chapter;
+    if (stage > 30) { stage = 1; chapter += 1; }
+    if (chapter > 80) { chapter = 80; stage = 30; }
+    return prisma.storyProgress.update({ where: { userId }, data: { chapter, stage } }).catch(() => null);
+  }
+  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: p.towerFloor + 1 } }).catch(() => null);
+  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: p.dungeonFloor + 1 } }).catch(() => null);
+}
+
+function emNeed(mode, p) {
+  const v = mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  if (v >= 60) return 6;
+  if (v >= 48) return 5;
+  if (v >= 36) return 4;
+  if (v >= 24) return 3;
+  if (v >= 12) return 2;
+  return 1;
+}
+
+async function emTeamPower(userId, formations = 1) {
+  const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: formations * 6 });
+  return { cards, power: cards.reduce((s,c) => s + Number(c.power || 0), 0) };
+}
+
+function emRequired(mode, p, formations) {
+  const storyIndex = ((p.chapter - 1) * 30) + p.stage;
+  const base = mode === 'story' ? 650 + storyIndex * 300 : mode === 'tower' ? 1100 + p.towerFloor * 520 : 900 + p.dungeonFloor * 430;
+  const late = mode === 'story' ? Math.max(0, p.chapter - 40) * 0.035 : 0;
+  return Math.floor(base * (1 + ((formations - 1) * 0.95) + late));
+}
+
+function emRewards(mode, required, p) {
+  const progressNumber = mode === 'story' ? (((p.chapter - 1) * 30) + p.stage) : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  return { gold: Math.floor(required * 0.8), tokens: Math.max(2, Math.floor(progressNumber / 4) + 2), rolls: mode === 'story' ? 3 : 2, xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65 };
+}
+
+const emLocks = new Set();
+
+async function emRunMode(i, mode, runs = 1) {
+  await emDefer(i);
+  const userId = i.user.id;
+  const key = `${userId}:${mode}`;
+  if (emLocks.has(key)) return i.editReply(`⏳ You already have **${mode}** running.`);
+  emLocks.add(key);
+  try {
+    let wins = 0, total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
+    let out = `**${runs > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
+    const max = Math.max(1, Math.min(30, runs));
+
+    for (let run = 1; run <= max; run++) {
+      const p = await emGetProgress(userId);
+      const f = emNeed(mode, p);
+      const team = await emTeamPower(userId, f);
+      const req = emRequired(mode, p, f);
+      const label = mode === 'story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode === 'tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
+      out += `\nRun ${run}: **${label}** | F${f} | ${money(team.power)} vs ${money(req)}\n`;
+      let energy = 0;
+      for (let r = 1; r <= 3; r++) {
+        const dmg = Math.floor(team.power / (4 + r) + Math.random() * 500);
+        energy += 34;
+        out += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
+        if (energy >= 100) { out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`; energy = 0; }
+      }
+
+      const won = team.power >= req || Math.random() < Math.min(0.18, team.power / Math.max(1, req) / 5);
+      if (!won) { out += `❌ **Defeat.** Upgrade your formations.\n`; break; }
+
+      const latest = await emGetProgress(userId);
+      const same = mode === 'story' ? latest.chapter === p.chapter && latest.stage === p.stage : mode === 'tower' ? latest.towerFloor === p.towerFloor : latest.dungeonFloor === p.dungeonFloor;
+      if (!same) { out += `⛔ Duplicate reward blocked.\n`; break; }
+
+      const rw = emRewards(mode, req, p);
+      await emAdvance(userId, mode, p);
+      await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
+      if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, mode).catch(() => null);
+      wins++; total.gold += rw.gold; total.tokens += rw.tokens; total.rolls += rw.rolls; total.xp += rw.xp;
+      out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
+      if (run % 4 === 0) await i.editReply(out.slice(-1800)).catch(() => null);
+    }
+
+    out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+    return i.editReply(out.slice(-1900));
+  } finally { emLocks.delete(key); }
+}
+
+async function emCoreHandler(i, userId, commandName) {
+  // Core stable commands; everything here returns before old broken handlers.
+  if (commandName === 'bot-check') return i.reply('✅ VoidRoll is responding.');
+
+  if (commandName === 'characters-count') {
+    const total = await prisma.character.count({ where: { active: true } });
+    return i.reply(`📚 **${total}**`);
+  }
+
+  if (commandName === 'profile') {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const cards = await prisma.userCard.count({ where: { userId } });
+    return i.reply(`**${i.user.username} Profile**\nGold: **${money(user?.gold || 0)}**\nTokens: **${money(user?.tokens || 0)}**\nRolls: **${money(user?.rolls || 0)}**\nLevel: **${user?.level || 1}** | XP: **${user?.xp || 0}**\nCards: **${cards}**`);
+  }
+
+  if (commandName === 'daily') {
+    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: 15000 }, tokens: { increment: 15 }, rolls: { increment: 10 } } }).catch(() => null);
+    return i.reply('🎁 **Daily claimed:** 15,000 Gold • 15 Tokens • 10 Rolls');
+  }
+
+  if (commandName === 'roll' || commandName === 'r' || commandName === 'i') {
+    await emDefer(i);
+    const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if ((user?.rolls || 0) < amount) return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
+    await prisma.user.update({ where: { id: userId }, data: { rolls: { decrement: amount } } });
+    const lines = [];
+    const embeds = [];
+    for (let x = 0; x < amount; x++) {
+      const result = await rollCard(userId);
+      lines.push(`${x+1}. ${emRarityEmoji(result.character.rarity)} **${result.character.name}** • ${result.character.anime} • PWR ${money(result.card.power)}`);
+      if (x < 3) {
+        const embed = new EmbedBuilder()
+          .setTitle(`${x+1}. ${emRarityEmoji(result.character.rarity)} ${result.character.name}`)
+          .setDescription(`Anime: **${result.character.anime}**\nRarity: **${result.character.rarity}**\nPower: **${money(result.card.power)}**\n${emStatsBlock(result.card, result.character)}`)
+          .setColor(embedColor(getAura(result.character).color));
+        if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+        embeds.push(embed);
+      }
+    }
+    return i.editReply({ content: (`**ROLL x${amount}**\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900), embeds });
+  }
+
+  if (commandName === 'inventory') {
+    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: 25 });
+    if (!cards.length) return i.reply('You do not have any cards yet.');
+    return i.reply(`**Top Inventory**\n${cards.map((c,idx) => `${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)}`).join('\n')}`.slice(0,1900));
+  }
+
+  if (commandName === 'search') {
+    const q = i.options.getString('name', true);
+    const tokens = emNorm(q).split(/\s+/).filter(Boolean);
+    const chars = await prisma.character.findMany({ where: { active: true, OR: tokens.map(t => ({ OR: [{ name: { contains: t, mode: 'insensitive' } }, { anime: { contains: t, mode: 'insensitive' } }] })) }, take: 80 });
+    const ranked = chars.map(c => {
+      const full = `${emNorm(c.name)} ${emNorm(c.anime)}`;
+      let score = 0; for (const t of tokens) { if (full.includes(t)) score += 40; if (emNorm(c.name).includes(t)) score += 70; }
+      return { c, score };
+    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0)).slice(0,10).map(x=>x.c);
+    if (!ranked.length) return i.reply(`No characters found for **${q}**.`);
+    const first = ranked[0];
+    const embed = new EmbedBuilder().setTitle(`Search: ${q}`).setDescription(`**Best Match**\n${emRarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n${emStatsBlock({ power: first.basePower, level: 1 }, first)}\n\n**Results**\n${ranked.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)}`).join('\n')}`).setColor(embedColor(getAura(first).color));
+    if (first.imageUrl) embed.setThumbnail(first.imageUrl);
+    return i.reply({ embeds: [embed] });
+  }
+
+  if (commandName === 'inv-search' || commandName === 'stats') {
+    const q = i.options.getString('name', true);
+    const matches = await emFindOwned(userId, q, 10);
+    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
+    const first = matches[0];
+    const embed = new EmbedBuilder().setTitle(commandName === 'stats' ? `Stats: ${first.character.name}` : `Inventory Search: ${q}`).setDescription(`${emRarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${emStatsBlock(first, first.character)}${commandName === 'inv-search' ? `\n\n**Owned Results**\n${matches.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}` : ''}`).setColor(embedColor(getAura(first.character).color));
+    if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
+    return i.reply({ embeds: [embed] });
+  }
+
+  if (commandName === 'story' || commandName === 'story-start') return emRunMode(i, 'story', 1);
+  if (commandName === 'tower' || commandName === 'tower-start' || commandName === 'class-tower') return emRunMode(i, 'tower', 1);
+  if (commandName === 'dungeon' || commandName === 'dungeon-start') return emRunMode(i, 'dungeon', 1);
+  if (commandName === 'auto-story') return emRunMode(i, 'story', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-tower') return emRunMode(i, 'tower', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-dungeon') return emRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
+
+  if (commandName === 'autoteam') {
+    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
+    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: count * 6 });
+    if (!cards.length) return i.reply('You do not have any cards yet.');
+    for (let f = 1; f <= count; f++) {
+      const start = ((f-1)*6)+1;
+      await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: start+5 } } }).catch(()=>null);
+      for (let x=0; x<cards.slice((f-1)*6,f*6).length; x++) {
+        const slot = start+x, card = cards[((f-1)*6)+x];
+        await prisma.teamSlot.upsert({ where: { userId_slot: { userId, slot } }, update: { cardId: card.id }, create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id } }).catch(()=>null);
+      }
+    }
+    return i.reply(`✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**.`);
+  }
+
+  if (commandName === 'formations') {
+    const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
+    const slots = await prisma.teamSlot.findMany({ where: { userId, slot: { lte: count*6 } }, include: { card: { include: { character: true } } }, orderBy: { slot: 'asc' } }).catch(()=>[]);
+    const lines = ['**Your Formations**'];
+    for (let f=1; f<=count; f++) {
+      lines.push(`\n**Formation ${f}**`);
+      const team = slots.filter(s => s.slot >= ((f-1)*6)+1 && s.slot <= ((f-1)*6)+6).map(s=>s.card).filter(Boolean);
+      if (!team.length) lines.push('Empty.');
+      else lines.push(...team.map((c,idx)=>`${idx+1}. ${emRarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
+    }
+    return i.reply(lines.join('\n').slice(0,1900));
+  }
+
+  if (commandName === 'boss-rush' || commandName === 'coop-boss-rush') {
+    await emDefer(i);
+    const coop = commandName === 'coop-boss-rush';
+    const team = await emTeamPower(userId, coop ? 2 : 1);
+    const bossHp = coop ? 2200000 : 1100000;
+    let dmg = 0, out = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nYour Power: **${money(team.power)}**\n`;
+    for (let r=1; r<=6; r++) { const hit = Math.floor(team.power/(3+r)+Math.random()*8000); dmg += hit; out += `\nRound ${r}: dealt **${money(hit)}** damage.`; if (r===3 || r===6) out += `\n🔥 **ULTIMATE COMBO!**`; }
+    const clear = dmg >= bossHp;
+    const rw = { gold: Math.floor(dmg*.45), tokens: Math.max(8, Math.floor(dmg/45000)), rolls: clear ? 10 : 4, xp: clear ? 220 : 100 };
+    await prisma.user.update({ where: { id: userId }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(()=>null);
+    if (typeof addUserXp === 'function') await addUserXp(userId, rw.xp, 'boss-rush').catch(()=>null);
+    out += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
+    return i.editReply(out.slice(0,1900));
+  }
+
+  // Let old handlers try anything else.
+  return false;
+}
+// ===== END EMERGENCY CORE COMMANDS =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -3783,6 +4085,8 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (!i.isChatInputCommand()) return;
+
+    await emDefer(i);
 
     await cleanEnsureReply(i);
 
