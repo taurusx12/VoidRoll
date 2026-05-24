@@ -2686,6 +2686,614 @@ async function vrBossRush(interaction, mode = 'solo') {
 }
 // ===== END PATCH =====
 
+
+// ===== FINAL CLEAN SYSTEM PATCH =====
+async function cleanEnsureReply(i) {
+  if (!i.deferred && !i.replied) {
+    await i.deferReply().catch(() => null);
+  }
+}
+
+function cleanNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[.\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function cleanName(character) {
+  return cleanNorm(character?.name || '');
+}
+
+function cleanText(character) {
+  return `${cleanNorm(character?.name)} ${cleanNorm(character?.anime)}`;
+}
+
+function cleanHasName(character, keys) {
+  const n = cleanName(character);
+  return keys.some(k => n.includes(cleanNorm(k)));
+}
+
+const CLEAN_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul'];
+
+function cleanHash(v = '') {
+  let h = 0;
+  for (const ch of String(v)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+
+function cleanElement(character) {
+  const current = String(character?.element || '').trim();
+  if (current && !['Neutral','Anime','undefined','null'].includes(current)) return current;
+
+  const text = cleanText(character);
+  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse|muzan)/.test(text)) return 'Dark';
+  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid kagenou|eminence)/.test(text)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|yhwach|void|space|time|accelerator)/.test(text)) return 'Void';
+  if (/(saber|artoria|goku|naruto|luffy|saitama|all might|hero|saint)/.test(text)) return 'Light';
+  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto|endeavor|gabimaru)/.test(text)) return 'Fire';
+  if (/(killua|zenitsu|kakashi|thunder|lightning|misaka)/.test(text)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(text)) return 'Soul';
+  if (/(ice|frost|snow|todoroki)/.test(text)) return 'Ice';
+  return CLEAN_ELEMENTS[cleanHash(text) % CLEAN_ELEMENTS.length];
+}
+
+function cleanRole(character) {
+  if (cleanHasName(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet','senku'])) return 'Control';
+  if (cleanHasName(character, ['c c','cc','rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','rem'])) return 'Support';
+  if (cleanHasName(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard','naofumi'])) return 'Tank';
+  if (cleanHasName(character, ['gabimaru','killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito','yor forger'])) return 'Assassin';
+  if (cleanHasName(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad','asta'])) return 'Mage';
+  return 'DPS';
+}
+
+function cleanPassive(character) {
+  const n = cleanName(character);
+  const t = cleanText(character);
+
+  const exact = [
+    [['lelouch'], 'Geass Command: controls the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
+    [['c c','cc'], 'Immortal Witch: regenerates every round and gives extra energy to the strongest ally.'],
+    [['gabimaru'], 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after ultimate.'],
+    [['nanami'], 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
+    [['sung jin','jinwoo','jin woo'], 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
+    [['gojo'], 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [['geto'], 'Cursed Spirit Manipulation: increases summon damage and weakens enemy DEF.'],
+    [['saber','artoria'], 'Avalon: grants a starting shield and reduces burst damage.'],
+    [['gilgamesh'], 'Gate of Babylon: high penetration and massive ultimate burst.'],
+    [['makima'], 'Control Devil: lowers enemy ATK and increases control chance.'],
+    [['reze'], 'Bomb Devil: ultimate applies explosive burst damage over time.'],
+    [['denji'], 'Chainsaw Heart: lifesteal and damage increase when HP is low.'],
+    [['power'], 'Blood Fiend: crit chance rises after taking damage.'],
+    [['aki hayakawa'], 'Future Contract: chance to dodge and counter.'],
+    [['luffy'], 'Nika Rhythm: gains ATK and speed every round.'],
+    [['zoro'], 'Three Sword Style: critical damage increases against bosses.'],
+    [['sanji'], 'Diable Jambe: fire damage and dodge chance.'],
+    [['law'], 'Room: ignores part of enemy DEF and increases team penetration.'],
+    [['naruto'], 'Nine-Tails Chakra: small healing and Light ally boost.'],
+    [['sasuke'], 'Sharingan: crit and counter chance.'],
+    [['itachi'], 'Tsukuyomi: chance to delay enemy ultimate.'],
+    [['madara'], 'Uchiha Dominion: increases AoE ultimate damage.'],
+    [['obito'], 'Kamui: dodge chance and enemy accuracy reduction.'],
+    [['pain','nagato'], 'Rinnegan Pressure: lowers enemy DEF and control resistance.'],
+    [['ichigo'], 'Bankai Pressure: Soul damage and speed increase.'],
+    [['aizen'], 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [['rukia'], 'Sode no Shirayuki: Ice damage and enemy speed reduction.'],
+    [['kenpachi'], 'Battle Thirst: ATK rises as HP drops.'],
+    [['killua'], 'Godspeed: very high speed and crit burst.'],
+    [['gon'], 'Jajanken: huge single-target ultimate damage.'],
+    [['kurapika'], 'Chain Judgment: bonus damage against villain teams.'],
+    [['hisoka'], 'Bungee Gum: dodge chance and critical damage.'],
+    [['chrollo'], 'Skill Hunter: copies a minor enemy buff.'],
+    [['toji'], 'Heavenly Restriction: ignores part of enemy DEF.'],
+    [['sukuna'], 'Malevolent Shrine: executes weakened enemies and boosts Dark damage.'],
+    [['yuji'], 'Black Flash Chain: crit chance increases after each attack.'],
+    [['megumi'], 'Ten Shadows: summons add bonus Shadow damage.'],
+    [['nobara'], 'Resonance: marks enemies and increases team burst damage.'],
+    [['yuta'], 'Rika Bond: support shield and curse burst.'],
+    [['rimuru'], 'Predator: copies a small part of enemy buffs.'],
+    [['ainz'], 'Overlord: boosts Dark allies and lowers enemy resistance.'],
+    [['albedo'], 'Guardian Overseer: shields frontline and boosts Tank DEF.'],
+    [['vegeta'], 'Saiyan Pride: gains ATK after taking damage.'],
+    [['goku'], 'Limit Breaker: ultimate damage scales with battle rounds.'],
+    [['saitama'], 'One Punch Pressure: massive single-hit scaling against bosses.'],
+    [['tanjiro'], 'Hinokami Kagura: Fire burst and small team heal.'],
+    [['nezuko'], 'Demon Blood Art: team regen and Dark resistance.'],
+    [['zenitsu'], 'Thunder Breathing: first ultimate charges faster.'],
+    [['inosuke'], 'Beast Instinct: bonus crit and lifesteal.'],
+    [['rengoku'], 'Flame Hashira: boosts Fire allies and frontline damage.'],
+    [['todoroki'], 'Half-Cold Half-Hot: alternates Ice slow and Fire burst.'],
+    [['bakugo'], 'Explosion Rush: crit damage increases after ultimate.'],
+    [['midoriya','deku'], 'One For All: ATK and speed scale through rounds.'],
+    [['all might'], 'Symbol of Peace: protects allies and boosts Light damage.'],
+    [['levi'], 'Humanity’s Strongest: high dodge and boss damage.'],
+    [['eren'], 'Titan Shifter: gains HP and ATK after first ultimate.'],
+    [['mikasa'], 'Ackerman Instinct: crit chance and counterattack.']
+  ];
+
+  for (const [keys, passive] of exact) {
+    if (keys.some(k => n.includes(cleanNorm(k)))) return passive;
+  }
+
+  if (t.includes('code geass')) return 'Tactical Order: increases control chance and ultimate charge.';
+  if (t.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
+  if (t.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
+  if (t.includes('jujutsu')) return 'Cursed Energy: penetration and control resistance.';
+  if (t.includes('jigokuraku') || t.includes('hells paradise')) return 'Tao Flow: dodge and burst damage rise after ultimate.';
+  if (t.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
+  if (t.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
+  if (t.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
+  if (t.includes('hunter')) return 'Nen Flow: crit and energy regen.';
+  if (t.includes('demon slayer')) return 'Breathing Style: speed and burst damage.';
+  if (t.includes('dragon ball')) return 'Ki Surge: ATK increases each round.';
+
+  const role = cleanRole(character);
+  const element = cleanElement(character);
+  const options = {
+    Tank: [`Iron Guard: +DEF scaling and ${element} resistance.`, 'Frontline Wall: absorbs part of ally damage.', 'Last Stand: gains shield when HP is low.'],
+    Support: ['Battle Support: increases team energy regen.', 'Guardian Aid: grants small shield to weakest ally.', 'Tactical Heal: improves sustain during long fights.'],
+    Control: ['Mind Game: reduces enemy ultimate charge.', 'Pressure Field: lowers enemy accuracy.', 'Command Aura: increases control chance.'],
+    Assassin: ['Killer Tempo: high crit after first attack.', 'Silent Step: bonus speed and dodge chance.', 'Weak Point: ignores part of DEF.'],
+    Mage: [`${element} Burst: ultimate damage scales with penetration.`, 'Arcane Pressure: weakens enemy resistance.', 'Mana Surge: faster ultimate charge.'],
+    DPS: ['Battle Instinct: ATK rises every round.', 'Power Strike: bonus damage to bosses.', `${element} Edge: basic attacks gain elemental damage.`]
+  };
+  const arr = options[role] || options.DPS;
+  return arr[cleanHash(t) % arr.length];
+}
+
+const CLEAN_TEAMUPS = [
+  { name: 'Zero Requiem', keys: ['lelouch','c c'], buff: '+20% control chance, +15% ultimate charge' },
+  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
+  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
+  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
+  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
+  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
+  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% penetration, +12% shield' },
+  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
+  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
+  { name: 'Saiyan Rivalry', keys: ['goku','vegeta'], buff: '+18% ATK after round 3' },
+  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ultimate charge' },
+  { name: 'Demon Slayer Trio', keys: ['tanjiro','zenitsu','inosuke'], buff: '+12% speed, +12% crit' },
+  { name: 'Shadow Army', keys: ['sung jin','igris'], buff: '+15% Shadow damage' },
+  { name: 'Akatsuki Pressure', keys: ['pain','obito','itachi'], buff: '+15% Dark damage, enemy DEF down' }
+];
+
+function cleanTeamUpsForCharacter(character) {
+  const n = cleanName(character);
+  return CLEAN_TEAMUPS
+    .filter(rule => rule.keys.some(k => n.includes(cleanNorm(k))))
+    .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
+}
+
+function cleanTeamUpsForCards(cards) {
+  const names = cards.map(c => cleanName(c.character || c)).join(' | ');
+  const active = [];
+  for (const rule of CLEAN_TEAMUPS) {
+    if (rule.keys.every(k => names.includes(cleanNorm(k)))) active.push(rule);
+  }
+
+  const counts = {};
+  for (const c of cards) {
+    const e = cleanElement(c.character || c);
+    counts[e] = (counts[e] || 0) + 1;
+  }
+  for (const [element, count] of Object.entries(counts)) {
+    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team damage and HP' : '+12% team damage and HP' });
+  }
+
+  return active;
+}
+
+function cleanRarityBase(rarity) {
+  return {
+    COMMON: 80,
+    RARE: 180,
+    EPIC: 360,
+    LEGENDARY: 700,
+    MYTHIC: 1200,
+    DIVINE: 1900,
+    SECRET: 2800
+  }[rarity] || 100;
+}
+
+function cleanStats(card, character) {
+  const rarity = character?.rarity || 'COMMON';
+  const role = cleanRole(character);
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+
+  // Balanced scaling: level 99 is strong, not broken.
+  const base = Math.max(cleanRarityBase(rarity), Number(character?.basePower || card?.power || cleanRarityBase(rarity)));
+  const normalized = Math.max(cleanRarityBase(rarity), Math.min(base, cleanRarityBase(rarity) * 4));
+  const levelMult = 1 + ((level - 1) * 0.028);
+
+  let atkScale = 1.0, hpScale = 7.0, defScale = 0.55, spd = 100, crit = 10, critDmg = 150, pen = 0, energy = 100, shield = 0;
+
+  if (role === 'Tank') { atkScale = 0.72; hpScale = 13; defScale = 1.2; spd = 88; shield = 18; crit = 7; }
+  if (role === 'Support') { atkScale = 0.78; hpScale = 8.6; defScale = 0.82; spd = 108; energy = 135; shield = 10; }
+  if (role === 'Control') { atkScale = 0.88; hpScale = 8.2; defScale = 0.76; spd = 116; energy = 125; crit = 12; }
+  if (role === 'Assassin') { atkScale = 1.28; hpScale = 5.6; defScale = 0.42; spd = 138; crit = 28; critDmg = 205; pen = 12; }
+  if (role === 'Mage') { atkScale = 1.34; hpScale = 6.0; defScale = 0.48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
+  if (role === 'DPS') { atkScale = 1.14; hpScale = 7.0; defScale = 0.56; spd = 104; crit = 16; critDmg = 175; }
+
+  if (cleanHasName(character, ['nanami'])) { crit = 40; critDmg = 235; pen = Math.max(pen, 12); }
+  if (cleanHasName(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 16; }
+
+  return {
+    atk: Math.floor(normalized * atkScale * levelMult),
+    hp: Math.floor(normalized * hpScale * levelMult),
+    def: Math.floor(normalized * defScale * levelMult),
+    spd: Math.floor(spd + (level * 0.2)),
+    crit,
+    critDmg,
+    pen,
+    energy,
+    shield
+  };
+}
+
+function cleanStatsBlock(card, character) {
+  const s = cleanStats(card, character);
+  const teamups = cleanTeamUpsForCharacter(character);
+  return (
+    `Class: **${cleanRole(character)}** | Element: **${cleanElement(character)}**\n` +
+    `Level **${Math.max(1, Math.min(99, Number(card?.level || 1)))}/99** • ATK **${money(s.atk)}** • HP **${money(s.hp)}** • DEF **${money(s.def)}** • SPD **${s.spd}**\n` +
+    `CRIT **${s.crit}%** • CRIT DMG **${s.critDmg}%** • PEN **${s.pen}%** • Energy **${s.energy}%** • Shield **${s.shield}%**\n` +
+    `Character Passive: ${cleanPassive(character)}` +
+    (teamups.length ? `\n\nTeam Up Buffs:\n${teamups.join('\n')}` : `\n\nTeam Up Buffs:\nNone`)
+  );
+}
+
+async function cleanFindOwned(userId, q) {
+  const tokens = cleanNorm(q).split(/\s+/).filter(Boolean);
+  const owned = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 400
+  });
+
+  return owned
+    .map(card => {
+      const full = cleanText(card.character);
+      let score = 0;
+      for (const t of tokens) {
+        if (full.includes(t)) score += 50;
+        if (cleanName(card.character).includes(t)) score += 70;
+        if (cleanNorm(card.character.anime).includes(t)) score += 30;
+      }
+      if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+      return { card, score };
+    })
+    .filter(x => x.score > 0)
+    .sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))
+    .map(x => x.card);
+}
+
+async function cleanGetFormation(userId, formation) {
+  const start = ((formation - 1) * 6) + 1;
+  const end = start + 5;
+  const slots = await prisma.teamSlot.findMany({
+    where: { userId, slot: { gte: start, lte: end } },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+  return slots.map(s => s.card).filter(Boolean).slice(0, 6);
+}
+
+async function cleanSetFormation(userId, formation, cards) {
+  const start = ((formation - 1) * 6) + 1;
+  const end = start + 5;
+  await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: end } } }).catch(() => {});
+  for (let i = 0; i < Math.min(6, cards.length); i++) {
+    const slot = start + i;
+    await prisma.teamSlot.upsert({
+      where: { userId_slot: { userId, slot } },
+      update: { cardId: cards[i].id },
+      create: { id: `${userId}_${slot}`, userId, slot, cardId: cards[i].id }
+    }).catch(async () => {
+      await prisma.teamSlot.create({ data: { id: `${userId}_${Date.now()}_${slot}`, userId, slot, cardId: cards[i].id } }).catch(() => {});
+    });
+  }
+}
+
+async function cleanFormationPower(userId, count = 1) {
+  const owned = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: count * 6
+  });
+
+  const teams = [];
+  let total = 0;
+  const buffs = [];
+
+  for (let f = 1; f <= count; f++) {
+    let team = await cleanGetFormation(userId, f);
+    if (!team.length) team = owned.slice((f - 1) * 6, f * 6);
+    teams.push(team);
+
+    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
+    const b = cleanTeamUpsForCards(team);
+    total += Math.floor(base * (1 + b.length * 0.08));
+    buffs.push(...b.map(x => `${x.name}: ${x.buff}`));
+  }
+
+  return { teams, power: total, buffs: [...new Set(buffs)] };
+}
+
+function cleanFormationNeeded(mode, progress) {
+  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
+  if (value >= 60) return 6;
+  if (value >= 48) return 5;
+  if (value >= 36) return 4;
+  if (value >= 24) return 3;
+  if (value >= 12) return 2;
+  return 1;
+}
+
+function cleanModeRewards(mode, required, progress) {
+  const progressNumber = mode === 'story'
+    ? (((progress.chapter - 1) * 30) + progress.stage)
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+  return {
+    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
+    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
+    rolls: mode === 'story' ? 3 : 2,
+    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
+  };
+}
+
+async function cleanGiveRewards(userId, rewards, mode) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      gold: { increment: rewards.gold },
+      tokens: { increment: rewards.tokens },
+      rolls: { increment: rewards.rolls }
+    }
+  });
+  if (typeof addUserXp === 'function') await addUserXp(userId, rewards.xp, mode).catch(() => null);
+}
+
+async function cleanAdvanceProgress(userId, mode, progress) {
+  if (mode === 'story') {
+    let nextStage = progress.stage + 1;
+    let nextChapter = progress.chapter;
+    if (nextStage > 30) { nextStage = 1; nextChapter += 1; }
+    if (nextChapter > 80) { nextChapter = 80; nextStage = 30; }
+    return prisma.storyProgress.update({ where: { userId }, data: { chapter: nextChapter, stage: nextStage } });
+  }
+  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: progress.towerFloor + 1 } });
+  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: progress.dungeonFloor + 1 } });
+}
+
+async function cleanRunFight(i, mode, autoRuns = 1) {
+  const userId = i.user.id;
+  const maxRuns = Math.max(1, Math.min(30, autoRuns));
+  let wins = 0;
+  const total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
+  let text = `**${autoRuns > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
+
+  for (let run = 1; run <= maxRuns; run++) {
+    const progress = await getOrCreateProgress(userId);
+    const formations = cleanFormationNeeded(mode, progress);
+    const fp = await cleanFormationPower(userId, formations);
+    const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+
+    const baseRequired = mode === 'story'
+      ? 650 + storyIndex * 300
+      : mode === 'tower'
+        ? 1100 + progress.towerFloor * 520
+        : 900 + progress.dungeonFloor * 430;
+
+    // late game becomes much harder
+    const lateMultiplier = 1 + (formations - 1) * 0.95 + (mode === 'story' ? Math.max(0, progress.chapter - 40) * 0.035 : 0);
+    const required = Math.floor(baseRequired * lateMultiplier);
+
+    const title = mode === 'story'
+      ? `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`
+      : mode === 'tower'
+        ? `Tower Floor ${progress.towerFloor}`
+        : `Dungeon Floor ${progress.dungeonFloor}`;
+
+    let fightLog = `\nRun ${run}: **${title}** | Formations **${formations}** | ${money(fp.power)} vs ${money(required)}\n`;
+
+    let energy = 0;
+    for (let round = 1; round <= 4; round++) {
+      const dmg = Math.floor((fp.power / (4 + round)) * (1 + fp.buffs.length * 0.06) + Math.random() * 600);
+      energy += 28 + fp.buffs.length * 2;
+      fightLog += `• Round ${round}: team dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
+      if (energy >= 100) {
+        const ult = Math.floor(dmg * (2.2 + Math.min(0.6, fp.buffs.length * 0.08)));
+        fightLog += `  🔥 **ULTIMATE COMBO ACTIVATED!** dealt **${money(ult)}** damage!\n`;
+        energy = 0;
+      }
+    }
+
+    const won = fp.power >= required || Math.random() < Math.min(0.22, fp.power / Math.max(1, required) / 4);
+    fightLog += won ? `✅ **Victory**\n` : `❌ **Defeat**\n`;
+    text += fightLog;
+
+    if (!won) break;
+
+    const rewards = cleanModeRewards(mode, required, progress);
+    wins++;
+    total.gold += rewards.gold;
+    total.tokens += rewards.tokens;
+    total.rolls += rewards.rolls;
+    total.xp += rewards.xp;
+
+    await cleanGiveRewards(userId, rewards, mode);
+    await cleanAdvanceProgress(userId, mode, progress);
+
+    if (run % 3 === 0) await i.editReply(text.slice(-1800)).catch(() => {});
+  }
+
+  text += `\n**RESULT**\nWins: **${wins}/${maxRuns}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+  return i.editReply(text.slice(-1900));
+}
+
+async function cleanBossRush(i, coop = false) {
+  const userId = i.user.id;
+  const formations = coop ? 2 : 1;
+  const fp = await cleanFormationPower(userId, formations);
+  const bossHp = coop ? 2200000 : 1100000;
+  const bossPower = coop ? 550000 : 280000;
+
+  let damage = 0;
+  let energy = 0;
+  let text = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH**\nBoss HP: **${money(bossHp)}**\nBoss Power: **${money(bossPower)}**\nYour Power: **${money(fp.power)}**\n`;
+
+  for (let round = 1; round <= 7; round++) {
+    const hit = Math.floor((fp.power / (3 + round)) * (1 + fp.buffs.length * 0.07) + Math.random() * 8000);
+    damage += hit;
+    energy += 22 + fp.buffs.length * 2;
+    text += `\nRound ${round}: dealt **${money(hit)}** damage. Energy ${Math.min(100, energy)}/100`;
+    if (energy >= 100) {
+      const ult = Math.floor(hit * 2.7);
+      damage += ult;
+      text += `\n🔥 **BOSS RUSH ULTIMATE!** extra **${money(ult)}** damage.`;
+      energy = 0;
+    }
+  }
+
+  const clear = damage >= bossHp || fp.power >= bossPower;
+  const rewards = {
+    gold: Math.floor(damage * 0.45),
+    tokens: Math.max(8, Math.floor(damage / 45000)),
+    rolls: clear ? 10 : 4,
+    xp: clear ? 220 : 100
+  };
+  await cleanGiveRewards(userId, rewards, 'boss-rush');
+
+  text += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nTotal Damage: **${money(damage)}**\nRewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**`;
+  return i.editReply(text.slice(-1900));
+}
+
+async function cleanFinalHandler(i, userId, commandName) {
+  if (commandName === 'bot-check') return i.reply('✅ VoidRoll is responding.');
+
+  if (commandName === 'characters-count') {
+    const total = await prisma.character.count({ where: { active: true } });
+    return i.reply(`📚 **${total}**`);
+  }
+
+  if (commandName === 'search') {
+    const q = i.options.getString('name', true);
+    const tokens = cleanNorm(q).split(/\s+/).filter(Boolean);
+
+    const candidates = await prisma.character.findMany({
+      where: { active: true, OR: tokens.map(t => ({ OR: [{ name: { contains: t, mode: 'insensitive' } }, { anime: { contains: t, mode: 'insensitive' } }] })) },
+      take: 80
+    });
+
+    const chars = candidates.map(c => {
+      const full = cleanText(c);
+      let score = 0;
+      for (const t of tokens) {
+        if (full.includes(t)) score += 40;
+        if (cleanName(c).includes(t)) score += 60;
+        if (cleanNorm(c.anime).includes(t)) score += 35;
+      }
+      if (tokens.every(t => full.includes(t))) score += 140;
+      score += { SECRET: 70, DIVINE: 55, MYTHIC: 40, LEGENDARY: 28, EPIC: 16, RARE: 8, COMMON: 0 }[c.rarity] || 0;
+      return { c, score };
+    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score).slice(0, 10).map(x => x.c);
+
+    if (!chars.length) return i.reply(`No characters found for **${q}**.`);
+    const first = chars[0];
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Search: ${q}`)
+      .setDescription(`**Best Match**\n${rarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n${cleanStatsBlock({ power: first.basePower, level: 1 }, first)}\n\n**Results**\n${chars.map((c, idx) => `${idx+1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)} • ${cleanRole(c)} • ${cleanElement(c)}`).join('\n')}`)
+      .setColor(embedColor(getAura(first).color));
+    if (first.imageUrl) embed.setThumbnail(first.imageUrl);
+    return i.reply({ embeds: [embed] });
+  }
+
+  if (commandName === 'inv-search') {
+    const q = i.options.getString('name', true);
+    const matches = (await cleanFindOwned(userId, q)).slice(0, 10);
+    if (!matches.length) return i.reply(`No owned characters found for **${q}**.`);
+    const first = matches[0];
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Inventory Search: ${q}`)
+      .setDescription(`**Best Owned Match**\n${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n${cleanStatsBlock(first, first.character)}\n\n**Owned Results**\n${matches.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)} • ${cleanRole(c.character)} • ${cleanElement(c.character)}`).join('\n')}`)
+      .setColor(embedColor(getAura(first.character).color));
+    if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
+    return i.reply({ embeds: [embed] });
+  }
+
+  if (commandName === 'stats') {
+    const q = i.options.getString('name', true);
+    const matches = await cleanFindOwned(userId, q);
+    const card = matches[0] || await phase2FindUserCardByName(userId, q);
+    return i.reply(`${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n${cleanStatsBlock(card, card.character)}`);
+  }
+
+  if (commandName === 'team-buffs') {
+    const team = await cleanGetFormation(userId, 1);
+    if (!team.length) return i.reply('No formation equipped. Use /autoteam first.');
+    const buffs = cleanTeamUpsForCards(team);
+    if (!buffs.length) return i.reply('No active team-up buffs in Formation 1.');
+    return i.reply(`**Formation 1 Team Up Buffs**\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}`);
+  }
+
+  if (commandName === 'autoteam') {
+    const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
+    const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: count * 6 });
+    if (!cards.length) return i.reply('You do not have any cards yet.');
+    for (let f = 1; f <= count; f++) await cleanSetFormation(userId, f, cards.slice((f-1)*6, f*6));
+    return i.reply(`✅ Auto equipped **${count} formation(s)**. Each formation has **6 characters**. Use /formations to view.`);
+  }
+
+  if (commandName === 'formations') {
+    const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
+    const lines = [`**Your Formations**`, `6 formations max • each formation has 6 characters.`];
+    for (let f = 1; f <= count; f++) {
+      const team = await cleanGetFormation(userId, f);
+      const buffs = cleanTeamUpsForCards(team);
+      lines.push(`\n**Formation ${f}**`);
+      if (!team.length) lines.push('Empty.');
+      else {
+        lines.push(...team.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
+        if (buffs.length) lines.push(`Buffs: ${buffs.map(b => `${b.name} (${b.buff})`).join(' | ')}`);
+      }
+    }
+    return i.reply(lines.join('\n').slice(0, 1900));
+  }
+
+  if (commandName === 'formation-set') {
+    const formation = Math.max(1, Math.min(6, i.options.getInteger('formation', true)));
+    const names = ['slot1','slot2','slot3','slot4','slot5','slot6'].map(x => i.options.getString(x)).filter(Boolean);
+    const cards = [];
+    const used = new Set();
+    for (const name of names) {
+      const found = (await cleanFindOwned(userId, name))[0];
+      if (found && !used.has(found.id)) { used.add(found.id); cards.push(found); }
+    }
+    if (!cards.length) return i.reply('No owned characters found from the names you entered.');
+    await cleanSetFormation(userId, formation, cards);
+    const buffs = cleanTeamUpsForCards(cards);
+    return i.reply(`✅ **Formation ${formation} updated**\n${cards.map((c, idx) => `${idx+1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`).join('\n')}${buffs.length ? `\n\nBuffs:\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}` : ''}`);
+  }
+
+  if (commandName === 'story' || commandName === 'tower' || commandName === 'dungeon') {
+    return cleanRunFight(i, commandName, 1);
+  }
+
+  if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
+    return cleanRunFight(i, commandName.replace('auto-', ''), i.options.getInteger('runs') || 10);
+  }
+
+  if (commandName === 'boss-rush') return cleanBossRush(i, false);
+  if (commandName === 'coop-boss-rush') return cleanBossRush(i, true);
+
+  return false;
+}
+// ===== END CLEAN PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -2803,6 +3411,8 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (!i.isChatInputCommand()) return;
+
+    await cleanEnsureReply(i);
 
     await vrPrepareInteraction(i);
 

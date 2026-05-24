@@ -4,26 +4,40 @@ const { REST, Routes, SlashCommandBuilder, ChannelType } = require('discord.js')
 const config = require('../src/lib/config');
 
 const commands = [
+
   new SlashCommandBuilder().setName('bot-check').setDescription('Check if VoidRoll is responding'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
-  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),
-  new SlashCommandBuilder().setName('team-buffs').setDescription('Show current team synergy buffs'),
-  new SlashCommandBuilder().setName('boss-rush').setDescription('Solo boss rush mode'),
-  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op style boss rush mode'),,
 
   new SlashCommandBuilder()
-    .setName('formations')
-    .setDescription('Show your 6 formations, each with 6 characters')
-    .addIntegerOption(o => o.setName('count').setDescription('How many formations to show 1-6').setRequired(false)),
+    .setName('search')
+    .setDescription('Search characters')
+    .addStringOption(o => o.setName('name').setDescription('Character or anime name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('inv-search')
+    .setDescription('Search your inventory with full stats')
+    .addStringOption(o => o.setName('name').setDescription('Character or anime name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Show character stats, passive and team-up buffs')
+    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
+
+  new SlashCommandBuilder().setName('team-buffs').setDescription('Show active Formation 1 team-up buffs'),
 
   new SlashCommandBuilder()
     .setName('autoteam')
     .setDescription('Auto equip strongest characters into formations')
-    .addIntegerOption(o => o.setName('formations').setDescription('How many formations 1-6').setRequired(false)),
+    .addIntegerOption(o => o.setName('formations').setDescription('Formations 1-6').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('formations')
+    .setDescription('Show formations')
+    .addIntegerOption(o => o.setName('count').setDescription('How many formations to show 1-6').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('formation-set')
-    .setDescription('Manually set one formation using your owned characters')
+    .setDescription('Manually set one formation')
     .addIntegerOption(o => o.setName('formation').setDescription('Formation number 1-6').setRequired(true))
     .addStringOption(o => o.setName('slot1').setDescription('Character 1').setRequired(true))
     .addStringOption(o => o.setName('slot2').setDescription('Character 2').setRequired(false))
@@ -31,6 +45,30 @@ const commands = [
     .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
     .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
+
+  new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
+  new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
+  new SlashCommandBuilder().setName('dungeon').setDescription('Play dungeon battle'),
+
+  new SlashCommandBuilder()
+    .setName('auto-story')
+    .setDescription('Auto play story')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-30').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('auto-tower')
+    .setDescription('Auto play tower')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-30').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('auto-dungeon')
+    .setDescription('Auto play dungeon')
+    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-30').setRequired(false)),
+
+  new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
+  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),
+,,
+  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),,,,
 
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
@@ -57,19 +95,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName('i')
     .setDescription('Quick item roll')
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),,
 
-  new SlashCommandBuilder()
-    .setName('search')
-    .setDescription('Search for a character by name, anime, or one letter')
-    .addStringOption(o =>
-      o.setName('name')
-        .setDescription('Character/anime name or letter')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),
-  new SlashCommandBuilder().setName('stats').setDescription('Show character stats').addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
+  new SlashCommandBuilder().setName('secrets').setDescription('Show all SECRET characters'),,
   new SlashCommandBuilder().setName('admin-fix-variants').setDescription('Admin: fix important duplicated variants'),
   new SlashCommandBuilder().setName('admin-fix-elements').setDescription('Admin: clean wrong character elements'),
   new SlashCommandBuilder().setName('admin-fix-saber-image').setDescription('Admin: force correct female Saber image'),
@@ -92,46 +120,7 @@ const commands = [
         .setRequired(true)
     ),
 
-  new SlashCommandBuilder().setName('events').setDescription('Show active events'),
-
-  new SlashCommandBuilder()
-    .setName('story')
-    .setDescription('Story mode progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
-
-  new SlashCommandBuilder()
-    .setName('dungeon')
-    .setDescription('Dungeon progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
-
-  new SlashCommandBuilder()
-    .setName('tower')
-    .setDescription('Tower progress')
-    .addStringOption(o =>
-      o.setName('action')
-        .setDescription('info/start')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Info', value: 'info' },
-          { name: 'Start', value: 'start' }
-        )
-    ),
+  new SlashCommandBuilder().setName('events').setDescription('Show active events'),,,
 
   new SlashCommandBuilder().setName('farm-claim').setDescription('Claim passive farm rewards'),
   new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, cores, and training info'),
@@ -201,13 +190,7 @@ const commands = [
           { name: 'Divine', value: 'DIVINE' },
           { name: 'Secret', value: 'SECRET' }
         )
-    ),
-
-
-  new SlashCommandBuilder()
-    .setName('inv-search')
-    .setDescription('Search your own inventory')
-    .addStringOption(o => o.setName('name').setDescription('Character/anime name or letter').setRequired(true)),
+    ),,
 
 
   new SlashCommandBuilder()
@@ -439,23 +422,7 @@ const commands = [
       o.setName('confirm')
         .setDescription('Type YES')
         .setRequired(true)
-    ),
-
-
-  new SlashCommandBuilder()
-    .setName('auto-story')
-    .setDescription('Auto play story until loss')
-    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('auto-tower')
-    .setDescription('Auto play tower until loss')
-    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('auto-dungeon')
-    .setDescription('Auto play dungeon until loss')
-    .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-25').setRequired(false)),
+    ),,,,
 
 
   new SlashCommandBuilder()
