@@ -3895,6 +3895,303 @@ async function qsQuickSellHandler(i, userId, commandName) {
 }
 // ===== END QUICK SELL BY RARITY PATCH =====
 
+
+// ===== STARS ASCEND + RARITY EVOLUTION PATCH =====
+// Ascend by name, no ID. Duplicates + Gold + Tokens raise stars.
+// At specific stars, rarity can evolve up to SECRET.
+
+function saTraitStars(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Math.max(0, Math.min(6, Number(m[1] || 0))) : 0;
+}
+
+function saSetStarsTrait(trait = '', stars = 0) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Stars:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Stars:${Math.max(0, Math.min(6, stars))}`;
+}
+
+function saNextRarity(current, stars) {
+  const rarity = String(current || '').toUpperCase();
+
+  if (rarity === 'COMMON' && stars >= 5) return 'RARE';
+  if (rarity === 'RARE' && stars >= 5) return 'EPIC';
+  if (rarity === 'EPIC' && stars >= 5) return 'LEGENDARY';
+  if (rarity === 'LEGENDARY' && stars >= 5) return 'MYTHIC';
+  if (rarity === 'MYTHIC' && stars >= 4) return 'DIVINE';
+  if (rarity === 'DIVINE' && stars >= 5) return 'SECRET';
+  if (rarity === 'SECRET') return 'SECRET';
+
+  return rarity;
+}
+
+function saAscendCost(rarity, nextStars) {
+  const base = {
+    COMMON: { gold: 1500, tokens: 1 },
+    RARE: { gold: 4000, tokens: 2 },
+    EPIC: { gold: 9000, tokens: 4 },
+    LEGENDARY: { gold: 20000, tokens: 8 },
+    MYTHIC: { gold: 50000, tokens: 18 },
+    DIVINE: { gold: 95000, tokens: 35 },
+    SECRET: { gold: 150000, tokens: 55 }
+  }[String(rarity || '').toUpperCase()] || { gold: 2000, tokens: 1 };
+
+  return {
+    gold: base.gold * Math.max(1, nextStars),
+    tokens: base.tokens * Math.max(1, nextStars)
+  };
+}
+
+function saStarLine(stars) {
+  return '★'.repeat(stars) + '☆'.repeat(6 - stars);
+}
+
+async function saFindOwnedByName(userId, q, limit = 20) {
+  if (typeof hxFindOwned === 'function') return hxFindOwned(userId, q, limit);
+  if (typeof fuFindOwned === 'function') return fuFindOwned(userId, q, limit);
+  if (typeof foFindOwned === 'function') return foFindOwned(userId, q, limit);
+
+  const tokens = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 500
+  });
+
+  return cards.filter(card => {
+    const full = `${card.character.name} ${card.character.anime}`.toLowerCase();
+    return tokens.every(t => full.includes(t));
+  }).slice(0, limit);
+}
+
+async function saAscend(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const cards = await saFindOwnedByName(i.user.id, q, 50);
+
+  if (!cards.length) {
+    return i.editReply(`No owned character found for **${q}**.`);
+  }
+
+  // Pick the strongest card as the main card.
+  const sorted = cards.sort((a, b) => Number(b.power || 0) - Number(a.power || 0));
+  const main = sorted[0];
+
+  const sameCharacterDupes = await prisma.userCard.findMany({
+    where: {
+      userId: i.user.id,
+      characterId: main.characterId
+    },
+    include: { character: true },
+    orderBy: { power: 'asc' },
+    take: 20
+  });
+
+  const consume = sameCharacterDupes.find(c => c.id !== main.id);
+
+  if (!consume) {
+    return i.editReply(
+      `You need a duplicate of **${main.character.name}** to ascend.\n` +
+      `Tip: roll more or use /quick-sell only for rarities you do not need.`
+    );
+  }
+
+  const currentStars = saTraitStars(main.trait);
+  if (currentStars >= 6) {
+    return i.editReply(`**${main.character.name}** is already max stars: **${saStarLine(6)}**.`);
+  }
+
+  const nextStars = currentStars + 1;
+  const currentRarity = String(main.character.rarity || 'COMMON').toUpperCase();
+  const nextRarity = saNextRarity(currentRarity, nextStars);
+  const cost = saAscendCost(currentRarity, nextStars);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.gold || 0) < cost.gold || (user?.tokens || 0) < cost.tokens) {
+    return i.editReply(
+      `Not enough resources to ascend **${main.character.name}**.\n` +
+      `Need: **${money(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+      `You have: **${money(user?.gold || 0)} Gold** + **${user?.tokens || 0} Tokens**`
+    );
+  }
+
+  await prisma.marketListing.updateMany({
+    where: { cardId: consume.id, status: 'ACTIVE' },
+    data: { status: 'CANCELLED' }
+  }).catch(() => null);
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: {
+      gold: { decrement: cost.gold },
+      tokens: { decrement: cost.tokens }
+    }
+  });
+
+  await prisma.userCard.delete({ where: { id: consume.id } }).catch(() => null);
+
+  const powerGain = 125 + (nextStars * 75);
+  await prisma.userCard.update({
+    where: { id: main.id },
+    data: {
+      power: { increment: powerGain },
+      trait: saSetStarsTrait(main.trait, nextStars)
+    }
+  }).catch(() => null);
+
+  let rarityText = '';
+  if (nextRarity !== currentRarity) {
+    await prisma.character.update({
+      where: { id: main.characterId },
+      data: { rarity: nextRarity }
+    }).catch(() => null);
+
+    rarityText = `\n🔥 Rarity evolved: **${currentRarity} → ${nextRarity}**`;
+  }
+
+  return i.editReply(
+    `✨ **ASCEND SUCCESS**\n` +
+    `Character: **${main.character.name}**\n` +
+    `Stars: **${saStarLine(currentStars)} → ${saStarLine(nextStars)}**\n` +
+    `Consumed duplicate: **${consume.character.name}**\n` +
+    `Power gained: **+${powerGain}**\n` +
+    `Cost: **${money(cost.gold)} Gold** + **${cost.tokens} Tokens**` +
+    rarityText
+  );
+}
+
+async function saStarsInfo(i) {
+  const q = i.options.getString('name', true);
+  const card = (await saFindOwnedByName(i.user.id, q, 1))[0];
+
+  if (!card) return i.reply(`No owned character found for **${q}**.`);
+
+  const stars = saTraitStars(card.trait);
+  const rarity = String(card.character.rarity || 'COMMON').toUpperCase();
+  const nextStars = Math.min(6, stars + 1);
+  const nextRarity = saNextRarity(rarity, nextStars);
+  const cost = saAscendCost(rarity, nextStars);
+
+  return i.reply(
+    `**${card.character.name}**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Stars: **${saStarLine(stars)}**\n` +
+    `Next ascend cost: **${money(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+    (nextRarity !== rarity ? `Next rarity evolution: **${rarity} → ${nextRarity}**` : `Next rarity evolution: **None yet**`)
+  );
+}
+
+async function saHandler(i, userId, commandName) {
+  if (commandName === 'ascend') return saAscend(i);
+  if (commandName === 'stars') return saStarsInfo(i);
+  return false;
+}
+// ===== END STARS ASCEND PATCH =====
+
+
+// ===== QUICK SELL HARD FIX =====
+// Runs before old handlers so /quick-sell never goes Not Responding.
+
+function qhRarityValue(rarity) {
+  return {
+    COMMON: 250,
+    RARE: 900,
+    EPIC: 2500,
+    LEGENDARY: 8000,
+    MYTHIC: 18000,
+    DIVINE: 40000,
+    SECRET: 90000
+  }[String(rarity || '').toUpperCase()] || 100;
+}
+
+async function qhQuickSell(i) {
+  const rarity = String(i.options.getString('rarity', true) || '').toUpperCase();
+  const confirm = String(i.options.getString('confirm', false) || '').toUpperCase();
+
+  if (confirm !== 'YES') {
+    return i.reply(
+      `⚠️ **Quick Sell Preview**\n` +
+      `Rarity: **${rarity}**\n` +
+      `This will sell all **unequipped** ${rarity} characters.\n` +
+      `Formation cards are protected.\n\n` +
+      `Run again with **confirm:YES** to sell.`
+    );
+  }
+
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const equipped = await prisma.teamSlot.findMany({
+    where: { userId: i.user.id },
+    select: { cardId: true }
+  }).catch(() => []);
+
+  const protectedIds = new Set(equipped.map(x => x.cardId).filter(Boolean));
+
+  const allCards = await prisma.userCard.findMany({
+    where: { userId: i.user.id },
+    include: { character: true },
+    take: 2000
+  }).catch(() => []);
+
+  const matching = allCards.filter(c => String(c.character?.rarity || '').toUpperCase() === rarity);
+  const sellable = matching.filter(c => !protectedIds.has(c.id));
+  const protectedCount = matching.length - sellable.length;
+
+  if (!sellable.length) {
+    return i.editReply(
+      `No unequipped **${rarity}** characters to sell.` +
+      (protectedCount ? `\nProtected equipped cards: **${protectedCount}**` : '')
+    );
+  }
+
+  const gold = sellable.reduce((sum, c) => sum + qhRarityValue(c.character.rarity), 0);
+  const ids = sellable.map(c => c.id);
+
+  await prisma.marketListing.updateMany({
+    where: { cardId: { in: ids }, status: 'ACTIVE' },
+    data: { status: 'CANCELLED' }
+  }).catch(() => null);
+
+  // Delete in chunks so it does not timeout on large inventories.
+  const chunkSize = 100;
+  let deleted = 0;
+  for (let start = 0; start < ids.length; start += chunkSize) {
+    const chunk = ids.slice(start, start + chunkSize);
+    await prisma.userCard.deleteMany({ where: { id: { in: chunk } } }).catch(async () => {
+      for (const id of chunk) {
+        await prisma.userCard.delete({ where: { id } }).catch(() => null);
+      }
+    });
+    deleted += chunk.length;
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { gold: { increment: gold } }
+  }).catch(() => null);
+
+  const sample = sellable
+    .slice(0, 8)
+    .map(c => `• ${c.character.name} • ${c.character.anime}`)
+    .join('\n');
+
+  return i.editReply(
+    `✅ **Quick Sell Complete**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Sold: **${deleted}** character(s)\n` +
+    `Gold gained: **${money(gold)}**\n` +
+    (protectedCount ? `Protected equipped: **${protectedCount}**\n` : '') +
+    (sample ? `\nSold examples:\n${sample}` : '')
+  );
+}
+
+async function qhHandler(i, userId, commandName) {
+  if (commandName === 'quick-sell') return qhQuickSell(i);
+  return false;
+}
+// ===== END QUICK SELL HARD FIX =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {

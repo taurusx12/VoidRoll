@@ -6,6 +6,15 @@ const config = require('../src/lib/config');
 const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder()
+    .setName('ascend')
+    .setDescription('Ascend a character by name using duplicate + Gold + Tokens')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('stars')
+    .setDescription('Show character stars and next ascend cost')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder()
     .setName('quick-sell')
     .setDescription('Quick sell unequipped characters by rarity')
     .addStringOption(o =>
@@ -24,7 +33,7 @@ const commands = [
     )
     .addStringOption(o =>
       o.setName('confirm')
-        .setDescription('Type YES to confirm selling')
+        .setDescription('Choose YES to confirm')
         .setRequired(false)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
@@ -122,11 +131,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('train')
     .setDescription('Train a character by name using Gold')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('ascend')
-    .setDescription('Ascend a character by name using duplicate')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
