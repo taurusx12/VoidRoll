@@ -504,33 +504,133 @@ function vrStatsCompact(card, character) {
 }
 
 
-async function keepOnlyMalCharacters() {
-  const result = await prisma.character.updateMany({
-    where: {
-      NOT: {
-        id: {
-          startsWith: 'mal_'
-        }
-      }
-    },
-    data: {
-      active: false
-    }
+const VR_VALID_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul','Neutral'];
+
+function vrCleanElement(value) {
+  const raw = String(value || '').trim();
+  const found = VR_VALID_ELEMENTS.find(e => phase2Normalize(e) === phase2Normalize(raw));
+  return found || 'Neutral';
+}
+
+function vrRole(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (['lelouch','aizen','makima','kurapika','shikamaru','light yagami'].some(x => n.includes(x))) return 'Control';
+  if (['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen'].some(x => n.includes(x))) return 'Support';
+  if (['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo'].some(x => n.includes(x))) return 'Tank';
+  if (['killua','toji','levi','hisoka','zenitsu','yoroichi'].some(x => n.includes(x))) return 'Assassin';
+  if (['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem'].some(x => n.includes(x))) return 'Mage';
+  return 'DPS';
+}
+
+function vrElement(character) {
+  const n = phase2Normalize(character?.name || '');
+  const anime = phase2Normalize(character?.anime || '');
+  if (['sukuna','toji','lelouch','makima','ainz','dio','alucard'].some(x => n.includes(x))) return 'Dark';
+  if (['sung jin','shadow','igris','beru','cid kagenou'].some(x => n.includes(x) || anime.includes(x))) return 'Shadow';
+  if (['gojo','rimuru','gilgamesh','aizen','yhwach'].some(x => n.includes(x))) return 'Void';
+  if (['saber','artoria','goku','naruto','luffy','all might','saitama'].some(x => n.includes(x))) return 'Light';
+  if (['ace','rengoku','natsu','shinra','yamamoto'].some(x => n.includes(x))) return 'Fire';
+  if (['killua','zenitsu','kakashi'].some(x => n.includes(x))) return 'Lightning';
+  if (['ichigo','rukia','bleach'].some(x => n.includes(x) || anime.includes(x))) return 'Soul';
+  return vrCleanElement(character?.element || 'Neutral');
+}
+
+function vrPassive(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (n.includes('sung jin')) return 'Shadow Monarch: scales after defeating enemies.';
+  if (n.includes('gojo')) return 'Infinity: chance to ignore incoming damage.';
+  if (n.includes('saber') || n.includes('artoria')) return 'Avalon: shield and damage reduction.';
+  if (n.includes('lelouch')) return 'Geass: control and ultimate charge.';
+  if (n.includes('makima')) return 'Control Devil: weakens enemy damage.';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy.';
+  if (n.includes('madara')) return 'Uchiha Dominion: boosts AoE ultimate damage.';
+  if (n.includes('sukuna')) return 'King of Curses: executes low HP enemies.';
+  if (n.includes('killua')) return 'Godspeed: high speed and crit burst.';
+  if (n.includes('gon')) return 'Jajanken: heavy single-target ultimate.';
+  if (n.includes('kurapika')) return 'Chain Judgment: bonus vs villains.';
+  return 'Battle Instinct: small ATK and ultimate charge bonus.';
+}
+
+function vrStatsLine(card, character) {
+  const p = Math.max(1, Number(card?.power || character?.basePower || 100));
+  const role = vrRole(character);
+  const rarity = character?.rarity || 'COMMON';
+  const rarityMult = { COMMON: 0.8, RARE: 1.0, EPIC: 1.25, LEGENDARY: 1.55, MYTHIC: 2.05, DIVINE: 2.8, SECRET: 3.6 }[rarity] || 1;
+  const level = Number(card?.level || 1);
+  const levelMult = 1 + ((level - 1) * 0.04);
+
+  let atkScale = 1.05, hpScale = 7.2, defScale = 0.58, spd = 105, crit = 14, energy = 100, shield = 0, pen = 0;
+  if (role === 'Tank') { atkScale = 0.72; hpScale = 13.5; defScale = 1.22; spd = 92; shield = 20; crit = 8; }
+  if (role === 'Support') { atkScale = 0.78; hpScale = 9.0; defScale = 0.82; spd = 112; energy = 140; shield = 12; crit = 10; }
+  if (role === 'Control') { atkScale = 0.88; hpScale = 8.5; defScale = 0.76; spd = 120; energy = 128; crit = 12; }
+  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
+  if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
+  if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
+
+  const atk = Math.floor(p * atkScale * rarityMult * levelMult);
+  const hp = Math.floor(p * hpScale * rarityMult * levelMult);
+  const def = Math.floor(p * defScale * rarityMult * levelMult);
+
+  return `Class: **${role}** | Element: **${vrElement(character)}**\nATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${spd}**\nCRIT **${crit}%** • PEN **${pen}%** • Energy **${energy}%** • Shield **${shield}%**\nPassive: ${vrPassive(character)}`;
+}
+
+function vrTargetPower(rarity, seed = 1) {
+  const ranges = { COMMON: [50,150], RARE: [150,400], EPIC: [400,900], LEGENDARY: [900,1800], MYTHIC: [1800,3500], DIVINE: [3500,6000], SECRET: [6000,10000] };
+  const [min, max] = ranges[rarity] || ranges.COMMON;
+  return min + ((Math.abs(seed) * 97) % Math.max(1, max - min));
+}
+
+async function keepOnlyMalCharactersAndBalance() {
+  const disabled = await prisma.character.updateMany({
+    where: { NOT: { id: { startsWith: 'mal_' } } },
+    data: { active: false }
   });
 
-  const activeMal = await prisma.character.count({
-    where: {
-      active: true,
-      id: {
-        startsWith: 'mal_'
-      }
-    }
+  const chars = await prisma.character.findMany({
+    where: { id: { startsWith: 'mal_' } },
+    orderBy: [{ basePower: 'desc' }, { name: 'asc' }]
   });
 
-  return {
-    disabled: result.count || 0,
-    activeMal
-  };
+  let balanced = 0;
+  let fixedImages = 0;
+  const protectedNames = ['sung jin','gojo','saber','artoria','saitama','rimuru','madara','aizen','sukuna','goku','vegeta','gilgamesh','makima','lelouch','yhwach','ichigo','naruto','sasuke','luffy','kaido','shanks','ainz'];
+
+  for (let idx = 0; idx < chars.length; idx++) {
+    const c = chars[idx];
+    const n = phase2Normalize(c.name || '');
+    const rank = idx + 1;
+    let rarity =
+      rank <= Math.max(25, Math.floor(chars.length * 0.005)) ? 'SECRET' :
+      rank <= Math.max(100, Math.floor(chars.length * 0.02)) ? 'DIVINE' :
+      rank <= Math.max(250, Math.floor(chars.length * 0.06)) ? 'MYTHIC' :
+      rank <= Math.max(650, Math.floor(chars.length * 0.13)) ? 'LEGENDARY' :
+      rank <= Math.max(1500, Math.floor(chars.length * 0.28)) ? 'EPIC' :
+      rank <= Math.max(3200, Math.floor(chars.length * 0.58)) ? 'RARE' :
+      'COMMON';
+
+    if (protectedNames.some(x => n.includes(x))) rarity = 'SECRET';
+
+    const power = vrTargetPower(rarity, c.id.length + idx + c.name.length);
+    const data = {
+      rarity,
+      element: vrElement({ ...c, rarity }),
+      basePower: power,
+      baseFarm: Math.max(1, Math.floor(power / 8)),
+      baseLuck: Math.max(1, Math.floor(power / 20)),
+      active: true
+    };
+
+    if (!c.imageUrl && typeof findAnimeImage === 'function') {
+      const img = await findAnimeImage(c.name).catch(() => null);
+      if (img) { data.imageUrl = img; fixedImages++; }
+    }
+
+    await prisma.character.update({ where: { id: c.id }, data }).catch(() => {});
+    balanced++;
+  }
+
+  const activeMal = await prisma.character.count({ where: { active: true, id: { startsWith: 'mal_' } } });
+  return { disabled: disabled.count || 0, activeMal, balanced, fixedImages };
 }
 
 async function fixImportantVariants() {
@@ -1950,12 +2050,34 @@ client.on('interactionCreate', async (i) => {
     }
 
 
+    if (commandName === 'characters-count') {
+      const total = await prisma.character.count({ where: { active: true } });
+      return i.reply(`📚 **${total}**`);
+    }
+
     if (commandName === 'stats') {
       const name = i.options.getString('name', true);
       const card = await phase2FindUserCardByName(userId, name);
       return i.reply(
         `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
         vrStatsLine(card, card.character)
+      );
+    }
+
+    if (commandName === 'admin-mal-stability') {
+      if (!config.adminIds.includes(userId)) {
+        return i.reply({ content: 'Admin only.', ephemeral: true });
+      }
+
+      await i.deferReply({ ephemeral: true });
+      const result = await keepOnlyMalCharactersAndBalance();
+
+      return i.editReply(
+        `✅ MAL Global Release Stability applied.\n` +
+        `Disabled old/non-MAL: **${result.disabled}**\n` +
+        `Active MAL characters: **${result.activeMal}**\n` +
+        `Balanced: **${result.balanced}**\n` +
+        `Images fixed: **${result.fixedImages}**`
       );
     }
 
@@ -3333,22 +3455,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       await fixImportantVariants();
       return i.reply({ content: '✅ Important duplicate variants fixed.', ephemeral: true });
-    }
-
-
-    if (commandName === 'admin-mal-only') {
-      if (!config.adminIds.includes(userId)) {
-        return i.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      await i.deferReply({ ephemeral: true });
-      const result = await keepOnlyMalCharacters();
-
-      return i.editReply(
-        `✅ MAL-only roster enabled.\n` +
-        `Disabled old/non-MAL characters: **${result.disabled}**\n` +
-        `Active MAL characters: **${result.activeMal}**`
-      );
     }
 
     if (commandName === 'admin-reset-all') {
