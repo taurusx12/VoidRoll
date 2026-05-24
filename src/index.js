@@ -7376,6 +7376,202 @@ async function roHandler(i, userId, commandName) {
 }
 // ===== END NORMAL RATES ONLY PATCH =====
 
+
+// ===== UNIQUE PASSIVES FIX PATCH =====
+// Replaces only the generic "Passive: improves battle performance" style fallback.
+// Existing special passives stay as they are.
+
+function upNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function upCleanName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function upHash(str = '') {
+  let h = 0;
+  for (const ch of String(str)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+
+function upElement(c) {
+  if (typeof roElement === 'function') return roElement(c);
+  if (typeof nrElement === 'function') return nrElement(c);
+  if (typeof ofElement === 'function') return ofElement(c);
+  return c?.element || 'Light';
+}
+
+function upRole(c) {
+  if (typeof roRole === 'function') return roRole(c);
+  if (typeof nrRole === 'function') return nrRole(c);
+  if (typeof ofRole === 'function') return ofRole(c);
+  return 'DPS';
+}
+
+function upUniquePassive(c) {
+  const n = upNorm(c?.name || '');
+  const anime = upNorm(c?.anime || '');
+  const role = upRole(c);
+  const element = upElement(c);
+  const key = `${n} ${anime}`;
+
+  const specific = [
+    [/gojo/, 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [/rimuru/, 'Predator / Great Sage: copies enemy buffs, improves sustain, and boosts team energy recovery.'],
+    [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark ultimate damage.'],
+    [/goku|gokuu/, 'Limit Breaker: ATK and ultimate damage scale every round.'],
+    [/vegeta/, 'Saiyan Pride: gains ATK after taking damage and powers up after allies fall.'],
+    [/nanami/, 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
+    [/lelouch/, 'Geass Command: controls the battlefield and boosts team ultimate charge.'],
+    [/c c|^cc$/, 'Immortal Witch: regenerates each round and gives energy to the strongest ally.'],
+    [/gabimaru/, 'Ninja of the Hollow: gains dodge, poison resistance, and burst damage after ultimate.'],
+    [/makima/, 'Control Devil: lowers enemy ATK and increases control chance.'],
+    [/aizen/, 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [/madara/, 'Uchiha Dominion: increases AoE ultimate damage and pressure.'],
+    [/itachi/, 'Tsukuyomi: delays enemy ultimate and increases control chance.'],
+    [/killua/, 'Godspeed: very high speed, dodge, and crit burst.'],
+    [/gon/, 'Jajanken: huge single-target ultimate damage.'],
+    [/luffy/, 'Nika Rhythm: gains ATK and speed every round.'],
+    [/zoro/, 'Three Sword Style: increases boss damage and critical damage.'],
+    [/ichigo/, 'Bankai Pressure: Soul damage and speed increase after ultimate.'],
+    [/saber|artoria/, 'Avalon: grants a starting shield and reduces burst damage.'],
+    [/gilgamesh/, 'Gate of Babylon: increases penetration and ultimate burst damage.'],
+    [/sung jin|jinwoo|jin woo/, 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
+    [/naruto/, 'Nine-Tails Resolve: heals when low HP and boosts Light damage after ultimate.'],
+    [/sasuke/, 'Sharingan Precision: increases crit and dodge against faster enemies.'],
+    [/tanjiro/, 'Hinokami Kagura: Fire damage rises after each round and boosts boss damage.'],
+    [/zenitsu/, 'Thunderclap Flash: first attack has huge speed and crit bonus.'],
+    [/inosuke/, 'Beast Instinct: gains ATK and dodge when HP drops below 50%.'],
+    [/nezuko/, 'Demon Blood Burst: burns enemies and protects the lowest HP ally.'],
+    [/eren/, 'Titan Rage: gains DEF and ATK after taking heavy damage.'],
+    [/levi/, 'Humanity’s Strongest: high crit against bosses and elite enemies.'],
+    [/mikasa/, 'Ackerman Guard: counters attacks and protects the leader slot.'],
+    [/light yagami/, 'Death Note: chance to instantly weaken the highest ATK enemy.'],
+    [/dio/, 'The World: chance to delay enemy action and increase Dark burst.'],
+    [/jotaro/, 'Star Platinum: counters after dodging and gains crit damage.'],
+    [/deku|midoriya/, 'One For All: ATK grows every round, but DEF drops slightly after ultimate.'],
+    [/bakugo/, 'Explosion Tempo: crit damage rises after every attack.'],
+    [/todoroki/, 'Half-Cold Half-Hot: alternates Ice shields and Fire burst damage.'],
+    [/all might/, 'Symbol of Peace: boosts team ATK and reduces incoming damage in early rounds.'],
+    [/asta/, 'Anti-Magic: ignores part of enemy shields and resists control.'],
+    [/yuno/, 'Spirit Wind: increases speed and dodge for Wind/Light allies.'],
+    [/frieren/, 'Ancient Magecraft: ultimate damage scales with enemy max HP.'],
+    [/denji/, 'Chainsaw Frenzy: lifesteal and bleed damage increase against bosses.'],
+    [/power/, 'Blood Fiend: crit chance rises when allies fall below 50% HP.'],
+    [/aki/, 'Future Contract: first ultimate has bonus damage and accuracy.'],
+    [/toji/, 'Heavenly Restriction: ignores control effects and gains massive crit burst.']
+  ];
+
+  for (const [rx, text] of specific) {
+    if (rx.test(n)) return text;
+  }
+
+  // Anime-themed fallback, still unique and not the old generic text.
+  if (/jujutsu kaisen/.test(anime)) return `Cursed Flow: ${element} attacks reduce enemy DEF and build ultimate charge faster.`;
+  if (/naruto|boruto/.test(anime)) return `Shinobi Tactics: dodge and crit increase after every ultimate cycle.`;
+  if (/one piece/.test(anime)) return `Pirate Will: gains ATK when an ally attacks the same target.`;
+  if (/dragon ball/.test(anime)) return `Ki Surge: damage increases each round and spikes after taking a hit.`;
+  if (/bleach/.test(anime)) return `Spiritual Pressure: lowers enemy speed and boosts Soul/Light damage.`;
+  if (/demon slayer|kimetsu/.test(anime)) return `Breathing Focus: crit chance rises when fighting bosses or elite enemies.`;
+  if (/attack on titan|shingeki/.test(anime)) return `Survival Instinct: DEF and counter chance increase when HP is low.`;
+  if (/fate/.test(anime)) return `Noble Phantasm: ultimate damage and shield strength increase with energy.`;
+  if (/hunter x hunter/.test(anime)) return `Nen Focus: speed and penetration increase after round 2.`;
+  if (/my hero|boku no hero/.test(anime)) return `Hero Drive: protects allies and gains ATK after saving low HP teammates.`;
+  if (/black clover/.test(anime)) return `Grimoire Burst: ultimate charge and magic damage scale over time.`;
+  if (/chainsaw/.test(anime)) return `Devil Contract: lifesteal and bleed damage increase after each kill.`;
+  if (/jojo/.test(anime)) return `Stand Pressure: chance to counter and delay enemy ultimate.`;
+
+  // Deterministic unique fallback by character name, role and element.
+  const templates = {
+    Tank: [
+      `${element} Bulwark: starts battle with a shield and gains DEF after being hit.`,
+      `Last Stand: reduces burst damage and protects the weakest ally once per battle.`,
+      `Guardian Oath: increases HP scaling and reflects a small part of damage.`
+    ],
+    Support: [
+      `${element} Blessing: restores energy to the strongest ally every two rounds.`,
+      `Field Medic: heals the lowest HP ally and increases team sustain.`,
+      `Tactical Support: boosts team speed and ultimate charge after round 2.`
+    ],
+    Control: [
+      `Pressure Command: reduces enemy ultimate charge and improves control chance.`,
+      `${element} Seal: chance to weaken the enemy with the highest ATK.`,
+      `Mind Game: lowers enemy accuracy and increases ally dodge.`
+    ],
+    Assassin: [
+      `Silent Execution: bonus crit against enemies below 60% HP.`,
+      `${element} Ambush: first attack gains speed and partial DEF ignore.`,
+      `Killer Tempo: crit damage increases after every successful hit.`
+    ],
+    Mage: [
+      `${element} Overload: ultimate damage scales with penetration.`,
+      `Arcane Pulse: damages all enemies slightly after casting ultimate.`,
+      `Mana Break: lowers enemy resistance and boosts elemental burst.`
+    ],
+    DPS: [
+      `${element} Battle Rhythm: ATK rises every round and spikes after ultimate.`,
+      `Relentless Strike: consecutive attacks increase crit chance.`,
+      `Finisher Instinct: deals bonus damage to enemies below 35% HP.`
+    ]
+  };
+
+  const list = templates[role] || templates.DPS;
+  return list[upHash(`${c?.name || ''}:${c?.anime || ''}:${role}:${element}`) % list.length];
+}
+
+// Override normal roll passive only. Any already-special passive still returns same from upUniquePassive.
+if (typeof roPassive === 'function') roPassive = upUniquePassive;
+if (typeof nrPassive === 'function') nrPassive = upUniquePassive;
+if (typeof ofPassive === 'function') ofPassive = upUniquePassive;
+
+// Also patch stats/inv-search display if later handlers use this helper directly.
+async function upPassiveHandler(i, userId, commandName) {
+  if (commandName !== 'stats' && commandName !== 'inv-search') return false;
+
+  const name = i.options.getString('name', true);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 1000
+  }).catch(() => []);
+
+  const tokens = upNorm(name).split(/\s+/).filter(Boolean);
+  const match = cards.map(card => {
+    const full = `${upNorm(upCleanName(card.character.name))} ${upNorm(card.character.name)} ${upNorm(card.character.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (upNorm(card.character.name).includes(t)) score += 80;
+      if (upNorm(card.character.anime).includes(t)) score += 30;
+    }
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))[0]?.card;
+
+  if (!match) return i.reply(`No owned character found for **${name}**.`);
+
+  const c = match.character;
+  const power = Number(match.power || c.basePower || 0);
+  const embed = new EmbedBuilder()
+    .setTitle(`${commandName === 'stats' ? 'Stats' : 'Inventory Search'}: ${upCleanName(c.name)}`)
+    .setDescription(
+      `**${upCleanName(c.name)}** • ${c.anime}\n` +
+      `Rarity: **${c.rarity}** • Power: **${typeof money === 'function' ? money(power) : power}**\n` +
+      `Class: **${upRole(c)}** | Element: **${upElement(c)}**\n` +
+      `Passive: ${upUniquePassive(c)}`
+    )
+    .setColor(typeof embedColor === 'function' && typeof getAura === 'function' ? embedColor(getAura(c).color) : 0x9b59b6);
+
+  if (c.imageUrl) embed.setThumbnail(c.imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+// ===== END UNIQUE PASSIVES FIX PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -7557,6 +7753,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const upHandled = await upPassiveHandler(i, userId, commandName);
+    if (upHandled !== false) return upHandled;
 
     const roHandled = await roHandler(i, userId, commandName);
     if (roHandled !== false) return roHandled;
