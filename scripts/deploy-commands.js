@@ -49,7 +49,7 @@ const commands = [
     .addUserOption(o => o.setName('opponent').setDescription('Player to fight').setRequired(true)),
   new SlashCommandBuilder()
     .setName('admin-fix-all-for-one')
-    .setDescription('Admin: set All For One to Mythic and fix his passive'),
+    .setDescription('Admin: set All For One to Mythic and fix his passive'),,
   new SlashCommandBuilder()
     .setName('shop')
     .setDescription('Open shop to buy normal rolls with Gold'),

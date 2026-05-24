@@ -8554,11 +8554,215 @@ async function sgBuyRolls(i) {
 }
 
 async function sgShopHandler(i, userId, commandName) {
-  if (commandName === 'shop') return sgShop(i);
-  if (commandName === 'buy-rolls') return sgBuyRolls(i);
+  if (false && commandName === 'shop') return sgShop(i);
+  if (false && commandName === 'buy-rolls') return sgBuyRolls(i);
   return false;
 }
 // ===== END SHOP BUY NORMAL ROLLS WITH GOLD PATCH =====
+
+
+// ===== BUY ROLLS BIGINT FIX PATCH =====
+// Fixes: Cannot mix BigInt and other types.
+// /buy-rolls now safely handles Gold/Rolls if Prisma returns BigInt.
+
+function bgToBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined) return 0n;
+  try { return BigInt(String(v)); } catch { return 0n; }
+}
+
+function bgToNumberSafe(v) {
+  if (typeof v === 'bigint') {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+    return Number(v);
+  }
+  return Number(v || 0);
+}
+
+function bgMoney(v) {
+  const big = bgToBig(v);
+  return big.toLocaleString('en-US');
+}
+
+function bgRollCost(amount) {
+  return BigInt(Math.max(1, Math.min(100, Number(amount || 1)))) * 1000n;
+}
+
+async function bgShop(i) {
+  const embed = new EmbedBuilder()
+    .setTitle('VoidRoll Shop')
+    .setDescription(
+      `Buy **Normal Rolls** using **Gold**.\n\n` +
+      `**Prices**\n` +
+      `1 Normal Roll = **1,000 Gold**\n` +
+      `10 Normal Rolls = **10,000 Gold**\n` +
+      `50 Normal Rolls = **50,000 Gold**\n` +
+      `100 Normal Rolls = **100,000 Gold**\n\n` +
+      `Use:\n` +
+      `\`/buy-rolls amount:10\`\n\n` +
+      `Normal rolls use **/roll** and **/r**.\n` +
+      `Banner pity stays only in \`/pack banner\`.`
+    )
+    .setColor(0xf1c40f);
+
+  return i.reply({ embeds: [embed] });
+}
+
+async function bgBuyRolls(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(100, Number(i.options.getInteger('amount', true) || 1)));
+  const costBig = bgRollCost(amount);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const goldBig = bgToBig(user?.gold || 0);
+  const rollsCurrent = bgToBig(user?.rolls || 0);
+
+  if (goldBig < costBig) {
+    return i.editReply(
+      `Not enough Gold.\n` +
+      `You need **${bgMoney(costBig)} Gold** to buy **${amount} Normal Roll(s)**.\n` +
+      `You have **${bgMoney(goldBig)} Gold**.`
+    );
+  }
+
+  // Prisma can accept BigInt for BigInt columns, Number for Int columns.
+  // Try BigInt first, then fallback to Number if schema uses Int.
+  let updated = await prisma.user.update({
+    where: { id: i.user.id },
+    data: {
+      gold: { decrement: costBig },
+      rolls: { increment: BigInt(amount) }
+    }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.user.update({
+      where: { id: i.user.id },
+      data: {
+        gold: { decrement: bgToNumberSafe(costBig) },
+        rolls: { increment: amount }
+      }
+    }).catch(() => null);
+  }
+
+  if (!updated) {
+    return i.editReply('Purchase failed. Database schema rejected the update.');
+  }
+
+  return i.editReply(
+    `✅ **Purchase Complete**\n` +
+    `Bought: **${amount} Normal Roll(s)**\n` +
+    `Cost: **${bgMoney(costBig)} Gold**\n` +
+    `Gold left: **${bgMoney(goldBig - costBig)}**\n` +
+    `Rolls before: **${bgMoney(rollsCurrent)}**\n` +
+    `Rolls added: **+${amount}**`
+  );
+}
+
+async function bgShopHandler(i, userId, commandName) {
+  if (false && commandName === 'shop') return bgShop(i);
+  if (false && commandName === 'buy-rolls') return bgBuyRolls(i);
+  return false;
+}
+// ===== END BUY ROLLS BIGINT FIX PATCH =====
+
+
+// ===== BUY ROLLS ABSOLUTE BIGINT SAFE FIX =====
+// Absolute override for /buy-rolls. No atomic increment/decrement, no mixed BigInt arithmetic.
+
+function baBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined) return 0n;
+  try { return BigInt(String(v)); } catch { return 0n; }
+}
+function baNum(v) {
+  if (typeof v === 'bigint') {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+    return Number(v);
+  }
+  return Number(v || 0);
+}
+function baMoney(v) {
+  return baBig(v).toLocaleString('en-US');
+}
+function baCost(amount) {
+  return BigInt(Math.max(1, Math.min(100, Number(amount || 1)))) * 1000n;
+}
+async function baShop(i) {
+  const embed = new EmbedBuilder()
+    .setTitle('VoidRoll Shop')
+    .setDescription(
+      `Buy **Normal Rolls** using **Gold**.\n\n` +
+      `**Prices**\n` +
+      `1 Normal Roll = **1,000 Gold**\n` +
+      `10 Normal Rolls = **10,000 Gold**\n` +
+      `50 Normal Rolls = **50,000 Gold**\n` +
+      `100 Normal Rolls = **100,000 Gold**\n\n` +
+      `Use:\n\`/buy-rolls amount:10\``
+    )
+    .setColor(0xf1c40f);
+  return i.reply({ embeds: [embed] });
+}
+async function baBuyRolls(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(100, Number(i.options.getInteger('amount', true) || 1)));
+  const cost = baCost(amount);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const currentGold = baBig(user?.gold);
+  const currentRolls = baBig(user?.rolls);
+
+  if (currentGold < cost) {
+    return i.editReply(
+      `Not enough Gold.\n` +
+      `Need: **${baMoney(cost)} Gold** for **${amount} Normal Roll(s)**.\n` +
+      `You have: **${baMoney(currentGold)} Gold**.`
+    );
+  }
+
+  const newGold = currentGold - cost;
+  const newRolls = currentRolls + BigInt(amount);
+
+  // Do NOT use increment/decrement here. We set absolute values.
+  // Try BigInt columns first, then Int columns fallback.
+  let updated = await prisma.user.update({
+    where: { id: i.user.id },
+    data: {
+      gold: newGold,
+      rolls: newRolls
+    }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.user.update({
+      where: { id: i.user.id },
+      data: {
+        gold: baNum(newGold),
+        rolls: baNum(newRolls)
+      }
+    }).catch(() => null);
+  }
+
+  if (!updated) {
+    return i.editReply('Purchase failed. Could not update Gold/Rolls safely.');
+  }
+
+  return i.editReply(
+    `✅ **Purchase Complete**\n` +
+    `Bought: **${amount} Normal Roll(s)**\n` +
+    `Cost: **${baMoney(cost)} Gold**\n` +
+    `Gold left: **${baMoney(newGold)}**\n` +
+    `Rolls: **${baMoney(currentRolls)} → ${baMoney(newRolls)}**`
+  );
+}
+async function baHandler(i, userId, commandName) {
+  if (commandName === 'shop') return baShop(i);
+  if (commandName === 'buy-rolls') return baBuyRolls(i);
+  return false;
+}
+// ===== END BUY ROLLS ABSOLUTE BIGINT SAFE FIX =====
 
 client.on('interactionCreate', async (i) => {
     const uiButtonHandled = await uiButtons(i);
@@ -8744,6 +8948,12 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const baHandled = await baHandler(i, userId, commandName);
+    if (baHandled !== false) return baHandled;
+
+    const bgHandled = await bgShopHandler(i, userId, commandName);
+    if (bgHandled !== false) return bgHandled;
 
     const sgHandled = await sgShopHandler(i, userId, commandName);
     if (sgHandled !== false) return sgHandled;
