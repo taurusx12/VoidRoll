@@ -66,8 +66,8 @@ const commands = [
     .addIntegerOption(o => o.setName('runs').setDescription('Max runs 1-30').setRequired(false)),
 
   new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
-  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),,
-  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),,
+  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush style'),
+  new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),
 
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
@@ -119,7 +119,7 @@ const commands = [
         .setRequired(true)
     ),
 
-  new SlashCommandBuilder().setName('events').setDescription('Show active events'),,
+  new SlashCommandBuilder().setName('events').setDescription('Show active events'),
 
   new SlashCommandBuilder().setName('farm-claim').setDescription('Claim passive farm rewards'),
   new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, cores, and training info'),
@@ -421,7 +421,7 @@ const commands = [
       o.setName('confirm')
         .setDescription('Type YES')
         .setRequired(true)
-    ),,
+    ),
 
 
   new SlashCommandBuilder()
