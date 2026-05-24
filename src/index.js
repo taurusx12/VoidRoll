@@ -674,6 +674,8 @@ function vrStatsLine(card, character) {
   if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
   if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
   if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
+  if (finalNameHas(character, ['nanami'])) { crit = 38; pen = Math.max(pen, 12); }
+  if (finalNameHas(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 18; }
 
   const atk = Math.floor(p * atkScale * rarityMult * levelMult);
   const hp = Math.floor(p * hpScale * rarityMult * levelMult);
@@ -2101,6 +2103,15 @@ function finalText(character) {
   return `${finalNorm(character?.name)} ${finalNorm(character?.anime)}`;
 }
 
+function finalNameText(character) {
+  return finalNorm(character?.name || '');
+}
+
+function finalNameHas(character, keys) {
+  const text = finalNameText(character);
+  return keys.some(k => text.includes(finalNorm(k)));
+}
+
 function finalHas(character, keys) {
   const text = finalText(character);
   return keys.some(k => text.includes(finalNorm(k)));
@@ -2130,18 +2141,22 @@ function finalElement(character) {
 }
 
 function finalRole(character) {
-  if (finalHas(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet','senku'])) return 'Control';
-  if (finalHas(character, ['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','cc','c c','rem'])) return 'Support';
-  if (finalHas(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard','naofumi'])) return 'Tank';
-  if (finalHas(character, ['killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito','yor forger'])) return 'Assassin';
-  if (finalHas(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad','asta'])) return 'Mage';
+  if (finalNameHas(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet','senku'])) return 'Control';
+  if (finalNameHas(character, ['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','cc','c c','rem'])) return 'Support';
+  if (finalNameHas(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard','naofumi'])) return 'Tank';
+  if (finalNameHas(character, ['gabimaru','killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito','yor forger'])) return 'Assassin';
+  if (finalNameHas(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad','asta'])) return 'Mage';
   return 'DPS';
 }
 
 function finalPassive(character) {
   const t = finalText(character);
+  const n = finalNameText(character);
 
   const list = [
+    [['gabimaru'], 'Ninja of the Hollow: gains dodge chance, poison resistance, and burst damage after using ultimate.'],
+    [['nanami'], 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
+
     [['lelouch'], 'Geass Command: commands the battlefield, boosts team ultimate charge, and lowers enemy control resistance.'],
     [['c c','cc'], 'Immortal Witch: regenerates each round and gives extra energy to the strongest ally.'],
     [['sung jin','jinwoo','jin woo'], 'Shadow Monarch: summons shadow pressure after kills and stacks Shadow damage.'],
@@ -2201,13 +2216,14 @@ function finalPassive(character) {
   ];
 
   for (const [keys, passive] of list) {
-    if (keys.some(k => t.includes(finalNorm(k)))) return passive;
+    if (keys.some(k => n.includes(finalNorm(k)))) return passive;
   }
 
   if (t.includes('code geass')) return 'Tactical Order: increases control chance and ultimate charge.';
   if (t.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
   if (t.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
   if (t.includes('jujutsu')) return 'Cursed Energy: penetration and control resistance.';
+  if (t.includes('jigokuraku') || t.includes('hells paradise')) return 'Tao Flow: dodge chance and burst damage rise after ultimate.';
   if (t.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
   if (t.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
   if (t.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
@@ -2247,17 +2263,17 @@ const FINAL_TEAMUPS = [
 ];
 
 function finalTeamUpsForCharacter(character) {
-  const t = finalText(character);
+  const t = finalNameText(character);
   return FINAL_TEAMUPS
     .filter(rule => rule.keys.some(k => t.includes(finalNorm(k))))
     .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
 }
 
 function finalTeamUpsForCards(cards) {
-  const t = cards.map(c => finalText(c.character || c)).join(' | ');
+  const names = cards.map(c => finalNameText(c.character || c)).join(' | ');
   const active = [];
   for (const rule of FINAL_TEAMUPS) {
-    if (rule.keys.every(k => t.includes(finalNorm(k)))) active.push(rule);
+    if (rule.keys.every(k => names.includes(finalNorm(k)))) active.push(rule);
   }
 
   const counts = {};
@@ -2288,6 +2304,8 @@ function finalStatsLine(card, character) {
   if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
   if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
   if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
+  if (finalNameHas(character, ['nanami'])) { crit = 38; pen = Math.max(pen, 12); }
+  if (finalNameHas(character, ['gabimaru'])) { crit = Math.max(crit, 24); spd += 18; }
 
   const atk = Math.floor(p * atkScale * rarityMult * levelMult);
   const hp = Math.floor(p * hpScale * rarityMult * levelMult);
