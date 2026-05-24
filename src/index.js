@@ -1191,10 +1191,10 @@ const GOLD_SHOP_ITEMS = {
   rolls_10: { name: '10 Rolls', gold: 10000, rolls: 10 },
   rolls_25: { name: '25 Rolls', gold: 22000, rolls: 25 },
   token_1: { name: '1 Token', gold: 10000, tokens: 1 },
-  legendary_orb: { name: 'Legendary Orb Roll', gold: 300000, rarity: 'LEGENDARY' },
-  mythic_orb: { name: 'Mythic Orb Roll', gold: 900000, rarity: 'MYTHIC' },
-  divine_orb: { name: 'Divine Orb Roll', gold: 2500000, rarity: 'DIVINE' },
-  secret_orb: { name: 'Secret Orb Roll', gold: 9000000, rarity: 'SECRET' }
+  legendary_orb: { name: 'Legendary cores Roll', gold: 300000, rarity: 'LEGENDARY' },
+  mythic_orb: { name: 'Mythic cores Roll', gold: 900000, rarity: 'MYTHIC' },
+  divine_orb: { name: 'Divine cores Roll', gold: 2500000, rarity: 'DIVINE' },
+  secret_orb: { name: 'Secret cores Roll', gold: 9000000, rarity: 'SECRET' }
 };
 
 const ORB_ROLL_COSTS = {
@@ -1635,8 +1635,8 @@ async function updateProgressAfterWin(userId, mode, progress) {
       nextChapter += 1;
     }
 
-    if (nextChapter > 60) {
-      nextChapter = 60;
+    if (nextChapter > 80) {
+      nextChapter = 80;
       nextStage = 30;
     }
 
@@ -2334,6 +2334,358 @@ function finalRewards(mode, required, progress) {
   };
 }
 
+
+// ===== MODES + FORMATIONS + BOSS RUSH PATCH =====
+function vrModeTitle(mode) {
+  return mode === 'story' ? 'STORY'
+    : mode === 'tower' ? 'TOWER'
+    : mode === 'dungeon' ? 'DUNGEON'
+    : mode === 'boss-rush' ? 'BOSS RUSH'
+    : String(mode || '').toUpperCase();
+}
+
+function vrProgressText(mode, progress) {
+  if (mode === 'story') return `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`;
+  if (mode === 'tower') return `Floor ${progress.towerFloor}`;
+  if (mode === 'dungeon') return `Dungeon Floor ${progress.dungeonFloor}`;
+  return 'Battle';
+}
+
+function vrFormationNeeded(mode, progress) {
+  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
+  if (value >= 60) return 6;
+  if (value >= 48) return 5;
+  if (value >= 36) return 4;
+  if (value >= 24) return 3;
+  if (value >= 12) return 2;
+  return 1;
+}
+
+async function vrGetOwnedCards(userId, take = 54) {
+  return prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take
+  });
+}
+
+
+async function vrFindOwnedCardByNameLoose(userId, query) {
+  const tokens = phase2Normalize(query || '').replace(/[\/:_\-]+/g, ' ').split(/\s+/).filter(Boolean);
+
+  const owned = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 500
+  });
+
+  const scored = owned.map(card => {
+    const full = `${phase2Normalize(card.character.name)} ${phase2Normalize(card.character.anime)}`.replace(/[\/:_\-]+/g, ' ');
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 40;
+      if (phase2Normalize(card.character.name).includes(t)) score += 70;
+      if (phase2Normalize(card.character.anime).includes(t)) score += 25;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
+
+  return scored[0]?.card || null;
+}
+
+async function vrSetManualFormationByNames(userId, formation, names) {
+  const cards = [];
+  const used = new Set();
+
+  for (const raw of names) {
+    if (!raw || !String(raw).trim()) continue;
+    const card = await vrFindOwnedCardByNameLoose(userId, raw);
+    if (card && !used.has(card.id)) {
+      used.add(card.id);
+      cards.push(card);
+    }
+  }
+
+  await vrSetFormation(userId, formation, cards);
+  return cards;
+}
+
+async function vrSetFormation(userId, formation, cards) {
+  const start = ((formation - 1) * 6) + 1;
+  const end = start + 5;
+
+  await prisma.teamSlot.deleteMany({
+    where: { userId, slot: { gte: start, lte: end } }
+  }).catch(() => {});
+
+  for (let i = 0; i < Math.min(6, cards.length); i++) {
+    const slot = start + i;
+    await prisma.teamSlot.upsert({
+      where: { userId_slot: { userId, slot } },
+      update: { cardId: cards[i].id },
+      create: { id: `${userId}_${slot}`, userId, slot, cardId: cards[i].id }
+    }).catch(async () => {
+      await prisma.teamSlot.create({
+        data: { id: `${userId}_${Date.now()}_${slot}`, userId, slot, cardId: cards[i].id }
+      }).catch(() => {});
+    });
+  }
+}
+
+async function vrGetFormation(userId, formation) {
+  const start = ((formation - 1) * 6) + 1;
+  const end = start + 5;
+
+  const slots = await prisma.teamSlot.findMany({
+    where: { userId, slot: { gte: start, lte: end } },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  return slots.map(s => s.card).filter(Boolean).slice(0, 6);
+}
+
+async function vrGetFormations(userId, count = 1) {
+  const owned = await vrGetOwnedCards(userId, count * 6);
+  const teams = [];
+
+  for (let f = 1; f <= count; f++) {
+    let team = await vrGetFormation(userId, f);
+    if (!team.length) team = owned.slice((f - 1) * 6, f * 6);
+    teams.push(team.slice(0, 6));
+  }
+
+  return teams;
+}
+
+function vrCalcTeamBuffs(cards) {
+  if (typeof finalTeamUpsForCards === 'function') return finalTeamUpsForCards(cards);
+  if (typeof vrTeamUpsForCards === 'function') return vrTeamUpsForCards(cards);
+  return [];
+}
+
+async function vrFormationPower(userId, count = 1) {
+  const teams = await vrGetFormations(userId, count);
+  let total = 0;
+  const buffs = [];
+
+  for (const team of teams) {
+    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
+    const b = vrCalcTeamBuffs(team);
+    total += Math.floor(base * (1 + (b.length * 0.08)));
+    buffs.push(...b.map(x => `${x.name}: ${x.buff}`));
+  }
+
+  return { teams, power: total, buffs: [...new Set(buffs)] };
+}
+
+function vrModeRewards(mode, required, progress) {
+  const progressNumber = mode === 'story'
+    ? (((progress.chapter - 1) * 30) + progress.stage)
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+
+  return {
+    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
+    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
+    rolls: mode === 'story' ? 3 : 2,
+    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
+  };
+}
+
+async function vrGiveRewards(userId, rewards, xpMode) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      gold: { increment: rewards.gold },
+      tokens: { increment: rewards.tokens },
+      rolls: { increment: rewards.rolls }
+    }
+  });
+
+  if (typeof addUserXp === 'function') {
+    await addUserXp(userId, rewards.xp, xpMode).catch(() => null);
+  }
+}
+
+async function vrAdvanceProgress(userId, mode, progress) {
+  if (mode === 'story') {
+    let nextStage = progress.stage + 1;
+    let nextChapter = progress.chapter;
+
+    if (nextStage > 30) {
+      nextStage = 1;
+      nextChapter += 1;
+    }
+
+    if (nextChapter > 80) {
+      nextChapter = 80;
+      nextStage = 30;
+    }
+
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: { chapter: nextChapter, stage: nextStage }
+    });
+  }
+
+  if (mode === 'tower') {
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: { towerFloor: progress.towerFloor + 1 }
+    });
+  }
+
+  return prisma.storyProgress.update({
+    where: { userId },
+    data: { dungeonFloor: progress.dungeonFloor + 1 }
+  });
+}
+
+async function vrRunModeBattle(interaction, mode) {
+  await interaction.deferReply();
+
+  const userId = interaction.user.id;
+  const progress = await getOrCreateProgress(userId);
+  const formations = vrFormationNeeded(mode, progress);
+  const fp = await vrFormationPower(userId, formations);
+
+  const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+  const baseRequired = mode === 'story'
+    ? 650 + storyIndex * 240
+    : mode === 'tower'
+      ? 1050 + progress.towerFloor * 390
+      : 850 + progress.dungeonFloor * 320;
+
+  const required = Math.floor(baseRequired * (1 + ((formations - 1) * 0.75)));
+  const won = fp.power >= required || Math.random() < Math.min(0.35, fp.power / Math.max(1, required) / 3);
+
+  let text =
+    `**${vrModeTitle(mode)} BATTLE**\n` +
+    `${vrProgressText(mode, progress)}\n` +
+    `Formations Required: **${formations}** × 6 characters\n` +
+    `Your Power: **${money(fp.power)}**\n` +
+    `Required Power: **${money(required)}**\n` +
+    (fp.buffs.length ? `Team Buffs: **${fp.buffs.slice(0, 4).join(' | ')}**\n` : '') +
+    `\n`;
+
+  for (let r = 1; r <= 5; r++) {
+    const dmg = Math.floor((fp.power / (5 + r)) + Math.random() * 400);
+    text += `Round ${r}: your formations dealt **${money(dmg)}** damage.\n`;
+  }
+
+  if (!won) {
+    text += `\n**Defeat.** Upgrade levels, improve formations, or use better team-up buffs.`;
+    return interaction.editReply(text.slice(-1900));
+  }
+
+  const rewards = vrModeRewards(mode, required, progress);
+  await vrGiveRewards(userId, rewards, mode);
+  await vrAdvanceProgress(userId, mode, progress);
+
+  text +=
+    `\n**Victory!**\n` +
+    `Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**\n` +
+    `Progress saved.`;
+
+  return interaction.editReply(text.slice(-1900));
+}
+
+async function vrRunAutoMode(interaction, mode) {
+  await interaction.deferReply();
+
+  const userId = interaction.user.id;
+  const maxRuns = Math.max(1, Math.min(30, interaction.options.getInteger('runs') || 10));
+
+  let wins = 0;
+  let total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
+  let text = `**AUTO ${vrModeTitle(mode)} STARTED**\n`;
+
+  for (let run = 1; run <= maxRuns; run++) {
+    const progress = await getOrCreateProgress(userId);
+    const formations = vrFormationNeeded(mode, progress);
+    const fp = await vrFormationPower(userId, formations);
+
+    const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+    const baseRequired = mode === 'story'
+      ? 650 + storyIndex * 240
+      : mode === 'tower'
+        ? 1050 + progress.towerFloor * 390
+        : 850 + progress.dungeonFloor * 320;
+
+    const required = Math.floor(baseRequired * (1 + ((formations - 1) * 0.75)));
+    const won = fp.power >= required || Math.random() < Math.min(0.25, fp.power / Math.max(1, required) / 4);
+
+    text += `\nRun ${run}: ${vrProgressText(mode, progress)} | F${formations} | ${money(fp.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
+
+    if (!won) break;
+
+    wins++;
+    const rewards = vrModeRewards(mode, required, progress);
+    total.gold += rewards.gold;
+    total.tokens += rewards.tokens;
+    total.rolls += rewards.rolls;
+    total.xp += rewards.xp;
+
+    await vrGiveRewards(userId, rewards, mode);
+    await vrAdvanceProgress(userId, mode, progress);
+
+    if (run % 4 === 0) await interaction.editReply(text.slice(-1500)).catch(() => {});
+  }
+
+  text +=
+    `\n\n**AUTO COMPLETE**\n` +
+    `Wins: **${wins}/${maxRuns}**\n` +
+    `Total Rewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+
+  return interaction.editReply(text.slice(-1900));
+}
+
+async function vrBossRush(interaction, mode = 'solo') {
+  await interaction.deferReply();
+
+  const userId = interaction.user.id;
+  const fp = await vrFormationPower(userId, mode === 'coop' ? 2 : 1);
+  const bossHp = mode === 'coop' ? 1800000 : 900000;
+  const bossPower = mode === 'coop' ? 450000 : 230000;
+
+  let damage = 0;
+  let text =
+    `**${mode === 'coop' ? 'CO-OP ' : ''}BOSS RUSH**\n` +
+    `Boss HP: **${money(bossHp)}**\n` +
+    `Boss Power: **${money(bossPower)}**\n` +
+    `Your Formation Power: **${money(fp.power)}**\n`;
+
+  for (let r = 1; r <= 6; r++) {
+    const hit = Math.floor((fp.power / (3 + r)) * (1 + fp.buffs.length * 0.07) + Math.random() * 6000);
+    damage += hit;
+    text += `\nRound ${r}: dealt **${money(hit)}** damage.`;
+    if (r % 3 === 0) await interaction.editReply(text.slice(-1500)).catch(() => {});
+  }
+
+  const clear = damage >= bossHp || fp.power >= bossPower;
+  const rewards = {
+    gold: Math.floor(damage * 0.4),
+    tokens: Math.max(5, Math.floor(damage / 50000)),
+    rolls: clear ? 8 : 3,
+    xp: clear ? 180 : 85
+  };
+
+  await vrGiveRewards(userId, rewards, 'boss-rush');
+
+  text +=
+    `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\n` +
+    `Total Damage: **${money(damage)}**\n` +
+    `Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**`;
+
+  return interaction.editReply(text.slice(-1900));
+}
+// ===== END PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -2523,6 +2875,62 @@ client.on('interactionCreate', async (i) => {
       );
     }
 
+    if (commandName === 'formations') {
+      const count = Math.max(1, Math.min(6, i.options.getInteger('count') || 6));
+      const teams = await vrGetFormations(userId, count);
+      const lines = [`**Your Formations**`, `Like MLA: **6 formations**, each formation has up to **6 characters**.`];
+
+      for (let f = 1; f <= count; f++) {
+        const team = teams[f - 1] || [];
+        const buffs = vrCalcTeamBuffs(team);
+        lines.push(`\n**Formation ${f}**`);
+        if (!team.length) lines.push('Empty.');
+        else {
+          lines.push(...team.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • PWR ${money(c.power)}`));
+          if (buffs.length) lines.push(`Buffs: ${buffs.map(b => `${b.name} (${b.buff})`).join(' | ')}`);
+        }
+      }
+
+      return i.reply(lines.join('\n').slice(0, 1900));
+    }
+
+    if (commandName === 'autoteam') {
+      const count = Math.max(1, Math.min(6, i.options.getInteger('formations') || 6));
+      const cards = await vrGetOwnedCards(userId, count * 6);
+
+      if (!cards.length) return i.reply('You do not have any cards yet.');
+
+      for (let f = 1; f <= count; f++) {
+        await vrSetFormation(userId, f, cards.slice((f - 1) * 6, f * 6));
+      }
+
+      return i.reply(`✅ Auto team equipped **${count} formation(s)**.\nEach formation has up to **6 characters**.\nUse **/formations count:${count}** to view them.`);
+    }
+
+    if (commandName === 'formation-set') {
+      const formation = Math.max(1, Math.min(6, i.options.getInteger('formation', true)));
+      const names = [
+        i.options.getString('slot1', true),
+        i.options.getString('slot2', false),
+        i.options.getString('slot3', false),
+        i.options.getString('slot4', false),
+        i.options.getString('slot5', false),
+        i.options.getString('slot6', false)
+      ];
+
+      const cards = await vrSetManualFormationByNames(userId, formation, names);
+
+      if (!cards.length) return i.reply(`No owned characters found from the names you entered.`);
+
+      const buffs = vrCalcTeamBuffs(cards);
+
+      return i.reply(
+        `✅ **Formation ${formation} updated manually**\n` +
+        cards.map((c, idx) => `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)}`).join('\n') +
+        (buffs.length ? `\n\nBuffs:\n${buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n')}` : '')
+      );
+    }
+
     if (commandName === 'help') {
       await i.deferReply({ ephemeral: true });
       return i.editReply(
@@ -2540,7 +2948,7 @@ client.on('interactionCreate', async (i) => {
         `/story /dungeon /tower - Progress battles\n` +
         `/farm-claim - Claim passive farm\n` +
         `/gold-shop /gold-buy /train - Spend gold\n` +
-        `/orb-shop /orb-roll /ascend - Upgrade and guaranteed rolls\n` +
+        `/cores-shop /cores-roll /ascend - Upgrade and guaranteed rolls\n` +
         `/shop /banner /pack - Multiple rotating banners\n` +
         `/transfer /list /buy - Market\n` +
         `/admin-spawn-boss - Admin boss event`
@@ -2845,6 +3253,14 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         .setColor(embedColor(getAura(first.character).color));
       if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
       return i.reply({ embeds: [embed] });
+    }
+
+    if (commandName === 'boss-rush') {
+      return vrBossRush(i, 'solo');
+    }
+
+    if (commandName === 'coop-boss-rush') {
+      return vrBossRush(i, 'coop');
     }
 
     if (commandName === 'pvp') {

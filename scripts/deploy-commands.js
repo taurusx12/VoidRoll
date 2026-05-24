@@ -8,6 +8,30 @@ const commands = [
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),
   new SlashCommandBuilder().setName('team-buffs').setDescription('Show current team synergy buffs'),
+  new SlashCommandBuilder().setName('boss-rush').setDescription('Solo boss rush mode'),
+  new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op style boss rush mode'),,
+
+  new SlashCommandBuilder()
+    .setName('formations')
+    .setDescription('Show your 6 formations, each with 6 characters')
+    .addIntegerOption(o => o.setName('count').setDescription('How many formations to show 1-6').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('autoteam')
+    .setDescription('Auto equip strongest characters into formations')
+    .addIntegerOption(o => o.setName('formations').setDescription('How many formations 1-6').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('formation-set')
+    .setDescription('Manually set one formation using your owned characters')
+    .addIntegerOption(o => o.setName('formation').setDescription('Formation number 1-6').setRequired(true))
+    .addStringOption(o => o.setName('slot1').setDescription('Character 1').setRequired(true))
+    .addStringOption(o => o.setName('slot2').setDescription('Character 2').setRequired(false))
+    .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
+    .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
+    .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
+    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
+
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
@@ -51,8 +75,7 @@ const commands = [
   new SlashCommandBuilder().setName('admin-fix-saber-image').setDescription('Admin: force correct female Saber image'),
   new SlashCommandBuilder().setName('admin-collapse-variants').setDescription('Admin: keep one best version per important character and restore images'),
 
-  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
-  new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest teams').addIntegerOption(o => o.setName('teams').setDescription('Team count 1-6').setRequired(false)),
+  new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),,
 
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
@@ -111,7 +134,7 @@ const commands = [
     ),
 
   new SlashCommandBuilder().setName('farm-claim').setDescription('Claim passive farm rewards'),
-  new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, orbs, and training info'),
+  new SlashCommandBuilder().setName('gold-shop').setDescription('Spend gold on rolls, cores, and training info'),
 
   new SlashCommandBuilder()
     .setName('gold-buy')
@@ -125,10 +148,10 @@ const commands = [
           { name: '10 Rolls - 10,000 Gold', value: 'rolls_10' },
           { name: '25 Rolls - 22,000 Gold', value: 'rolls_25' },
           { name: '1 Token - 10,000 Gold', value: 'token_1' },
-          { name: 'Legendary Orb - 300,000 Gold', value: 'legendary_orb' },
-          { name: 'Mythic Orb - 900,000 Gold', value: 'mythic_orb' },
-          { name: 'Divine Orb - 2,500,000 Gold', value: 'divine_orb' },
-          { name: 'Secret Orb - 9,000,000 Gold', value: 'secret_orb' }
+          { name: 'Legendary cores - 300,000 Gold', value: 'legendary_orb' },
+          { name: 'Mythic cores - 900,000 Gold', value: 'mythic_orb' },
+          { name: 'Divine cores - 2,500,000 Gold', value: 'divine_orb' },
+          { name: 'Secret cores - 9,000,000 Gold', value: 'secret_orb' }
         )
     ),
 
@@ -141,10 +164,10 @@ const commands = [
         .setRequired(true)
     ),
 
-  new SlashCommandBuilder().setName('orb-shop').setDescription('Show guaranteed orb market'),
+  new SlashCommandBuilder().setName('cores-shop').setDescription('Show guaranteed cores market'),
 
   new SlashCommandBuilder()
-    .setName('orb-roll')
+    .setName('cores-roll')
     .setDescription('Use tokens for guaranteed rarity character')
     .addStringOption(o =>
       o.setName('rarity')
