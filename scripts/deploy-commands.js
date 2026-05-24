@@ -7,6 +7,7 @@ const commands = [
   new SlashCommandBuilder().setName('bot-check').setDescription('Check if VoidRoll is responding'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('admin-mal-stability').setDescription('Admin: keep MAL only, rebalance rarity, stats and images'),
+  new SlashCommandBuilder().setName('team-buffs').setDescription('Show current team synergy buffs'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level, XP, and next reward'),
   new SlashCommandBuilder().setName('help').setDescription('Show all commands'),
