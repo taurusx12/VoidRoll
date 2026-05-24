@@ -107,11 +107,11 @@ const commands = [
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
   new SlashCommandBuilder()
     .setName('pack')
-    .setDescription('Open 10-pull banner pack using Tokens')
+    .setDescription('Open 10-pull rate-up pack using Tokens')
     .addStringOption(o =>
       o.setName('banner')
-        .setDescription('Choose daily banner pack or featured character')
-        .setRequired(false)
+        .setDescription('Choose exact featured character')
+        .setRequired(true)
         .setAutocomplete(true)
     ),
   new SlashCommandBuilder().setName('banner').setDescription('Show daily SECRET banner with pity info'),
