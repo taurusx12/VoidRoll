@@ -9026,7 +9026,179 @@ async function viHandler(i, userId, commandName) {
 }
 // ===== END VIEW OTHER INVENTORY + SECRET TOP HERO PATCH =====
 
+
+// ===== READY ASCEND BUTTON PAGES PATCH =====
+// /ready-ascend now supports left/right buttons between pages.
+
+function rabClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function rabMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function rabStars(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Math.max(0, Math.min(10, Number(m[1] || 0))) : 0;
+}
+function rabStarsLine(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return '★'.repeat(stars) + '☆'.repeat(10 - stars);
+}
+function rabRank(rarity) {
+  return { COMMON: 1, RARE: 2, EPIC: 3, LEGENDARY: 4, MYTHIC: 5, DIVINE: 6, SECRET: 7 }[String(rarity || '').toUpperCase()] || 1;
+}
+function rabRankRarity(rank) {
+  return { 1: 'COMMON', 2: 'RARE', 3: 'EPIC', 4: 'LEGENDARY', 5: 'MYTHIC', 6: 'DIVINE', 7: 'SECRET' }[rank] || 'COMMON';
+}
+function rabNextRarity(current, stars) {
+  const rank = rabRank(current);
+  if (rank >= 7) return 'SECRET';
+  return rabRankRarity(Math.min(7, rank + Math.floor(Number(stars || 0) / 2)));
+}
+function rabAscendCost(rarity, nextStars) {
+  const base = {
+    COMMON: 1200,
+    RARE: 2800,
+    EPIC: 7000,
+    LEGENDARY: 18000,
+    MYTHIC: 42000,
+    DIVINE: 85000,
+    SECRET: 150000
+  }[String(rarity || '').toUpperCase()] || 1200;
+  return base * Math.max(1, Number(nextStars || 1));
+}
+async function rabBuildList(userId) {
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take: 100000
+  }).catch(() => []);
+
+  const byCharacter = new Map();
+  for (const card of cards) {
+    const key = card.characterId;
+    if (!byCharacter.has(key)) byCharacter.set(key, []);
+    byCharacter.get(key).push(card);
+  }
+
+  const ready = [];
+  for (const group of byCharacter.values()) {
+    if (group.length < 2) continue;
+    const main = group.sort((a, b) => Number(b.power || 0) - Number(a.power || 0))[0];
+    const c = main.character;
+    const stars = rabStars(main.trait);
+    if (stars >= 10) continue;
+
+    const nextStars = stars + 1;
+    const rarity = String(c.rarity || 'COMMON').toUpperCase();
+    const nextRarity = rabNextRarity(rarity, nextStars);
+    const cost = rabAscendCost(rarity, nextStars);
+
+    ready.push({
+      name: rabClean(c.name),
+      anime: c.anime,
+      rarity,
+      nextRarity,
+      stars,
+      nextStars,
+      cost,
+      power: Number(main.power || c.basePower || 0),
+      dupes: group.length - 1
+    });
+  }
+
+  ready.sort((a, b) => rabRank(b.rarity) - rabRank(a.rarity) || b.power - a.power);
+  return ready;
+}
+async function rabReadyPage(userId, page = 1) {
+  const ready = await rabBuildList(userId);
+  if (!ready.length) return { empty: true };
+
+  const perPage = 10;
+  const maxPage = Math.max(1, Math.ceil(ready.length / perPage));
+  const safePage = Math.max(1, Math.min(Number(page || 1), maxPage));
+  const start = (safePage - 1) * perPage;
+
+  const lines = ready.slice(start, start + perPage).map((x, idx) => {
+    const evolve = x.nextRarity !== x.rarity ? ` 🔥 **${x.rarity} → ${x.nextRarity}**` : '';
+    return `${start + idx + 1}. **${x.name}** • ${x.anime}
+   Rarity: **${x.rarity}**${evolve}
+   Stars: **${rabStarsLine(x.stars)} → ${rabStarsLine(x.nextStars)}**
+   Dupes: **${x.dupes}** | Cost: **${rabMoney(x.cost)} Gold**
+   Command: \`/ascend name:${x.name}\``;
+  }).join('\n\n');
+
+  const embed = new EmbedBuilder()
+    .setTitle('Ready to Ascend')
+    .setDescription(`${lines}\n\nPage **${safePage}/${maxPage}** • Total ready: **${ready.length}**`)
+    .setColor(0xf1c40f);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rab_prev_${safePage}_${userId}`)
+      .setLabel('⬅️ Left')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage <= 1),
+    new ButtonBuilder()
+      .setCustomId(`rab_next_${safePage}_${userId}`)
+      .setLabel('Right ➡️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage >= maxPage)
+  );
+
+  return { empty: false, embed, row };
+}
+async function rabReadyAscend(i) {
+  const page = i.options.getInteger('page') || 1;
+  const data = await rabReadyPage(i.user.id, page);
+
+  if (data.empty) {
+    return i.reply(
+      `No characters are ready to ascend yet.\n` +
+      `You need at least **1 duplicate** of the same character.\n\n` +
+      `Use:\n\`/ascend name:Character\``
+    );
+  }
+
+  return i.reply({ embeds: [data.embed], components: [data.row] });
+}
+async function rabButtons(i) {
+  if (!i.isButton()) return false;
+  if (!i.customId.startsWith('rab_')) return false;
+
+  const parts = i.customId.split('_');
+  const dir = parts[1];
+  const page = Number(parts[2] || 1);
+  const ownerId = parts[3];
+
+  if (i.user.id !== ownerId) {
+    return i.reply({ content: 'This Ready Ascend list belongs to another player.', ephemeral: true });
+  }
+
+  const nextPage = dir === 'next' ? page + 1 : page - 1;
+  const data = await rabReadyPage(i.user.id, nextPage);
+
+  if (data.empty) {
+    return i.reply({ content: 'No characters are ready to ascend yet.', ephemeral: true });
+  }
+
+  return i.update({ embeds: [data.embed], components: [data.row] });
+}
+async function rabHandler(i, userId, commandName) {
+  if (commandName === 'ready-ascend') return rabReadyAscend(i);
+  return false;
+}
+// ===== END READY ASCEND BUTTON PAGES PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    const rabButtonHandled = await rabButtons(i);
+    if (rabButtonHandled !== false) return rabButtonHandled;
+
     const viButtonHandled = await viButtons(i);
     if (viButtonHandled !== false) return viButtonHandled;
 
@@ -9213,6 +9385,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const rabHandled = await rabHandler(i, userId, commandName);
+    if (rabHandled !== false) return rabHandled;
 
     const viHandled = await viHandler(i, userId, commandName);
     if (viHandled !== false) return viHandled;
