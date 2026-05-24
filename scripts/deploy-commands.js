@@ -15,6 +15,14 @@ const commands = [
     .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
     .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('train')
+    .setDescription('Train a character using Gold')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('ascend')
+    .setDescription('Ascend a character using a duplicate')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),
