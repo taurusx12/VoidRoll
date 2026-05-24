@@ -1,0 +1,30 @@
+// SMART SEARCH PATCH
+// Replace your current /search handler with this logic:
+//
+// Features:
+// - Understands character + anime together
+// - Examples:
+//   /search name:Saber Fate
+//   /search name:Saber Grand Order
+//   /search name:Gojo Jujutsu
+// - Keeps different versions instead of merging them
+
+const q = i.options.getString('name', true);
+const parts = q.toLowerCase().split(' ');
+
+const chars = await prisma.character.findMany({
+  where: {
+    active: true,
+    AND: parts.map(part => ({
+      OR: [
+        { name: { contains: part, mode: 'insensitive' } },
+        { anime: { contains: part, mode: 'insensitive' } }
+      ]
+    }))
+  },
+  orderBy: [
+    { rarity: 'desc' },
+    { basePower: 'desc' }
+  ],
+  take: 10
+});
