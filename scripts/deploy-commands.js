@@ -4,16 +4,7 @@ const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
 const commands = [
-  new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
-  new SlashCommandBuilder()
-    .setName('ascend')
-    .setDescription('Ascend a character by name using duplicate + Gold + Tokens')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('stars')
-    .setDescription('Show character stars and next ascend cost')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),,
   new SlashCommandBuilder()
     .setName('quick-sell')
     .setDescription('Quick sell unequipped characters by rarity')
@@ -37,6 +28,26 @@ const commands = [
         .setRequired(false)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
+
+  new SlashCommandBuilder()
+    .setName('ascend')
+    .setDescription('Ascend by name using duplicate + Gold + Tokens')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('stars')
+    .setDescription('Show character stars and next ascend cost')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Show character passive, stars and team-ups')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('inv-search')
+    .setDescription('Search inventory with passive, stars and team-ups')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
   new SlashCommandBuilder().setName('help').setDescription('Show help'),
@@ -63,17 +74,7 @@ const commands = [
     .addStringOption(o => o.setName('name').setDescription('Character or anime name').setRequired(true)),
 
   new SlashCommandBuilder().setName('secrets').setDescription('Show SECRET characters'),
-  new SlashCommandBuilder().setName('rarity').setDescription('Show rarity rates'),
-
-  new SlashCommandBuilder()
-    .setName('stats')
-    .setDescription('Show character stats')
-    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('inv-search')
-    .setDescription('Search your inventory with stats')
-    .addStringOption(o => o.setName('name').setDescription('Character name').setRequired(true)),
+  new SlashCommandBuilder().setName('rarity').setDescription('Show rarity rates'),,
 
   new SlashCommandBuilder()
     .setName('inventory')

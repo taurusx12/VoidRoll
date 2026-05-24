@@ -4192,6 +4192,376 @@ async function qhHandler(i, userId, commandName) {
 }
 // ===== END QUICK SELL HARD FIX =====
 
+
+// ===== ONE FILE FINAL SYSTEMS PATCH =====
+// Quick Sell hard handler + passives + team-up buffs + full rarity evolution to SECRET.
+// This handler is intentionally inserted before old handlers.
+
+function ofNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function ofCleanName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ofMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function ofRarityEmoji(rarity) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(rarity) : '⭐';
+}
+
+function ofStarsFromTrait(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Math.max(0, Math.min(10, Number(m[1] || 0))) : 0;
+}
+
+function ofSetStarsTrait(trait = '', stars = 0) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Stars:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Stars:${Math.max(0, Math.min(10, stars))}`;
+}
+
+function ofStarsLine(stars) {
+  return '★'.repeat(Math.max(0, Math.min(10, stars))) + '☆'.repeat(Math.max(0, 10 - stars));
+}
+
+function ofRarityRank(rarity) {
+  return { COMMON: 1, RARE: 2, EPIC: 3, LEGENDARY: 4, MYTHIC: 5, DIVINE: 6, SECRET: 7 }[String(rarity || '').toUpperCase()] || 1;
+}
+
+function ofRankRarity(rank) {
+  return { 1: 'COMMON', 2: 'RARE', 3: 'EPIC', 4: 'LEGENDARY', 5: 'MYTHIC', 6: 'DIVINE', 7: 'SECRET' }[rank] || 'COMMON';
+}
+
+function ofNextRarity(current, stars) {
+  const rank = ofRarityRank(current);
+  if (rank >= 7) return 'SECRET';
+
+  // Every 2 stars can push one rarity up. This lets COMMON eventually reach SECRET.
+  const upgradedRank = Math.min(7, rank + Math.floor(stars / 2));
+  return ofRankRarity(upgradedRank);
+}
+
+function ofAscendCost(currentRarity, nextStars) {
+  const base = {
+    COMMON: { gold: 700, tokens: 0 },
+    RARE: { gold: 1800, tokens: 1 },
+    EPIC: { gold: 4500, tokens: 2 },
+    LEGENDARY: { gold: 12000, tokens: 5 },
+    MYTHIC: { gold: 28000, tokens: 12 },
+    DIVINE: { gold: 65000, tokens: 25 },
+    SECRET: { gold: 110000, tokens: 45 }
+  }[String(currentRarity || '').toUpperCase()] || { gold: 1000, tokens: 0 };
+
+  return {
+    gold: base.gold * Math.max(1, nextStars),
+    tokens: base.tokens * Math.max(1, Math.ceil(nextStars / 2))
+  };
+}
+
+function ofBaseKey(character) {
+  return `${ofNorm(ofCleanName(character?.name || ''))}::${ofNorm(character?.anime || '')}`;
+}
+
+function ofUniqueCards(cards) {
+  const map = new Map();
+  for (const card of cards) {
+    const c = card.character || card;
+    const key = ofBaseKey(c);
+    const old = map.get(key);
+    const currentScore = ofRarityRank(c.rarity) * 1000000 + Number(card.power || c.basePower || 0) + (String(c.name || '').includes('(') ? 0 : 5000000);
+    const oldC = old ? (old.character || old) : null;
+    const oldScore = old ? ofRarityRank(oldC.rarity) * 1000000 + Number(old.power || oldC.basePower || 0) + (String(oldC.name || '').includes('(') ? 0 : 5000000) : -1;
+    if (!old || currentScore > oldScore) map.set(key, card);
+  }
+  return [...map.values()];
+}
+
+function ofElement(c) {
+  const t = `${ofNorm(c?.name)} ${ofNorm(c?.anime)}`;
+  const current = String(c?.element || '').trim();
+  if (current && !['Neutral', 'Anime', 'undefined', 'null'].includes(current)) return current;
+  if (/(sukuna|makima|toji|ainz|dio|devil|demon|curse|muzan)/.test(t)) return 'Dark';
+  if (/(sung jin|jinwoo|jin woo|shadow|igris|beru|cid)/.test(t)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|void|space|time|accelerator)/.test(t)) return 'Void';
+  if (/(goku|gokuu|naruto|luffy|saitama|saber|artoria|all might)/.test(t)) return 'Light';
+  if (/(ace|rengoku|natsu|flame|fire|shinra|yamamoto|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|thunder|lightning|misaka)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit|shinigami)/.test(t)) return 'Soul';
+  if (/(ice|frost|snow|todoroki)/.test(t)) return 'Ice';
+  return 'Light';
+}
+
+function ofRole(c) {
+  const n = ofNorm(c?.name || '');
+  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami|senku)/.test(n)) return 'Control';
+  if (/(c c|cc|rimuru|megumi|kakashi|sakura|orihime|shoko|chopper|tsunade)/.test(n)) return 'Support';
+  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo|naofumi)/.test(n)) return 'Tank';
+  if (/(gabimaru|killua|toji|levi|hisoka|zenitsu|yoroichi|akame|kirito)/.test(n)) return 'Assassin';
+  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren|sinbad)/.test(n)) return 'Mage';
+  return 'DPS';
+}
+
+function ofPassive(c) {
+  const n = ofNorm(c?.name || '');
+  const passives = [
+    [/rimuru/, 'Predator / Great Sage: copies enemy buffs, improves sustain, and boosts team energy recovery.'],
+    [/gojo/, 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [/geto/, 'Cursed Spirit Manipulation: summons weaken enemy DEF and increase curse damage.'],
+    [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark ultimate damage.'],
+    [/goku|gokuu/, 'Limit Breaker: ATK and ultimate damage scale every round.'],
+    [/vegeta/, 'Saiyan Pride: gains ATK after taking damage and powers up after allies fall.'],
+    [/lelouch/, 'Geass Command: controls the battlefield and boosts team ultimate charge.'],
+    [/c c|^cc$/, 'Immortal Witch: regenerates each round and gives energy to the strongest ally.'],
+    [/nanami/, 'Ratio Technique: critical chance and critical damage massively increase above 70% enemy HP.'],
+    [/gabimaru/, 'Ninja of the Hollow: gains dodge, poison resistance, and burst damage after ultimate.'],
+    [/makima/, 'Control Devil: reduces enemy ATK and increases control chance.'],
+    [/aizen/, 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [/madara/, 'Uchiha Dominion: increases AoE ultimate damage and pressure.'],
+    [/itachi/, 'Tsukuyomi: delays enemy ultimate and increases control chance.'],
+    [/killua/, 'Godspeed: very high speed, dodge, and crit burst.'],
+    [/gon/, 'Jajanken: huge single-target ultimate damage.'],
+    [/luffy/, 'Nika Rhythm: gains ATK and speed every round.'],
+    [/zoro/, 'Three Sword Style: increases boss damage and critical damage.'],
+    [/ichigo/, 'Bankai Pressure: Soul damage and speed increase after ultimate.'],
+    [/saber|artoria/, 'Avalon: grants a starting shield and reduces burst damage.']
+  ];
+  for (const [rx, text] of passives) if (rx.test(n)) return text;
+
+  const role = ofRole(c);
+  const element = ofElement(c);
+  if (role === 'Tank') return `Iron Guard: DEF scaling and ${element} resistance.`;
+  if (role === 'Support') return `Battle Support: restores energy and strengthens ${element} allies.`;
+  if (role === 'Control') return 'Command Aura: reduces enemy ultimate charge and increases control chance.';
+  if (role === 'Assassin') return 'Weak Point: high crit and partial DEF ignore.';
+  if (role === 'Mage') return `${element} Burst: ultimate damage scales with penetration.`;
+  return 'Battle Instinct: ATK rises every round.';
+}
+
+const OF_TEAMUPS = [
+  { name: 'Zero Requiem', keys: ['lelouch', 'c c'], buff: '+20% control chance, +15% ultimate charge' },
+  { name: 'Strongest Past', keys: ['gojo', 'geto'], buff: '+18% Void damage, +10% ultimate charge' },
+  { name: 'Saiyan Rivalry', keys: ['goku', 'vegeta'], buff: '+18% ATK after round 3' },
+  { name: 'Jujutsu Core', keys: ['yuji', 'megumi', 'nobara'], buff: '+12% ATK, +15% ultimate charge' },
+  { name: 'Monster Trio', keys: ['luffy', 'zoro', 'sanji'], buff: '+18% ATK, +10% speed' },
+  { name: 'Hunter Bond', keys: ['gon', 'killua'], buff: '+15% speed, +12% crit' },
+  { name: 'Uchiha Bloodline', keys: ['itachi', 'sasuke'], buff: '+15% crit, +10% control resist' },
+  { name: 'Shadow Army', keys: ['sung jin', 'igris'], buff: '+15% Shadow damage' },
+  { name: 'Fate Clash', keys: ['saber', 'gilgamesh'], buff: '+15% penetration, +12% shield' },
+  { name: 'Devil Hunters', keys: ['denji', 'power', 'aki'], buff: '+15% damage against bosses' },
+  { name: 'Demon Slayer Trio', keys: ['tanjiro', 'zenitsu', 'inosuke'], buff: '+12% speed, +12% crit' }
+];
+
+function ofTeamUps(cards) {
+  const names = cards.map(card => ofNorm((card.character || card).name)).join(' | ');
+  const active = OF_TEAMUPS.filter(rule => rule.keys.every(k => names.includes(ofNorm(k))));
+
+  const elements = {};
+  for (const card of cards) {
+    const e = ofElement(card.character || card);
+    elements[e] = (elements[e] || 0) + 1;
+  }
+
+  for (const [element, count] of Object.entries(elements)) {
+    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team HP and damage' : '+12% team HP and damage' });
+  }
+
+  return active;
+}
+
+async function ofOwned(userId, take = 2000) {
+  return prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take });
+}
+
+async function ofFindOwned(userId, q, limit = 20) {
+  const tokens = ofNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await ofOwned(userId);
+  return cards.map(card => {
+    const c = card.character;
+    const full = `${ofNorm(ofCleanName(c.name))} ${ofNorm(c.name)} ${ofNorm(c.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (ofNorm(c.name).includes(t)) score += 80;
+      if (ofNorm(c.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0)).slice(0, limit).map(x => x.card);
+}
+
+function ofQuickSellValue(rarity) {
+  return { COMMON: 250, RARE: 900, EPIC: 2500, LEGENDARY: 8000, MYTHIC: 18000, DIVINE: 40000, SECRET: 90000 }[String(rarity || '').toUpperCase()] || 100;
+}
+
+async function ofQuickSell(i) {
+  const rarity = String(i.options.getString('rarity', true) || '').toUpperCase();
+  const confirm = String(i.options.getString('confirm', false) || '').toUpperCase();
+
+  if (confirm !== 'YES') {
+    return i.reply(
+      `⚠️ **Quick Sell Preview**\n` +
+      `Rarity: **${rarity}**\n` +
+      `This sells all **unequipped** ${rarity} characters.\n` +
+      `Formation cards are protected.\n\n` +
+      `Run again with **confirm:YES**.`
+    );
+  }
+
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const equipped = await prisma.teamSlot.findMany({ where: { userId: i.user.id }, select: { cardId: true } }).catch(() => []);
+  const protectedIds = new Set(equipped.map(x => x.cardId).filter(Boolean));
+
+  const cards = await prisma.userCard.findMany({ where: { userId: i.user.id }, include: { character: true }, take: 3000 }).catch(() => []);
+  const matching = cards.filter(c => String(c.character?.rarity || '').toUpperCase() === rarity);
+  const sellable = matching.filter(c => !protectedIds.has(c.id));
+  const protectedCount = matching.length - sellable.length;
+
+  if (!sellable.length) {
+    return i.editReply(`No unequipped **${rarity}** characters to sell.` + (protectedCount ? `\nProtected equipped cards: **${protectedCount}**` : ''));
+  }
+
+  const gold = sellable.reduce((sum, c) => sum + ofQuickSellValue(c.character.rarity), 0);
+  const ids = sellable.map(c => c.id);
+
+  await prisma.marketListing.updateMany({ where: { cardId: { in: ids }, status: 'ACTIVE' }, data: { status: 'CANCELLED' } }).catch(() => null);
+
+  for (let start = 0; start < ids.length; start += 100) {
+    const chunk = ids.slice(start, start + 100);
+    await prisma.userCard.deleteMany({ where: { id: { in: chunk } } }).catch(async () => {
+      for (const id of chunk) await prisma.userCard.delete({ where: { id } }).catch(() => null);
+    });
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { increment: gold } } }).catch(() => null);
+
+  return i.editReply(
+    `✅ **Quick Sell Complete**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Sold: **${sellable.length}** character(s)\n` +
+    `Gold gained: **${ofMoney(gold)}**\n` +
+    (protectedCount ? `Protected equipped: **${protectedCount}**` : '')
+  );
+}
+
+async function ofAscend(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const matches = await ofFindOwned(i.user.id, q, 50);
+  if (!matches.length) return i.editReply(`No owned character found for **${q}**.`);
+
+  const main = matches.sort((a, b) => Number(b.power || 0) - Number(a.power || 0))[0];
+
+  const dupes = await prisma.userCard.findMany({
+    where: { userId: i.user.id, characterId: main.characterId },
+    include: { character: true },
+    orderBy: { power: 'asc' },
+    take: 50
+  });
+
+  const consume = dupes.find(c => c.id !== main.id);
+  if (!consume) return i.editReply(`You need a duplicate of **${ofCleanName(main.character.name)}** to ascend.`);
+
+  const currentStars = ofStarsFromTrait(main.trait);
+  if (currentStars >= 10) return i.editReply(`**${ofCleanName(main.character.name)}** is already max stars: **${ofStarsLine(10)}**.`);
+
+  const nextStars = currentStars + 1;
+  const currentRarity = String(main.character.rarity || 'COMMON').toUpperCase();
+  const nextRarity = ofNextRarity(currentRarity, nextStars);
+  const cost = ofAscendCost(currentRarity, nextStars);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.gold || 0) < cost.gold || (user?.tokens || 0) < cost.tokens) {
+    return i.editReply(
+      `Not enough resources.\n` +
+      `Need: **${ofMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+      `You have: **${ofMoney(user?.gold || 0)} Gold** + **${user?.tokens || 0} Tokens**`
+    );
+  }
+
+  await prisma.marketListing.updateMany({ where: { cardId: consume.id, status: 'ACTIVE' }, data: { status: 'CANCELLED' } }).catch(() => null);
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { decrement: cost.gold }, tokens: { decrement: cost.tokens } } });
+  await prisma.userCard.delete({ where: { id: consume.id } }).catch(() => null);
+
+  const powerGain = 125 + (nextStars * 75);
+  await prisma.userCard.update({ where: { id: main.id }, data: { power: { increment: powerGain }, trait: ofSetStarsTrait(main.trait, nextStars) } }).catch(() => null);
+
+  let rarityText = '';
+  if (nextRarity !== currentRarity) {
+    await prisma.character.update({ where: { id: main.characterId }, data: { rarity: nextRarity } }).catch(() => null);
+    rarityText = `\n🔥 Rarity evolved: **${currentRarity} → ${nextRarity}**`;
+  }
+
+  return i.editReply(
+    `✨ **ASCEND SUCCESS**\n` +
+    `Character: **${ofCleanName(main.character.name)}**\n` +
+    `Stars: **${ofStarsLine(currentStars)} → ${ofStarsLine(nextStars)}**\n` +
+    `Consumed duplicate automatically.\n` +
+    `Power gained: **+${powerGain}**\n` +
+    `Cost: **${ofMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**` +
+    rarityText
+  );
+}
+
+async function ofStarsInfo(i) {
+  const card = (await ofFindOwned(i.user.id, i.options.getString('name', true), 1))[0];
+  if (!card) return i.reply('No owned character found.');
+
+  const stars = ofStarsFromTrait(card.trait);
+  const rarity = String(card.character.rarity || 'COMMON').toUpperCase();
+  const nextStars = Math.min(10, stars + 1);
+  const nextRarity = ofNextRarity(rarity, nextStars);
+  const cost = ofAscendCost(rarity, nextStars);
+
+  return i.reply(
+    `**${ofCleanName(card.character.name)}**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Stars: **${ofStarsLine(stars)}**\n` +
+    `Next cost: **${ofMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+    (nextRarity !== rarity ? `Next rarity evolution: **${rarity} → ${nextRarity}**` : `Next rarity evolution: **None yet**`)
+  );
+}
+
+async function ofStatsOrSearch(i, userId, commandName) {
+  if (commandName === 'stats' || commandName === 'inv-search') {
+    const card = (await ofFindOwned(userId, i.options.getString('name', true), 1))[0];
+    if (!card) return i.reply('No owned character found.');
+    const c = card.character;
+    const stars = ofStarsFromTrait(card.trait);
+    const teamups = OF_TEAMUPS.filter(rule => ofNorm(c.name).includes(ofNorm(rule.keys[0])) || rule.keys.some(k => ofNorm(c.name).includes(ofNorm(k))));
+    const embed = new EmbedBuilder()
+      .setTitle(`${commandName === 'stats' ? 'Stats' : 'Inventory Search'}: ${ofCleanName(c.name)}`)
+      .setDescription(
+        `${ofRarityEmoji(c.rarity)} **${ofCleanName(c.name)}** • ${c.anime}\n` +
+        `Rarity: **${c.rarity}** | Stars: **${ofStarsLine(stars)}**\n` +
+        `Role: **${ofRole(c)}** | Element: **${ofElement(c)}**\n` +
+        `Passive: ${ofPassive(c)}\n\n` +
+        `Possible Team-Ups:\n${teamups.length ? teamups.slice(0, 5).map(t => `• **${t.name}**: ${t.buff}`).join('\n') : 'None'}`
+      )
+      .setColor(embedColor(getAura(c).color));
+    if (c.imageUrl) embed.setThumbnail(c.imageUrl);
+    return i.reply({ embeds: [embed] });
+  }
+  return false;
+}
+
+async function ofFinalHandler(i, userId, commandName) {
+  if (commandName === 'quick-sell') return ofQuickSell(i);
+  if (commandName === 'ascend') return ofAscend(i);
+  if (commandName === 'stars') return ofStarsInfo(i);
+  if (commandName === 'stats' || commandName === 'inv-search') return ofStatsOrSearch(i, userId, commandName);
+  return false;
+}
+// ===== END ONE FILE FINAL SYSTEMS PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
