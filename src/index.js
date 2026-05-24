@@ -6870,6 +6870,106 @@ async function brHandler(i, userId, commandName) {
 }
 // ===== END BANNER ROTATE CHANGE PATCH =====
 
+
+// ===== ADMIN RESET ALL PLAYERS PATCH =====
+// Admin command: /admin-reset-all confirm:YES
+// Resets all players' progress/resources/cards safely.
+
+async function arResetAllPlayers(i) {
+  const confirm = String(i.options.getString('confirm', true) || '').toUpperCase();
+
+  if (confirm !== 'YES') {
+    return i.reply('Type **YES** in confirm to reset all players.');
+  }
+
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  // Basic Discord permission guard if available.
+  const memberPerms = i.memberPermissions;
+  if (memberPerms && typeof memberPerms.has === 'function') {
+    const ok = memberPerms.has('Administrator') || memberPerms.has('ManageGuild');
+    if (!ok) return i.editReply('❌ Admin only command.');
+  }
+
+  let deletedCards = 0;
+  let deletedTeamSlots = 0;
+  let deletedListings = 0;
+  let resetProgress = 0;
+  let resetUsers = 0;
+
+  // Cancel/delete market listings first because they may reference cards.
+  const listingResult = await prisma.marketListing.deleteMany({}).catch(async () => {
+    const r = await prisma.marketListing.updateMany({
+      where: {},
+      data: { status: 'CANCELLED' }
+    }).catch(() => ({ count: 0 }));
+    return r;
+  });
+  deletedListings = listingResult?.count || 0;
+
+  const teamResult = await prisma.teamSlot.deleteMany({}).catch(() => ({ count: 0 }));
+  deletedTeamSlots = teamResult?.count || 0;
+
+  const cardResult = await prisma.userCard.deleteMany({}).catch(() => ({ count: 0 }));
+  deletedCards = cardResult?.count || 0;
+
+  // Reset story/progress if table exists.
+  const progressResult = await prisma.storyProgress.updateMany({
+    where: {},
+    data: {
+      chapter: 1,
+      stage: 1,
+      towerFloor: 1,
+      dungeonFloor: 1
+    }
+  }).catch(() => ({ count: 0 }));
+  resetProgress = progressResult?.count || 0;
+
+  // Reset user resources. Some schemas may not have trait/xp/level, so try safe fallbacks.
+  const resetDataFull = {
+    gold: 0,
+    tokens: 0,
+    rolls: 10,
+    xp: 0,
+    level: 1,
+    trait: ''
+  };
+
+  let userResult = await prisma.user.updateMany({
+    where: {},
+    data: resetDataFull
+  }).catch(() => null);
+
+  if (!userResult) {
+    userResult = await prisma.user.updateMany({
+      where: {},
+      data: {
+        gold: 0,
+        tokens: 0,
+        rolls: 10
+      }
+    }).catch(() => ({ count: 0 }));
+  }
+
+  resetUsers = userResult?.count || 0;
+
+  return i.editReply(
+    `✅ **Admin Reset Complete**\n` +
+    `Players reset: **${resetUsers}**\n` +
+    `Cards deleted: **${deletedCards}**\n` +
+    `Team slots deleted: **${deletedTeamSlots}**\n` +
+    `Listings cleared/cancelled: **${deletedListings}**\n` +
+    `Progress reset: **${resetProgress}**\n\n` +
+    `All players now start fresh with **10 rolls**, 0 Gold, 0 Tokens.`
+  );
+}
+
+async function arAdminHandler(i, userId, commandName) {
+  if (commandName === 'admin-reset-all') return arResetAllPlayers(i);
+  return false;
+}
+// ===== END ADMIN RESET ALL PLAYERS PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -7051,6 +7151,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const arHandled = await arAdminHandler(i, userId, commandName);
+    if (arHandled !== false) return arHandled;
 
     const brHandled = await brHandler(i, userId, commandName);
     if (brHandled !== false) return brHandled;

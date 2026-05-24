@@ -4,6 +4,15 @@ const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
 const commands = [
+  new SlashCommandBuilder()
+    .setName('admin-reset-all')
+    .setDescription('Admin: reset all players, cards, progress and resources')
+    .addStringOption(o =>
+      o.setName('confirm')
+        .setDescription('Type YES to confirm')
+        .setRequired(true)
+        .addChoices({ name: 'YES', value: 'YES' })
+    ),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
