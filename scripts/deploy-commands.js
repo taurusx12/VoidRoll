@@ -13,7 +13,7 @@ const commands = [
         .setRequired(true)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
-  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),,
+  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),
   new SlashCommandBuilder()
     .setName('train')
     .setDescription('Train a character by name using Gold only')
@@ -33,6 +33,20 @@ const commands = [
     .setName('stars')
     .setDescription('Show stars and next ascend Gold cost')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('inventory')
+    .setDescription('Show unlimited inventory with images and buttons')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('top-characters')
+    .setDescription('Show strongest characters leaderboard with buttons')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('pvp')
+    .setDescription('Fight another player using your strongest characters')
+    .addUserOption(o => o.setName('opponent').setDescription('Player to fight').setRequired(true)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -73,11 +87,6 @@ const commands = [
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('inventory')
-    .setDescription('Show inventory with images and left/right buttons')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
-
-  new SlashCommandBuilder()
     .setName('quick-sell')
     .setDescription('Quick sell unequipped characters by rarity')
     .addStringOption(o =>
@@ -99,7 +108,7 @@ const commands = [
         .setDescription('Choose YES to confirm')
         .setRequired(false)
         .addChoices({ name: 'YES', value: 'YES' })
-    ),,
+    ),
 
   new SlashCommandBuilder()
     .setName('autoteam')

@@ -8263,7 +8263,131 @@ async function golHandler(i,userId,commandName){
 }
 // ===== END GOLD ONLY TRAIN ASCEND OVERRIDE =====
 
+
+// ===== UNLIMITED INVENTORY + PVP + TOP CHARACTER PATCH =====
+function uiMoney(n){return typeof money==='function'?money(n):Number(n||0).toLocaleString('en-US')}
+function uiEmoji(r){return typeof rarityEmoji==='function'?rarityEmoji(r):'⭐'}
+function uiClean(name=''){return String(name||'').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig,' ').replace(/\s+/g,' ').trim()}
+function uiRole(c){if(typeof uxRole==='function')return uxRole(c);if(typeof brsRole==='function')return brsRole(c);return 'DPS'}
+function uiElement(c){if(typeof uxElement==='function')return uxElement(c);if(typeof brsElement==='function')return brsElement(c);return c?.element||'Light'}
+function uiPassive(c){if(typeof uxPassive==='function')return uxPassive(c);if(typeof brsPassive==='function')return brsPassive(c);return 'Battle Rhythm: ATK rises every round and spikes after ultimate.'}
+function uiStatsText(card,c){
+  if(typeof uxStatsText==='function')return uxStatsText(card,c);
+  if(typeof brsStatsText==='function')return brsStatsText(card,c);
+  const p=Number(card.power||c.basePower||1000);
+  return `Class: **${uiRole(c)}** | Element: **${uiElement(c)}**
+ATK **${uiMoney(Math.floor(p*1.05))}** • HP **${uiMoney(Math.floor(p*7.2))}** • DEF **${uiMoney(Math.floor(p*.55))}**
+Passive: ${uiPassive(c)}`;
+}
+async function uiOwnedCards(userId,take=100000){
+  return prisma.userCard.findMany({where:{userId},include:{character:true},orderBy:[{power:'desc'},{id:'desc'}],take}).catch(()=>[]);
+}
+async function uiInventoryPage(userId,page=0){
+  const cards=await uiOwnedCards(userId,100000);
+  if(!cards.length)return {empty:true};
+  const safe=Math.max(0,Math.min(Number(page||0),cards.length-1));
+  const card=cards[safe], c=card.character;
+  const embed=new EmbedBuilder()
+    .setTitle(`${uiEmoji(c.rarity)} ${uiClean(c.name)}`)
+    .setDescription(`Anime: **${c.anime}**\nRarity: **${c.rarity}**\nPower: **${uiMoney(card.power||c.basePower||0)}**\n${uiStatsText(card,c)}\n\nInventory Card: **${safe+1}/${cards.length}**\n✅ Inventory is unlimited. Duplicates are kept.`)
+    .setColor(String(c.rarity).toUpperCase()==='SECRET'?0xe74c3c:0x9b59b6);
+  if(c.imageUrl)embed.setImage(c.imageUrl);
+  const row=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`ui_inv_prev_${safe}`).setLabel('⬅️ Left').setStyle(ButtonStyle.Secondary).setDisabled(safe<=0),
+    new ButtonBuilder().setCustomId(`ui_inv_next_${safe}`).setLabel('Right ➡️').setStyle(ButtonStyle.Secondary).setDisabled(safe>=cards.length-1)
+  );
+  return {empty:false,embed,row};
+}
+async function uiTopPage(page=0){
+  const cards=await prisma.userCard.findMany({include:{character:true},orderBy:[{power:'desc'},{id:'desc'}],take:100000}).catch(()=>[]);
+  if(!cards.length)return {empty:true};
+  const safe=Math.max(0,Math.min(Number(page||0),cards.length-1));
+  const card=cards[safe], c=card.character;
+  const embed=new EmbedBuilder()
+    .setTitle(`🏆 Top Character #${safe+1}`)
+    .setDescription(`${uiEmoji(c.rarity)} **${uiClean(c.name)}**\nOwner: <@${card.userId}>\nAnime: **${c.anime}**\nRarity: **${c.rarity}**\nPower: **${uiMoney(card.power||c.basePower||0)}**\n${uiStatsText(card,c)}\n\nPage: **${safe+1}/${cards.length}**`)
+    .setColor(0xf1c40f);
+  if(c.imageUrl)embed.setImage(c.imageUrl);
+  const row=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`ui_top_prev_${safe}`).setLabel('⬅️ Left').setStyle(ButtonStyle.Secondary).setDisabled(safe<=0),
+    new ButtonBuilder().setCustomId(`ui_top_next_${safe}`).setLabel('Right ➡️').setStyle(ButtonStyle.Secondary).setDisabled(safe>=cards.length-1)
+  );
+  return {empty:false,embed,row};
+}
+async function uiInventory(i){
+  const data=await uiInventoryPage(i.user.id,i.options.getInteger('page')||0);
+  if(data.empty)return i.reply('You do not have any cards yet.');
+  return i.reply({embeds:[data.embed],components:[data.row]});
+}
+async function uiTopCharacters(i){
+  const data=await uiTopPage(i.options.getInteger('page')||0);
+  if(data.empty)return i.reply('No cards found yet.');
+  return i.reply({embeds:[data.embed],components:[data.row]});
+}
+async function uiPvp(i){
+  if(!i.deferred&&!i.replied)await i.deferReply().catch(()=>null);
+  const opponent=i.options.getUser('opponent',true);
+  if(opponent.id===i.user.id)return i.editReply('You cannot fight yourself.');
+  const mine=await uiOwnedCards(i.user.id,6), theirs=await uiOwnedCards(opponent.id,6);
+  if(!mine.length)return i.editReply('You need at least 1 character to play PVP.');
+  if(!theirs.length)return i.editReply(`${opponent} does not have any characters yet.`);
+  const myPower=mine.reduce((s,c)=>s+Number(c.power||c.character?.basePower||0),0);
+  const enemyPower=theirs.reduce((s,c)=>s+Number(c.power||c.character?.basePower||0),0);
+  let myHp=Math.max(1000,myPower*6), enemyHp=Math.max(1000,enemyPower*6);
+  let out=`⚔️ **PVP BATTLE**\n${i.user} VS ${opponent}\n\nYour HP: **${uiMoney(myHp)}** | Enemy HP: **${uiMoney(enemyHp)}**\n`;
+  await i.editReply(out).catch(()=>null); await new Promise(r=>setTimeout(r,700));
+  for(let round=1;round<=6;round++){
+    const myCard=mine[(round-1)%mine.length], enCard=theirs[(round-1)%theirs.length];
+    const myHit=Math.floor(Number(myCard.power||0)*(1.1+Math.random()*.8));
+    const enHit=Math.floor(Number(enCard.power||0)*(1.1+Math.random()*.8));
+    enemyHp=Math.max(0,enemyHp-myHit);
+    out+=`\nRound ${round}: **${uiClean(myCard.character.name)}** hit **${uiClean(enCard.character.name)}** for **${uiMoney(myHit)}**. Enemy HP: **${uiMoney(enemyHp)}**`;
+    await i.editReply(out.slice(-1900)).catch(()=>null); await new Promise(r=>setTimeout(r,700));
+    if(enemyHp<=0)break;
+    myHp=Math.max(0,myHp-enHit);
+    out+=`\nCounter: **${uiClean(enCard.character.name)}** hit back for **${uiMoney(enHit)}**. Your HP: **${uiMoney(myHp)}**`;
+    await i.editReply(out.slice(-1900)).catch(()=>null); await new Promise(r=>setTimeout(r,700));
+    if(myHp<=0)break;
+    if(round===3){
+      const ult=Math.floor(myHit*1.75); enemyHp=Math.max(0,enemyHp-ult);
+      out+=`\n🔥 **ULTIMATE! ${uiClean(myCard.character.name)}** dealt **${uiMoney(ult)}**. Enemy HP: **${uiMoney(enemyHp)}**`;
+      await i.editReply(out.slice(-1900)).catch(()=>null); await new Promise(r=>setTimeout(r,700));
+      if(enemyHp<=0)break;
+    }
+  }
+  const won=enemyHp<=0||(myHp>enemyHp), rewardGold=won?2500:750;
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{increment:rewardGold}}}).catch(()=>null);
+  out+=`\n\n${won?'✅ **Victory!**':'❌ **Defeat!**'}\nReward: **${uiMoney(rewardGold)} Gold**`;
+  return i.editReply(out.slice(-1900)).catch(()=>null);
+}
+async function uiButtons(i){
+  if(!i.isButton())return false;
+  if(i.customId.startsWith('ui_inv_')){
+    const parts=i.customId.split('_'), dir=parts[2], current=Number(parts[3]||0), next=dir==='next'?current+1:current-1;
+    const data=await uiInventoryPage(i.user.id,next);
+    if(data.empty)return i.reply({content:'You do not have any cards yet.',ephemeral:true});
+    return i.update({embeds:[data.embed],components:[data.row]});
+  }
+  if(i.customId.startsWith('ui_top_')){
+    const parts=i.customId.split('_'), dir=parts[2], current=Number(parts[3]||0), next=dir==='next'?current+1:current-1;
+    const data=await uiTopPage(next);
+    if(data.empty)return i.reply({content:'No cards found yet.',ephemeral:true});
+    return i.update({embeds:[data.embed],components:[data.row]});
+  }
+  return false;
+}
+async function uiHandler(i,userId,commandName){
+  if(commandName==='inventory')return uiInventory(i);
+  if(commandName==='top-characters')return uiTopCharacters(i);
+  if(commandName==='pvp')return uiPvp(i);
+  return false;
+}
+// ===== END UNLIMITED INVENTORY + PVP + TOP CHARACTER PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    const uiButtonHandled = await uiButtons(i);
+    if (uiButtonHandled !== false) return uiButtonHandled;
+
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
       if (brAuto) return;
@@ -8444,6 +8568,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const uiHandled = await uiHandler(i, userId, commandName);
+    if (uiHandled !== false) return uiHandled;
 
     const golHandled = await golHandler(i, userId, commandName);
     if (golHandled !== false) return golHandled;
