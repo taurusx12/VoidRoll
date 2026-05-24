@@ -8808,7 +8808,228 @@ async function raHandler(i,userId,commandName){
 }
 // ===== END READY ASCEND COMMAND PATCH =====
 
+
+// ===== VIEW OTHER INVENTORY + SECRET TOP HERO PATCH =====
+// /inventory shows your cards strongest to weakest.
+// /view-inventory user:@player shows another player's inventory strongest to weakest.
+// /top-characters shows SECRET characters only, highest power to lowest, with left/right buttons.
+
+function viMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function viEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function viClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function viRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  if (typeof brsRole === 'function') return brsRole(c);
+  return 'DPS';
+}
+function viElement(c) {
+  if (typeof uxElement === 'function') return uxElement(c);
+  if (typeof uiElement === 'function') return uiElement(c);
+  if (typeof brsElement === 'function') return brsElement(c);
+  return c?.element || 'Light';
+}
+function viPassive(c) {
+  if (typeof uxPassive === 'function') return uxPassive(c);
+  if (typeof uiPassive === 'function') return uiPassive(c);
+  if (typeof brsPassive === 'function') return brsPassive(c);
+  return 'Battle Rhythm: ATK rises every round and spikes after ultimate.';
+}
+function viStatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+  if (typeof brsStatsText === 'function') return brsStatsText(card, c);
+
+  const p = Number(card.power || c.basePower || 1000);
+  return `Class: **${viRole(c)}** | Element: **${viElement(c)}**
+ATK **${viMoney(Math.floor(p * 1.05))}** • HP **${viMoney(Math.floor(p * 7.2))}** • DEF **${viMoney(Math.floor(p * .55))}**
+Passive: ${viPassive(c)}`;
+}
+async function viCards(userId, onlySecret = false, take = 100000) {
+  const where = onlySecret
+    ? { userId, character: { rarity: 'SECRET' } }
+    : { userId };
+
+  return prisma.userCard.findMany({
+    where,
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take
+  }).catch(async () => {
+    // fallback if nested character filter is not supported in a schema variant
+    const all = await prisma.userCard.findMany({
+      where: { userId },
+      include: { character: true },
+      orderBy: [{ power: 'desc' }, { id: 'desc' }],
+      take
+    }).catch(() => []);
+    return onlySecret ? all.filter(c => String(c.character?.rarity || '').toUpperCase() === 'SECRET') : all;
+  });
+}
+async function viAllSecretCards(take = 100000) {
+  return prisma.userCard.findMany({
+    where: { character: { rarity: 'SECRET' } },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take
+  }).catch(async () => {
+    const all = await prisma.userCard.findMany({
+      include: { character: true },
+      orderBy: [{ power: 'desc' }, { id: 'desc' }],
+      take
+    }).catch(() => []);
+    return all.filter(c => String(c.character?.rarity || '').toUpperCase() === 'SECRET');
+  });
+}
+async function viInventoryPage(viewerId, targetUserId, page = 0, targetLabel = 'Player') {
+  const cards = await viCards(targetUserId, false, 100000);
+  if (!cards.length) return { empty: true, message: `${targetLabel} does not have any cards yet.` };
+
+  const safe = Math.max(0, Math.min(Number(page || 0), cards.length - 1));
+  const card = cards[safe];
+  const c = card.character;
+
+  const isOwn = viewerId === targetUserId;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${isOwn ? 'Your Inventory' : `${targetLabel}'s Inventory`} — Strongest to Weakest`)
+    .setDescription(
+      `${safe + 1}. ${viEmoji(c.rarity)} **${viClean(c.name)}**\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${viMoney(card.power || c.basePower || 0)}**\n` +
+      `${viStatsText(card, c)}\n\n` +
+      `Card: **${safe + 1}/${cards.length}**\n` +
+      `Sorted by **highest power → lowest power**.`
+    )
+    .setColor(String(c.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`vi_inv_prev_${safe}_${targetUserId}`)
+      .setLabel('⬅️ Left')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe <= 0),
+    new ButtonBuilder()
+      .setCustomId(`vi_inv_next_${safe}_${targetUserId}`)
+      .setLabel('Right ➡️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe >= cards.length - 1)
+  );
+
+  return { empty: false, embed, row };
+}
+async function viSecretTopPage(page = 0) {
+  const cards = await viAllSecretCards(100000);
+  if (!cards.length) return { empty: true };
+
+  const safe = Math.max(0, Math.min(Number(page || 0), cards.length - 1));
+  const card = cards[safe];
+  const c = card.character;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏆 Top SECRET Hero #${safe + 1}`)
+    .setDescription(
+      `${safe + 1}. ${viEmoji(c.rarity)} **${viClean(c.name)}**\n` +
+      `Owner: <@${card.userId}>\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${viMoney(card.power || c.basePower || 0)}**\n` +
+      `${viStatsText(card, c)}\n\n` +
+      `SECRET ranking: **${safe + 1}/${cards.length}**\n` +
+      `Sorted by **highest power → lowest power**.`
+    )
+    .setColor(0xf1c40f);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`vi_top_prev_${safe}`)
+      .setLabel('⬅️ Left')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe <= 0),
+    new ButtonBuilder()
+      .setCustomId(`vi_top_next_${safe}`)
+      .setLabel('Right ➡️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe >= cards.length - 1)
+  );
+
+  return { empty: false, embed, row };
+}
+async function viInventory(i) {
+  const page = i.options.getInteger('page') || 0;
+  const data = await viInventoryPage(i.user.id, i.user.id, page, i.user.username || 'You');
+  if (data.empty) return i.reply(data.message);
+  return i.reply({ embeds: [data.embed], components: [data.row] });
+}
+async function viViewInventory(i) {
+  const target = i.options.getUser('user', true);
+  const page = i.options.getInteger('page') || 0;
+
+  const data = await viInventoryPage(i.user.id, target.id, page, target.username || 'Player');
+  if (data.empty) return i.reply(data.message);
+  return i.reply({ embeds: [data.embed], components: [data.row] });
+}
+async function viTopCharacters(i) {
+  const page = i.options.getInteger('page') || 0;
+  const data = await viSecretTopPage(page);
+  if (data.empty) return i.reply('No SECRET characters found yet.');
+  return i.reply({ embeds: [data.embed], components: [data.row] });
+}
+async function viButtons(i) {
+  if (!i.isButton()) return false;
+
+  if (i.customId.startsWith('vi_inv_')) {
+    const parts = i.customId.split('_');
+    const dir = parts[2];
+    const current = Number(parts[3] || 0);
+    const targetUserId = parts.slice(4).join('_');
+    const next = dir === 'next' ? current + 1 : current - 1;
+
+    const data = await viInventoryPage(i.user.id, targetUserId, next, 'Player');
+    if (data.empty) return i.reply({ content: data.message, ephemeral: true });
+    return i.update({ embeds: [data.embed], components: [data.row] });
+  }
+
+  if (i.customId.startsWith('vi_top_')) {
+    const parts = i.customId.split('_');
+    const dir = parts[2];
+    const current = Number(parts[3] || 0);
+    const next = dir === 'next' ? current + 1 : current - 1;
+
+    const data = await viSecretTopPage(next);
+    if (data.empty) return i.reply({ content: 'No SECRET characters found yet.', ephemeral: true });
+    return i.update({ embeds: [data.embed], components: [data.row] });
+  }
+
+  return false;
+}
+async function viHandler(i, userId, commandName) {
+  if (commandName === 'inventory') return viInventory(i);
+  if (commandName === 'view-inventory') return viViewInventory(i);
+  if (commandName === 'top-characters') return viTopCharacters(i);
+  return false;
+}
+// ===== END VIEW OTHER INVENTORY + SECRET TOP HERO PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    const viButtonHandled = await viButtons(i);
+    if (viButtonHandled !== false) return viButtonHandled;
+
     const uiButtonHandled = await uiButtons(i);
     if (uiButtonHandled !== false) return uiButtonHandled;
 
@@ -8992,6 +9213,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const viHandled = await viHandler(i, userId, commandName);
+    if (viHandled !== false) return viHandled;
 
     const raHandled = await raHandler(i, userId, commandName);
     if (raHandled !== false) return raHandled;

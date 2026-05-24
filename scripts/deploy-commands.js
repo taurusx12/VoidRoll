@@ -32,16 +32,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('stars')
     .setDescription('Show stars and next ascend Gold cost')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-  new SlashCommandBuilder()
-    .setName('inventory')
-    .setDescription('Show unlimited inventory with images and buttons')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('top-characters')
-    .setDescription('Show strongest characters leaderboard with buttons')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),,
 
   new SlashCommandBuilder()
     .setName('pvp')
@@ -68,6 +59,21 @@ const commands = [
     .setName('ready-ascend')
     .setDescription('Show characters that are ready to ascend')
     .addIntegerOption(o => o.setName('page').setDescription('Page number').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('inventory')
+    .setDescription('Show your inventory strongest to weakest')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('view-inventory')
+    .setDescription('View another player inventory strongest to weakest')
+    .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('top-characters')
+    .setDescription('Show top SECRET heroes by power')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
