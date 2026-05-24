@@ -65,15 +65,29 @@ const commands = [
     .setDescription('View another player inventory strongest to weakest')
     .addUserOption(o => o.setName('user').setDescription('Player').setRequired(true))
     .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('top-characters')
-    .setDescription('Show top SECRET heroes by power')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
   new SlashCommandBuilder()
     .setName('ready-ascend')
     .setDescription('Show characters that are ready to ascend with pages')
     .addIntegerOption(o => o.setName('page').setDescription('Page number').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('top-characters')
+    .setDescription('Show all database characters by rarity and power')
+    .addStringOption(o =>
+      o.setName('rarity')
+        .setDescription('Filter by rarity')
+        .setRequired(false)
+        .addChoices(
+          { name: 'All', value: 'ALL' },
+          { name: 'Secret', value: 'SECRET' },
+          { name: 'Divine', value: 'DIVINE' },
+          { name: 'Mythic', value: 'MYTHIC' },
+          { name: 'Legendary', value: 'LEGENDARY' },
+          { name: 'Epic', value: 'EPIC' },
+          { name: 'Rare', value: 'RARE' },
+          { name: 'Common', value: 'COMMON' }
+        )
+    )
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),

@@ -9195,7 +9195,161 @@ async function rabHandler(i, userId, commandName) {
 }
 // ===== END READY ASCEND BUTTON PAGES PATCH =====
 
+
+// ===== TOP ALL CHARACTERS BY RARITY PATCH =====
+// /top-characters now shows ALL character database entries, not only owned cards.
+// Optional rarity filter. Sorted by rarity strength then basePower high -> low.
+// Buttons move left/right across pages.
+
+function tacMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function tacEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function tacClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function tacRank(rarity) {
+  return { SECRET: 7, DIVINE: 6, MYTHIC: 5, LEGENDARY: 4, EPIC: 3, RARE: 2, COMMON: 1 }[String(rarity || '').toUpperCase()] || 0;
+}
+function tacRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function tacElement(c) {
+  if (typeof uxElement === 'function') return uxElement(c);
+  if (typeof viElement === 'function') return viElement(c);
+  if (typeof uiElement === 'function') return uiElement(c);
+  return c?.element || 'Light';
+}
+function tacPassive(c) {
+  if (typeof uxPassive === 'function') return uxPassive(c);
+  if (typeof viPassive === 'function') return viPassive(c);
+  if (typeof uiPassive === 'function') return uiPassive(c);
+  return 'Battle Rhythm: ATK rises every round and spikes after ultimate.';
+}
+function tacStatsText(c) {
+  const p = Number(c.basePower || 1000);
+  const role = tacRole(c);
+  let atkS = 1.05, hpS = 7.2, defS = .55, spd = 105, crit = 15, critDmg = 170, pen = 0;
+  if (role === 'Tank') { atkS = .72; hpS = 13; defS = 1.2; spd = 90; crit = 8; }
+  if (role === 'Support') { atkS = .8; hpS = 8.8; defS = .82; spd = 110; crit = 10; }
+  if (role === 'Control') { atkS = .9; hpS = 8.4; defS = .76; spd = 118; crit = 12; }
+  if (role === 'Assassin') { atkS = 1.28; hpS = 5.8; defS = .42; spd = 140; crit = 28; critDmg = 205; pen = 12; }
+  if (role === 'Mage') { atkS = 1.34; hpS = 6.1; defS = .48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
+
+  return `Class: **${role}** | Element: **${tacElement(c)}**
+ATK **${tacMoney(Math.floor(p * atkS))}** • HP **${tacMoney(Math.floor(p * hpS))}** • DEF **${tacMoney(Math.floor(p * defS))}** • SPD **${spd}**
+CRIT **${crit}%** • CRIT DMG **${critDmg}%** • PEN **${pen}%**
+Passive: ${tacPassive(c)}`;
+}
+async function tacAllCharacters(rarity = 'ALL') {
+  const r = String(rarity || 'ALL').toUpperCase();
+  const where = r === 'ALL' ? { active: true } : { active: true, rarity: r };
+
+  const chars = await prisma.character.findMany({
+    where,
+    orderBy: [{ basePower: 'desc' }, { id: 'asc' }],
+    take: 100000
+  }).catch(() => []);
+
+  // Keep one clean version per exact clean name + anime if old variant duplicates exist.
+  const seen = new Set();
+  const unique = [];
+  for (const c of chars) {
+    const key = `${tacClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+
+  unique.sort((a, b) => {
+    const rankDiff = tacRank(b.rarity) - tacRank(a.rarity);
+    if (rankDiff) return rankDiff;
+    return Number(b.basePower || 0) - Number(a.basePower || 0);
+  });
+
+  return unique;
+}
+async function tacTopPage(page = 0, rarity = 'ALL') {
+  const chars = await tacAllCharacters(rarity);
+  if (!chars.length) return { empty: true };
+
+  const safe = Math.max(0, Math.min(Number(page || 0), chars.length - 1));
+  const c = chars[safe];
+  const filter = String(rarity || 'ALL').toUpperCase();
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏆 Top Characters ${filter === 'ALL' ? 'All Rarities' : filter}`)
+    .setDescription(
+      `${safe + 1}. ${tacEmoji(c.rarity)} **${tacClean(c.name)}**\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Base Power: **${tacMoney(c.basePower || 0)}**\n` +
+      `${tacStatsText(c)}\n\n` +
+      `Rank: **${safe + 1}/${chars.length}**\n` +
+      `Sorted by **rarity strength**, then **highest power → lowest power**.\n` +
+      `This list shows **all database characters**, not only owned characters.`
+    )
+    .setColor(String(c.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0xf1c40f);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tac_prev_${safe}_${filter}`)
+      .setLabel('⬅️ Left')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe <= 0),
+    new ButtonBuilder()
+      .setCustomId(`tac_next_${safe}_${filter}`)
+      .setLabel('Right ➡️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safe >= chars.length - 1)
+  );
+
+  return { empty: false, embed, row };
+}
+async function tacTopCharacters(i) {
+  const page = i.options.getInteger('page') || 0;
+  const rarity = i.options.getString('rarity') || 'ALL';
+  const data = await tacTopPage(page, rarity);
+
+  if (data.empty) return i.reply(`No characters found for rarity **${rarity}**.`);
+  return i.reply({ embeds: [data.embed], components: [data.row] });
+}
+async function tacButtons(i) {
+  if (!i.isButton()) return false;
+  if (!i.customId.startsWith('tac_')) return false;
+
+  const parts = i.customId.split('_');
+  const dir = parts[1];
+  const current = Number(parts[2] || 0);
+  const rarity = parts.slice(3).join('_') || 'ALL';
+  const next = dir === 'next' ? current + 1 : current - 1;
+
+  const data = await tacTopPage(next, rarity);
+  if (data.empty) return i.reply({ content: 'No characters found.', ephemeral: true });
+
+  return i.update({ embeds: [data.embed], components: [data.row] });
+}
+async function tacHandler(i, userId, commandName) {
+  if (commandName === 'top-characters') return tacTopCharacters(i);
+  return false;
+}
+// ===== END TOP ALL CHARACTERS BY RARITY PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    const tacButtonHandled = await tacButtons(i);
+    if (tacButtonHandled !== false) return tacButtonHandled;
+
     const rabButtonHandled = await rabButtons(i);
     if (rabButtonHandled !== false) return rabButtonHandled;
 
@@ -9385,6 +9539,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const tacHandled = await tacHandler(i, userId, commandName);
+    if (tacHandled !== false) return tacHandled;
 
     const rabHandled = await rabHandler(i, userId, commandName);
     if (rabHandled !== false) return rabHandled;
