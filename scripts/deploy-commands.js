@@ -107,7 +107,7 @@ const commands = [
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
   new SlashCommandBuilder()
     .setName('pack')
-    .setDescription('Open a 10-roll banner pack')
+    .setDescription('Open 10-pull banner pack using Tokens')
     .addStringOption(o =>
       o.setName('banner')
         .setDescription('Choose daily banner pack or featured character')

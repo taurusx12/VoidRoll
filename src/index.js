@@ -5264,6 +5264,286 @@ async function pbHandler(i, userId, commandName) {
 }
 // ===== END PACK BANNER SELECT PATCH =====
 
+
+// ===== TOKEN PACK + 50 GUARANTEED SECRET PATCH =====
+// /pack costs Tokens, not Rolls.
+// Every 10-pull costs 4,000 Tokens so 50 pulls = 20,000 Tokens guaranteed.
+// 10-pull distribution: 3 Rare, 3 Epic, 2 Legendary, 1 Mythic, 1 Divine.
+// SECRET can appear by luck, and is guaranteed at 50 banner pulls.
+// /banner shows each user's current banner pity pulls.
+
+const packPityMemory = new Map();
+
+function tpCleanName(name = '') {
+  if (typeof pityCleanName === 'function') return pityCleanName(name);
+  if (typeof absCleanName === 'function') return absCleanName(name);
+  if (typeof hxCleanName === 'function') return hxCleanName(name);
+  return String(name || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function tpMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function tpEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+
+function tpTraitGet(trait = '', key = 'PackPity') {
+  const re = new RegExp(`${key}:(\\d+)`, 'i');
+  const m = String(trait || '').match(re);
+  return m ? Number(m[1] || 0) : null;
+}
+
+function tpTraitSet(trait = '', key = 'PackPity', value = 0) {
+  const re = new RegExp(`\\s*\\|?\\s*${key}:\\d+`, 'ig');
+  const clean = String(trait || '').replace(re, '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+
+async function tpGetPackPity(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const fromTrait = tpTraitGet(user?.trait, 'PackPity');
+  if (fromTrait !== null) return fromTrait;
+  return packPityMemory.get(userId) || 0;
+}
+
+async function tpSavePackPity(userId, value) {
+  packPityMemory.set(userId, value);
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trait: tpTraitSet(user.trait, 'PackPity', value) }
+  }).catch(() => null);
+}
+
+function tpDaySeed() {
+  return Math.floor(Date.now() / 86400000);
+}
+
+async function tpSecretPool() {
+  const chars = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 300
+  }).catch(() => []);
+
+  const seen = new Set();
+  const unique = [];
+  for (const c of chars) {
+    const key = `${tpCleanName(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+
+async function tpDailyBannerChars() {
+  const pool = await tpSecretPool();
+  const seed = tpDaySeed();
+  const picks = [];
+  for (let i = 0; i < Math.min(4, pool.length); i++) {
+    picks.push(pool[(seed * 17 + i * 31) % pool.length]);
+  }
+  return picks;
+}
+
+async function tpBanner(i) {
+  const picks = await tpDailyBannerChars();
+  const pity = await tpGetPackPity(i.user.id);
+  const ends = Math.floor(((tpDaySeed() + 1) * 86400000) / 1000);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Only **4 SECRET** featured characters.\n` +
+      `10-pull cost: **4,000 Tokens**\n` +
+      `Guaranteed SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Your banner pulls: **${pity}/50**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (picks.length
+        ? picks.map((c, idx) => `${idx + 1}. **${tpCleanName(c.name)}** • ${c.anime} • SECRET`).join('\n')
+        : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+
+async function tpPickSecret(bannerValue = 'daily-secret') {
+  if (bannerValue && String(bannerValue).startsWith('featured:')) {
+    const id = String(bannerValue).replace('featured:', '');
+    const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+    if (c && c.active && String(c.rarity).toUpperCase() === 'SECRET') return c;
+  }
+
+  const banner = await tpDailyBannerChars();
+  if (banner.length) return banner[Math.floor(Math.random() * banner.length)];
+
+  const pool = await tpSecretPool();
+  return pool[Math.floor(Math.random() * Math.max(1, pool.length))] || null;
+}
+
+async function tpPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({
+    where: { active: true, rarity },
+    take: 300
+  }).catch(() => []);
+
+  if (!chars.length) {
+    return prisma.character.findFirst({
+      where: { active: true },
+      orderBy: { basePower: 'desc' }
+    });
+  }
+
+  return chars[Math.floor(Math.random() * chars.length)];
+}
+
+async function tpCreateCard(userId, character) {
+  const cardId = typeof nanoid === 'function' ? nanoid(12) : `${userId}_${character.id}_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+
+  return prisma.userCard.create({
+    data: {
+      id: cardId,
+      userId,
+      characterId: character.id,
+      power: Number(character.basePower || 1000)
+    }
+  }).catch(() => prisma.userCard.create({
+    data: {
+      userId,
+      characterId: character.id,
+      power: Number(character.basePower || 1000)
+    }
+  }));
+}
+
+async function tpPackChoices() {
+  const picks = await tpDailyBannerChars();
+  const choices = [{ name: 'Daily SECRET Banner - All 4 Featured', value: 'daily-secret' }];
+
+  for (const c of picks.slice(0, 4)) {
+    choices.push({ name: `Rate Up: ${tpCleanName(c.name)}`, value: `featured:${c.id}` });
+  }
+
+  return choices.slice(0, 25);
+}
+
+async function tpAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await tpPackChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered).catch(() => null);
+  return true;
+}
+
+async function tpPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const banner = i.options.getString('banner', false) || 'daily-secret';
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(
+      `You need **${tpMoney(cost)} Tokens** for 10 pulls.\n` +
+      `You have **${tpMoney(user?.tokens || 0)} Tokens**.`
+    );
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { tokens: { decrement: cost } }
+  }).catch(() => null);
+
+  let pity = await tpGetPackPity(i.user.id);
+  const beforePity = pity;
+
+  // Fixed 10-pull distribution.
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  // Small SECRET luck chance. If guaranteed triggers, it replaces the last slot.
+  let secretIndex = -1;
+  for (let i2 = 0; i2 < rarities.length; i2++) {
+    const nextPity = pity + i2 + 1;
+    const softChance = nextPity >= 35 ? Math.min(0.20, (nextPity - 34) * 0.01) : 0;
+    const luckySecret = Math.random() < (0.01 + softChance);
+    const hardSecret = nextPity >= 50;
+    if (luckySecret || hardSecret) {
+      secretIndex = hardSecret ? 9 : i2;
+      break;
+    }
+  }
+
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+
+    if (rarities[n] === 'SECRET') {
+      character = await tpPickSecret(banner);
+      gotSecret = true;
+      pity = 0;
+    } else {
+      character = await tpPickByRarity(rarities[n]);
+    }
+
+    if (!character) continue;
+
+    const card = await tpCreateCard(i.user.id, character);
+    lines.push(
+      `${n + 1}. ${tpEmoji(character.rarity)} **${tpCleanName(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${tpMoney(card.power || character.basePower)}`
+    );
+
+    if (String(character.rarity || '').toUpperCase() === 'SECRET' || embeds.length < 2) {
+      const embed = new EmbedBuilder()
+        .setTitle(`${tpEmoji(character.rarity)} ${tpCleanName(character.name)}`)
+        .setDescription(
+          `Anime: **${character.anime}**\n` +
+          `Rarity: **${character.rarity}**\n` +
+          `Power: **${tpMoney(card.power || character.basePower)}**\n` +
+          `Banner pulls: **${pity}/50**\n` +
+          (String(character.rarity).toUpperCase() === 'SECRET' ? `🔥 SECRET obtained. Guaranteed counter reset.` : `Guaranteed SECRET at 50 pulls.`)
+        )
+        .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+      if (character.imageUrl) embed.setImage(character.imageUrl);
+      embeds.push(embed);
+    }
+  }
+
+  await tpSavePackPity(i.user.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Cost: **${tpMoney(cost)} Tokens**\n` +
+      `Banner: **${banner === 'daily-secret' ? 'Daily SECRET Banner' : 'Featured Rate Up'}**\n` +
+      `Guaranteed counter: **${beforePity}/50 → ${pity}/50**\n` +
+      (gotSecret ? `🔥 SECRET pulled! Counter reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${tpMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 5)
+  });
+}
+
+async function tpHandler(i, userId, commandName) {
+  if (commandName === 'banner') return tpBanner(i);
+  if (commandName === 'pack') return tpPack(i);
+  return false;
+}
+// ===== END TOKEN PACK + 50 GUARANTEED SECRET PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -5394,12 +5674,22 @@ client.on('interactionCreate', async (i) => {
       return;
     }
 
+    if (i.isAutocomplete()) {
+      const tpAuto = await tpAutocomplete(i);
+      if (tpAuto) return;
+      const pbAuto = typeof pbAutocomplete === 'function' ? await pbAutocomplete(i) : false;
+      if (pbAuto) return;
+    }
+
     if (!i.isChatInputCommand()) return;
 
     await ensureUser(i.user);
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const tpHandled = await tpHandler(i, userId, commandName);
+    if (tpHandled !== false) return tpHandled;
 
     const pbHandled = await pbHandler(i, userId, commandName);
     if (pbHandled !== false) return pbHandled;
