@@ -2479,6 +2479,292 @@ async function fpPolishHandler(i, userId, commandName) {
 }
 // ===== END FINAL POLISH PATCH =====
 
+
+// ===== FINAL OVERRIDE: CAPPED POWER + UNIQUE INVENTORY + REAL LIVE LOGS =====
+async function foDefer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+}
+async function foReply(i, payload) {
+  if (i.deferred || i.replied) return i.editReply(payload).catch(() => null);
+  return i.reply(payload).catch(() => null);
+}
+function foNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function foBaseName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent)\b/ig, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function foHash(v = '') {
+  let h = 0;
+  for (const ch of String(v)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+function foRange(rarity) {
+  return {
+    COMMON: [80, 180],
+    RARE: [190, 360],
+    EPIC: [380, 700],
+    LEGENDARY: [720, 1150],
+    MYTHIC: [1200, 1750],
+    DIVINE: [1800, 2400],
+    SECRET: [2450, 3300]
+  }[rarity] || [100, 250];
+}
+function foBalancedBase(c) {
+  const [min, max] = foRange(c?.rarity || 'COMMON');
+  const seed = foHash(`${foBaseName(c?.name)}:${c?.anime || ''}:${c?.rarity || ''}`);
+  return min + (seed % Math.max(1, max - min));
+}
+function foDisplayPower(card, c) {
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  const base = foBalancedBase(c || card?.character || {});
+  return Math.floor(base * (1 + ((level - 1) * 0.035)));
+}
+function foRole(c) {
+  if (typeof vxRole === 'function') return vxRole(c);
+  if (typeof fpRole === 'function') return fpRole(c);
+  if (typeof vrRole === 'function') return vrRole(c);
+  return 'DPS';
+}
+function foElement(c) {
+  if (typeof vxElement === 'function') return vxElement(c);
+  if (typeof fpElement === 'function') return fpElement(c);
+  if (typeof vrElement === 'function') return vrElement(c);
+  return c?.element || 'Light';
+}
+function foPassive(c) {
+  if (typeof vxPassive === 'function') return vxPassive(c);
+  if (typeof fpPassive === 'function') return fpPassive(c);
+  if (typeof vrPassive === 'function') return vrPassive(c);
+  return 'Battle Instinct: ATK rises every round.';
+}
+function foStatsBlock(card, c) {
+  const power = foDisplayPower(card, c);
+  const level = Math.max(1, Math.min(99, Number(card?.level || 1)));
+  const role = foRole(c);
+  let atkS=1.05,hpS=7.2,defS=.55,spd=105,crit=15,critDmg=170,pen=0;
+  if (role === 'Tank') { atkS=.72; hpS=13; defS=1.2; spd=90; crit=8; }
+  if (role === 'Support') { atkS=.8; hpS=8.8; defS=.82; spd=110; crit=10; }
+  if (role === 'Control') { atkS=.9; hpS=8.4; defS=.76; spd=118; crit=12; }
+  if (role === 'Assassin') { atkS=1.28; hpS=5.8; defS=.42; spd=140; crit=28; critDmg=205; pen=12; }
+  if (role === 'Mage') { atkS=1.34; hpS=6.1; defS=.48; spd=108; crit=17; critDmg=185; pen=22; }
+  if (/nanami/i.test(c?.name || '')) { crit=40; critDmg=235; pen=Math.max(pen,12); }
+  return `Class: **${role}** | Element: **${foElement(c)}**
+Level **${level}/99** • ATK **${money(Math.floor(power*atkS))}** • HP **${money(Math.floor(power*hpS))}** • DEF **${money(Math.floor(power*defS))}** • SPD **${Math.floor(spd+level*.2)}**
+CRIT **${crit}%** • CRIT DMG **${critDmg}%** • PEN **${pen}%**
+Character Passive: ${foPassive(c)}`;
+}
+function foUniqueCards(cards) {
+  const map = new Map();
+  for (const card of cards) {
+    const key = `${foNorm(foBaseName(card.character?.name || card.name))}:${foNorm(card.character?.anime || card.anime)}`;
+    const old = map.get(key);
+    const p = foDisplayPower(card, card.character || card);
+    const oldp = old ? foDisplayPower(old, old.character || old) : -1;
+    if (!old || p > oldp) map.set(key, card);
+  }
+  return [...map.values()];
+}
+async function foOwned(userId, take = 500) {
+  return prisma.userCard.findMany({ where:{userId}, include:{character:true}, orderBy:{power:'desc'}, take });
+}
+async function foFindOwned(userId, q, limit=10) {
+  const tokens = foNorm(q).split(/\s+/).filter(Boolean);
+  const cards = foUniqueCards(await foOwned(userId, 700));
+  return cards.map(card => {
+    const c = card.character;
+    const full = `${foNorm(foBaseName(c.name))} ${foNorm(c.name)} ${foNorm(c.anime)}`;
+    let score=0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (foNorm(c.name).includes(t)) score += 80;
+      if (foNorm(c.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return {card, score};
+  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || foDisplayPower(b.card,b.card.character)-foDisplayPower(a.card,a.card.character)).slice(0, limit).map(x=>x.card);
+}
+async function foSetFormation(userId, formation, cards) {
+  const start = ((formation-1)*6)+1;
+  await prisma.teamSlot.deleteMany({ where:{userId, slot:{gte:start, lte:start+5}} }).catch(()=>null);
+  for (let x=0; x<Math.min(6,cards.length); x++) {
+    const slot = start+x, card = cards[x];
+    await prisma.teamSlot.upsert({
+      where:{userId_slot:{userId, slot}},
+      update:{cardId:card.id},
+      create:{id:`${userId}_${slot}`, userId, slot, cardId:card.id}
+    }).catch(async()=> {
+      await prisma.teamSlot.create({data:{id:`${userId}_${Date.now()}_${slot}`, userId, slot, cardId:card.id}}).catch(()=>null);
+    });
+  }
+}
+async function foFormation(userId, formation) {
+  const start = ((formation-1)*6)+1;
+  const slots = await prisma.teamSlot.findMany({ where:{userId, slot:{gte:start,lte:start+5}}, include:{card:{include:{character:true}}}, orderBy:{slot:'asc'} }).catch(()=>[]);
+  return slots.map(s=>s.card).filter(Boolean);
+}
+function foNeed(mode,p) {
+  const v = mode==='story' ? p.chapter : mode==='tower' ? p.towerFloor : p.dungeonFloor;
+  if (v>=60) return 6; if (v>=48) return 5; if (v>=36) return 4; if (v>=24) return 3; if (v>=12) return 2; return 1;
+}
+async function foTeamPower(userId, formations) {
+  let total = 0;
+  const fallback = foUniqueCards(await foOwned(userId, formations*12));
+  for (let f=1; f<=formations; f++) {
+    let team = await foFormation(userId, f);
+    if (!team.length) team = fallback.slice((f-1)*6, f*6);
+    total += team.reduce((s,c)=>s+foDisplayPower(c,c.character),0);
+  }
+  return total;
+}
+function foReq(mode,p,f) {
+  const storyIndex = ((p.chapter-1)*30)+p.stage;
+  const base = mode==='story' ? 650+storyIndex*300 : mode==='tower' ? 1100+p.towerFloor*520 : 900+p.dungeonFloor*430;
+  const late = mode==='story' ? Math.max(0,p.chapter-40)*.035 : 0;
+  return Math.floor(base*(1+(f-1)*.95+late));
+}
+function foRewards(mode, req, p) {
+  const no = mode==='story' ? (((p.chapter-1)*30)+p.stage) : mode==='tower' ? p.towerFloor : p.dungeonFloor;
+  return {gold:Math.floor(req*.8), tokens:Math.max(2,Math.floor(no/4)+2), rolls:mode==='story'?3:2, xp:mode==='story'?75:mode==='tower'?85:65};
+}
+async function foAdvance(userId, mode, p) {
+  if (mode==='story') {
+    let stage=p.stage+1, chapter=p.chapter;
+    if (stage>30) { stage=1; chapter++; }
+    if (chapter>80) { chapter=80; stage=30; }
+    return prisma.storyProgress.update({where:{userId}, data:{chapter,stage}}).catch(()=>null);
+  }
+  if (mode==='tower') return prisma.storyProgress.update({where:{userId}, data:{towerFloor:p.towerFloor+1}}).catch(()=>null);
+  return prisma.storyProgress.update({where:{userId}, data:{dungeonFloor:p.dungeonFloor+1}}).catch(()=>null);
+}
+const foLocks = new Set();
+async function foLiveMode(i, mode, runs=1) {
+  await foDefer(i);
+  const key = `${i.user.id}:${mode}`;
+  if (foLocks.has(key)) return foReply(i, `⏳ You already have **${mode}** running.`);
+  foLocks.add(key);
+  try {
+    const max=Math.max(1,Math.min(30,runs));
+    let wins=0,total={gold:0,tokens:0,rolls:0,xp:0};
+    let out=`**${max>1?'AUTO ':''}${mode.toUpperCase()} STARTED**\n`;
+    await i.editReply(out).catch(()=>null);
+    await new Promise(r=>setTimeout(r,900));
+    for (let run=1; run<=max; run++) {
+      const p = await getOrCreateProgress(i.user.id);
+      const f = foNeed(mode,p), power = await foTeamPower(i.user.id,f), req=foReq(mode,p,f);
+      const title = mode==='story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode==='tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
+      out += `\nRun ${run}: **${title}** | Formations **${f}** | ${money(power)} vs ${money(req)}\n`;
+      await i.editReply(out.slice(-1850)).catch(()=>null);
+      await new Promise(r=>setTimeout(r,900));
+      let energy=0;
+      for (let round=1; round<=4; round++) {
+        const dmg=Math.floor(power/(4+round)+Math.random()*500);
+        energy += 32;
+        out += `• Round ${round}: dealt **${money(dmg)}** damage. Energy ${Math.min(100,energy)}/100\n`;
+        if (energy>=100) { out += `  🔥 **ULTIMATE COMBO!** Formation finisher activated.\n`; energy=0; }
+        await i.editReply(out.slice(-1850)).catch(()=>null);
+        await new Promise(r=>setTimeout(r,1000));
+      }
+      const won = power>=req || Math.random()<Math.min(.18,power/Math.max(1,req)/5);
+      if (!won) { out += `❌ **Defeat.** Upgrade your formations.\n`; await i.editReply(out.slice(-1850)).catch(()=>null); break; }
+      const latest=await getOrCreateProgress(i.user.id);
+      const same = mode==='story' ? latest.chapter===p.chapter && latest.stage===p.stage : mode==='tower' ? latest.towerFloor===p.towerFloor : latest.dungeonFloor===p.dungeonFloor;
+      if (!same) { out += `⛔ Duplicate reward blocked.\n`; await i.editReply(out.slice(-1850)).catch(()=>null); break; }
+      const rw=foRewards(mode,req,p);
+      await foAdvance(i.user.id,mode,p);
+      await prisma.user.update({where:{id:i.user.id}, data:{gold:{increment:rw.gold},tokens:{increment:rw.tokens},rolls:{increment:rw.rolls}}}).catch(()=>null);
+      if (typeof addUserXp==='function') await addUserXp(i.user.id,rw.xp,mode).catch(()=>null);
+      wins++; total.gold+=rw.gold; total.tokens+=rw.tokens; total.rolls+=rw.rolls; total.xp+=rw.xp;
+      out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
+      await i.editReply(out.slice(-1850)).catch(()=>null);
+      await new Promise(r=>setTimeout(r,900));
+    }
+    out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+    return i.editReply(out.slice(-1900)).catch(()=>null);
+  } finally { foLocks.delete(key); }
+}
+async function foFinalHandler(i,userId,commandName) {
+  if (commandName==='roll' || commandName==='r') {
+    await foDefer(i);
+    const amount=Math.max(1,Math.min(10,i.options.getInteger('amount')||1));
+    const user=await prisma.user.findUnique({where:{id:userId}});
+    if ((user?.rolls||0)<amount) return foReply(i,`You need **${amount} rolls**, you have **${user?.rolls||0}**.`);
+    await prisma.user.update({where:{id:userId}, data:{rolls:{decrement:amount}}});
+    const lines=[], embeds=[];
+    for (let x=0; x<amount; x++) {
+      const result=await rollCard(userId);
+      const display=foDisplayPower(result.card,result.character);
+      lines.push(`${x+1}. ${rarityEmoji(result.character.rarity)} **${foBaseName(result.character.name)}** • ${result.character.anime} • PWR ${money(display)}\n${foStatsBlock(result.card,result.character).split('\n').slice(0,2).join(' | ')}`);
+      const embed=new EmbedBuilder().setTitle(`${x+1}. ${rarityEmoji(result.character.rarity)} ${foBaseName(result.character.name)}`).setDescription(`Anime: **${result.character.anime}**\nRarity: **${result.character.rarity}**\nPower: **${money(display)}**\n${foStatsBlock(result.card,result.character)}`).setColor(embedColor(getAura(result.character).color));
+      if (result.character.imageUrl) embed.setImage(result.character.imageUrl);
+      embeds.push(embed);
+    }
+    return foReply(i,{content:(`**ROLL x${amount}**\n${lines.join('\n\n')}\n\nRolls left: **${(user?.rolls||0)-amount}**`).slice(0,1900), embeds:embeds.slice(0,10)});
+  }
+  if (commandName==='inventory') {
+    const unique=foUniqueCards(await foOwned(userId,800)).slice(0,25);
+    if (!unique.length) return i.reply('You do not have any cards yet.');
+    return i.reply((`**Top Inventory - Unique Characters**\n${unique.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.character.rarity)} **${foBaseName(c.character.name)}** • ${c.character.anime} • PWR ${money(foDisplayPower(c,c.character))} • ${foRole(c.character)} • ${foElement(c.character)}`).join('\n')}`).slice(0,1900));
+  }
+  if (commandName==='search') {
+    const q=i.options.getString('name',true), tokens=foNorm(q).split(/\s+/).filter(Boolean);
+    const chars=await prisma.character.findMany({where:{active:true, OR:tokens.map(t=>({OR:[{name:{contains:t,mode:'insensitive'}},{anime:{contains:t,mode:'insensitive'}}]}))}, take:120});
+    const ranked=foUniqueCards(chars.map(c=>({character:c, power:foBalancedBase(c), level:1}))).map(card=>{
+      const c=card.character, full=`${foNorm(foBaseName(c.name))} ${foNorm(c.name)} ${foNorm(c.anime)}`;
+      let score=0; for (const t of tokens){ if(full.includes(t))score+=50; if(foNorm(c.name).includes(t))score+=80; if(foNorm(c.anime).includes(t))score+=30;}
+      return {c,score};
+    }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||foBalancedBase(b.c)-foBalancedBase(a.c)).slice(0,10).map(x=>x.c);
+    if(!ranked.length)return i.reply(`No characters found for **${q}**.`);
+    const first=ranked[0];
+    const embed=new EmbedBuilder().setTitle(`Search: ${q}`).setDescription(`**Best Match**\n${rarityEmoji(first.rarity)} **${foBaseName(first.name)}** • ${first.anime} • PWR **${money(foBalancedBase(first))}**\n${foStatsBlock({power:foBalancedBase(first),level:1},first)}\n\n**Results**\n${ranked.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.rarity)} **${foBaseName(c.name)}** • ${c.anime} • PWR ${money(foBalancedBase(c))} • ${foRole(c)} • ${foElement(c)}`).join('\n')}`).setColor(embedColor(getAura(first).color));
+    if(first.imageUrl)embed.setThumbnail(first.imageUrl);
+    return i.reply({embeds:[embed]});
+  }
+  if (commandName==='stats' || commandName==='inv-search') {
+    const q=i.options.getString('name',true);
+    const matches=await foFindOwned(userId,q,10);
+    if(!matches.length)return i.reply(`No owned characters found for **${q}**.`);
+    const first=matches[0], display=foDisplayPower(first,first.character);
+    const embed=new EmbedBuilder().setTitle(commandName==='stats'?`Stats: ${foBaseName(first.character.name)}`:`Inventory Search: ${q}`).setDescription(`${rarityEmoji(first.character.rarity)} **${foBaseName(first.character.name)}** • ${first.character.anime} • PWR **${money(display)}**\n${foStatsBlock(first,first.character)}${commandName==='inv-search'?`\n\n**Owned Results**\n${matches.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.character.rarity)} **${foBaseName(c.character.name)}** • PWR ${money(foDisplayPower(c,c.character))}`).join('\n')}`:''}`).setColor(embedColor(getAura(first.character).color));
+    if(first.character.imageUrl)embed.setThumbnail(first.character.imageUrl);
+    return i.reply({embeds:[embed]});
+  }
+  if (commandName==='formations') {
+    const count=Math.max(1,Math.min(6,i.options.getInteger('count')||6));
+    const lines=['**Your Formations**','6 formations max • each formation has 6 characters.'];
+    for(let f=1;f<=count;f++){const cards=await foFormation(userId,f);lines.push(`\n**Formation ${f}**`);if(!cards.length)lines.push('Empty.');else lines.push(...cards.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.character.rarity)} **${foBaseName(c.character.name)}** • PWR ${money(foDisplayPower(c,c.character))} • ${foRole(c.character)}`));}
+    return i.reply(lines.join('\n').slice(0,1900));
+  }
+  if (commandName==='autoteam') {
+    const count=Math.max(1,Math.min(6,i.options.getInteger('formations')||6));
+    const unique=foUniqueCards(await foOwned(userId,900)).slice(0,count*6);
+    if(!unique.length)return i.reply('You do not have any cards yet.');
+    for(let f=1;f<=count;f++)await foSetFormation(userId,f,unique.slice((f-1)*6,f*6));
+    return i.reply(`✅ Auto equipped **${count} formation(s)** with unique characters. Each formation has **6 characters**.`);
+  }
+  if (commandName==='formation-set') {
+    const formation=Math.max(1,Math.min(6,i.options.getInteger('formation',true)));
+    const names=['slot1','slot2','slot3','slot4','slot5','slot6'].map(x=>i.options.getString(x)).filter(Boolean);
+    const cards=[]; const used=new Set();
+    for(const name of names){const found=(await foFindOwned(userId,name,1))[0]; if(found&&!used.has(found.id)){used.add(found.id); cards.push(found);}}
+    if(!cards.length)return i.reply('No owned characters found from those names.');
+    await foSetFormation(userId,formation,cards);
+    return i.reply(`✅ Formation ${formation} updated manually.\n${cards.map((c,idx)=>`${idx+1}. ${rarityEmoji(c.character.rarity)} **${foBaseName(c.character.name)}** • PWR ${money(foDisplayPower(c,c.character))}`).join('\n')}`);
+  }
+  if (commandName==='story')return foLiveMode(i,'story',1);
+  if (commandName==='tower')return foLiveMode(i,'tower',1);
+  if (commandName==='dungeon')return foLiveMode(i,'dungeon',1);
+  if (commandName==='auto-story')return foLiveMode(i,'story',i.options.getInteger('runs')||10);
+  if (commandName==='auto-tower')return foLiveMode(i,'tower',i.options.getInteger('runs')||10);
+  if (commandName==='auto-dungeon')return foLiveMode(i,'dungeon',i.options.getInteger('runs')||10);
+  return false;
+}
+// ===== END FINAL OVERRIDE PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -2599,6 +2885,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const foHandled = await foFinalHandler(i, userId, commandName);
+    if (foHandled !== false) return foHandled;
 
     const vxHandled = await vxHandler(i, userId, commandName);
     if (vxHandled !== false) return vxHandled;
