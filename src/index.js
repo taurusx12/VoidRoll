@@ -8488,6 +8488,78 @@ setTimeout(() => {
 }, 5000);
 // ===== END ALL FOR ONE MYTHIC + PASSIVE PATCH =====
 
+
+// ===== SHOP BUY NORMAL ROLLS WITH GOLD PATCH =====
+// Shop now lets players buy normal rolls using Gold.
+
+function sgMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function sgRollCost(amount) {
+  const a = Math.max(1, Math.min(100, Number(amount || 1)));
+  // سعر الرولة الواحدة
+  return a * 1000;
+}
+
+async function sgShop(i) {
+  const embed = new EmbedBuilder()
+    .setTitle('VoidRoll Shop')
+    .setDescription(
+      `Buy **Normal Rolls** using **Gold**.\n\n` +
+      `**Prices**\n` +
+      `1 Normal Roll = **1,000 Gold**\n` +
+      `10 Normal Rolls = **10,000 Gold**\n` +
+      `50 Normal Rolls = **50,000 Gold**\n\n` +
+      `Use:\n` +
+      `\`/buy-rolls amount:10\`\n\n` +
+      `Normal rolls use the normal roll rates only. Banner pity stays only in \`/pack banner\`.`
+    )
+    .setColor(0xf1c40f);
+
+  return i.reply({ embeds: [embed] });
+}
+
+async function sgBuyRolls(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(100, i.options.getInteger('amount', true)));
+  const cost = sgRollCost(amount);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+
+  if ((user?.gold || 0) < cost) {
+    return i.editReply(
+      `Not enough Gold.\n` +
+      `You need **${sgMoney(cost)} Gold** to buy **${amount} Normal Roll(s)**.\n` +
+      `You have **${sgMoney(user?.gold || 0)} Gold**.`
+    );
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: {
+      gold: { decrement: cost },
+      rolls: { increment: amount }
+    }
+  }).catch(() => null);
+
+  return i.editReply(
+    `✅ **Purchase Complete**\n` +
+    `Bought: **${amount} Normal Roll(s)**\n` +
+    `Cost: **${sgMoney(cost)} Gold**\n` +
+    `Gold left: **${sgMoney((user?.gold || 0) - cost)}**\n` +
+    `Rolls added: **+${amount}**`
+  );
+}
+
+async function sgShopHandler(i, userId, commandName) {
+  if (commandName === 'shop') return sgShop(i);
+  if (commandName === 'buy-rolls') return sgBuyRolls(i);
+  return false;
+}
+// ===== END SHOP BUY NORMAL ROLLS WITH GOLD PATCH =====
+
 client.on('interactionCreate', async (i) => {
     const uiButtonHandled = await uiButtons(i);
     if (uiButtonHandled !== false) return uiButtonHandled;
@@ -8672,6 +8744,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const sgHandled = await sgShopHandler(i, userId, commandName);
+    if (sgHandled !== false) return sgHandled;
 
     const afoHandled = await afoHandler(i, userId, commandName);
     if (afoHandled !== false) return afoHandled;

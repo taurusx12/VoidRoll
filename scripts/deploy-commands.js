@@ -50,6 +50,20 @@ const commands = [
   new SlashCommandBuilder()
     .setName('admin-fix-all-for-one')
     .setDescription('Admin: set All For One to Mythic and fix his passive'),
+  new SlashCommandBuilder()
+    .setName('shop')
+    .setDescription('Open shop to buy normal rolls with Gold'),
+
+  new SlashCommandBuilder()
+    .setName('buy-rolls')
+    .setDescription('Buy normal rolls using Gold')
+    .addIntegerOption(o =>
+      o.setName('amount')
+        .setDescription('How many normal rolls to buy')
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(100)
+    ),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -135,7 +149,6 @@ const commands = [
     .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
 
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
-  new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
   new SlashCommandBuilder()
     .setName('pack')
     .setDescription('Open 10-pull rate-up pack using Tokens')
