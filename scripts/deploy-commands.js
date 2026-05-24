@@ -52,7 +52,7 @@ const commands = [
   new SlashCommandBuilder().setName('admin-collapse-variants').setDescription('Admin: keep one best version per important character and restore images'),
 
   new SlashCommandBuilder().setName('rarity').setDescription('Show normal roll rarity rates'),
-  new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest formations').addIntegerOption(o => o.setName('teams').setDescription('Formations 1-9').setRequired(false)),
+  new SlashCommandBuilder().setName('autoteam').setDescription('Automatically equip strongest teams').addIntegerOption(o => o.setName('teams').setDescription('Team count 1-6').setRequired(false)),
 
   new SlashCommandBuilder().setName('inventory').setDescription('Show your card inventory with images'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show your item inventory'),
