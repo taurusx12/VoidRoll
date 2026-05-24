@@ -14,14 +14,20 @@ const commands = [
     .addStringOption(o => o.setName('slot3').setDescription('Character 3').setRequired(false))
     .addStringOption(o => o.setName('slot4').setDescription('Character 4').setRequired(false))
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
-    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
+    .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),,
+  new SlashCommandBuilder()
+    .setName('inventory')
+    .setDescription('Show your inventory as image cards with left/right buttons')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
   new SlashCommandBuilder()
     .setName('train')
-    .setDescription('Train a character using Gold')
+    .setDescription('Train a character by name using Gold')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
   new SlashCommandBuilder()
     .setName('ascend')
-    .setDescription('Ascend a character using a duplicate')
+    .setDescription('Ascend a character by name using duplicate')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -70,8 +76,6 @@ const commands = [
     .setName('formations')
     .setDescription('Show formations')
     .addIntegerOption(o => o.setName('count').setDescription('Formations 1-6').setRequired(false)),
-
-  new SlashCommandBuilder().setName('inventory').setDescription('Show inventory'),
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
   new SlashCommandBuilder().setName('banner').setDescription('Show banners'),

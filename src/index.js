@@ -3003,9 +3003,343 @@ async function ftFinalHandler(i, userId, commandName) {
 }
 // ===== END LOG NAMES + ASCEND/TRAIN + BOSS RUSH FIX =====
 
+
+// ===== FINAL USER FIX: NO CARD ID + IMAGE INVENTORY + REAL BATTLE LOGS =====
+async function fuDefer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+}
+async function fuReply(i, payload) {
+  if (i.deferred || i.replied) return i.editReply(payload).catch(() => null);
+  return i.reply(payload).catch(() => null);
+}
+function fuNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function fuBaseName(name = '') {
+  if (typeof foBaseName === 'function') return foBaseName(name);
+  return String(name || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function fuDisplayPower(card, c) {
+  if (typeof foDisplayPower === 'function') return foDisplayPower(card, c || card?.character);
+  return Number(card?.power || c?.basePower || 0);
+}
+function fuStatsBlock(card, c) {
+  if (typeof foStatsBlock === 'function') return foStatsBlock(card, c || card?.character);
+  if (typeof vxStatsBlock === 'function') return vxStatsBlock(card, c || card?.character);
+  return `Power: **${money(fuDisplayPower(card, c))}**`;
+}
+function fuRole(c) {
+  if (typeof foRole === 'function') return foRole(c);
+  if (typeof vxRole === 'function') return vxRole(c);
+  return 'DPS';
+}
+function fuElement(c) {
+  if (typeof foElement === 'function') return foElement(c);
+  if (typeof vxElement === 'function') return vxElement(c);
+  return c?.element || 'Light';
+}
+async function fuOwned(userId, take = 900) {
+  return prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take });
+}
+function fuUniqueCards(cards) {
+  const map = new Map();
+  for (const card of cards) {
+    const c = card.character || card;
+    const key = `${fuNorm(fuBaseName(c.name))}:${fuNorm(c.anime)}`;
+    const old = map.get(key);
+    if (!old || fuDisplayPower(card, c) > fuDisplayPower(old, old.character || old)) map.set(key, card);
+  }
+  return [...map.values()];
+}
+async function fuFindOwned(userId, q, limit = 10) {
+  const tokens = fuNorm(q).split(/\s+/).filter(Boolean);
+  const cards = fuUniqueCards(await fuOwned(userId));
+  return cards.map(card => {
+    const c = card.character;
+    const full = `${fuNorm(fuBaseName(c.name))} ${fuNorm(c.name)} ${fuNorm(c.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 60;
+      if (fuNorm(c.name).includes(t)) score += 80;
+      if (fuNorm(c.anime).includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 160;
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || fuDisplayPower(b.card,b.card.character)-fuDisplayPower(a.card,a.card.character)).slice(0, limit).map(x => x.card);
+}
+async function fuInventoryPage(userId, page = 0) {
+  const cards = fuUniqueCards(await fuOwned(userId));
+  if (!cards.length) return { empty: true };
+  const safe = Math.max(0, Math.min(page, cards.length - 1));
+  const card = cards[safe];
+  const c = card.character;
+  const embed = new EmbedBuilder()
+    .setTitle(`${rarityEmoji(c.rarity)} ${fuBaseName(c.name)}`)
+    .setDescription(
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${money(fuDisplayPower(card, c))}**\n` +
+      `${fuStatsBlock(card, c)}\n\n` +
+      `Unique Card: **${safe + 1}/${cards.length}**`
+    )
+    .setColor(embedColor(getAura(c).color))
+    .setFooter({ text: `Use buttons to move right/left • No card ID needed` });
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`vri_prev_${safe}`).setLabel('⬅️ Left').setStyle(ButtonStyle.Secondary).setDisabled(safe <= 0),
+    new ButtonBuilder().setCustomId(`vri_next_${safe}`).setLabel('Right ➡️').setStyle(ButtonStyle.Secondary).setDisabled(safe >= cards.length - 1)
+  );
+  return { empty: false, embed, row };
+}
+async function fuEnemyPool(limit = 180) {
+  const chars = await prisma.character.findMany({ where: { active: true }, orderBy: { basePower: 'desc' }, take: limit }).catch(() => []);
+  return chars.length ? fuUniqueCards(chars.map(c => ({ character: c, power: c.basePower, level: 1 }))).map(x => x.character) : [
+    { name: 'Sukuna', anime: 'Jujutsu Kaisen', rarity: 'SECRET', basePower: 3000 },
+    { name: 'Madara', anime: 'Naruto', rarity: 'SECRET', basePower: 2800 },
+    { name: 'Aizen', anime: 'Bleach', rarity: 'SECRET', basePower: 2700 }
+  ];
+}
+async function fuPickEnemies(count = 6, offset = 0) {
+  const pool = await fuEnemyPool();
+  const arr = [];
+  for (let i = 0; i < count; i++) arr.push(pool[(offset + i * 11) % pool.length]);
+  return arr;
+}
+async function fuFormation(userId, formation) {
+  const start = ((formation - 1) * 6) + 1;
+  const slots = await prisma.teamSlot.findMany({ where: { userId, slot: { gte: start, lte: start + 5 } }, include: { card: { include: { character: true } } }, orderBy: { slot: 'asc' } }).catch(() => []);
+  return slots.map(s => s.card).filter(Boolean);
+}
+async function fuSetFormation(userId, formation, cards) {
+  const start = ((formation - 1) * 6) + 1;
+  await prisma.teamSlot.deleteMany({ where: { userId, slot: { gte: start, lte: start + 5 } } }).catch(() => null);
+  for (let i = 0; i < Math.min(6, cards.length); i++) {
+    const slot = start + i, card = cards[i];
+    await prisma.teamSlot.upsert({
+      where: { userId_slot: { userId, slot } },
+      update: { cardId: card.id },
+      create: { id: `${userId}_${slot}`, userId, slot, cardId: card.id }
+    }).catch(async () => {
+      await prisma.teamSlot.create({ data: { id: `${userId}_${Date.now()}_${slot}`, userId, slot, cardId: card.id } }).catch(() => null);
+    });
+  }
+}
+function fuNeeded(mode, p) {
+  const v = mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  if (v >= 60) return 6;
+  if (v >= 48) return 5;
+  if (v >= 36) return 4;
+  if (v >= 24) return 3;
+  if (v >= 12) return 2;
+  return 1;
+}
+async function fuTeams(userId, count) {
+  const unique = fuUniqueCards(await fuOwned(userId, 900));
+  const teams = [];
+  for (let f = 1; f <= count; f++) {
+    let team = await fuFormation(userId, f);
+    if (!team.length) team = unique.slice((f - 1) * 6, f * 6);
+    teams.push(team.slice(0, 6));
+  }
+  return teams;
+}
+async function fuPower(userId, count) {
+  const teams = await fuTeams(userId, count);
+  return { teams, total: teams.flat().reduce((sum, c) => sum + fuDisplayPower(c, c.character), 0) };
+}
+function fuReq(mode, p, f) {
+  const storyIndex = ((p.chapter - 1) * 30) + p.stage;
+  const base = mode === 'story' ? 650 + storyIndex * 300 : mode === 'tower' ? 1100 + p.towerFloor * 520 : 900 + p.dungeonFloor * 430;
+  const late = mode === 'story' ? Math.max(0, p.chapter - 40) * .035 : 0;
+  return Math.floor(base * (1 + (f - 1) * .95 + late));
+}
+function fuRewards(mode, req, p) {
+  const no = mode === 'story' ? (((p.chapter - 1) * 30) + p.stage) : mode === 'tower' ? p.towerFloor : p.dungeonFloor;
+  return { gold: Math.floor(req * .8), tokens: Math.max(2, Math.floor(no / 4) + 2), rolls: mode === 'story' ? 3 : 2, xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65 };
+}
+async function fuAdvance(userId, mode, p) {
+  if (mode === 'story') {
+    let stage = p.stage + 1, chapter = p.chapter;
+    if (stage > 30) { stage = 1; chapter++; }
+    if (chapter > 80) { chapter = 80; stage = 30; }
+    return prisma.storyProgress.update({ where: { userId }, data: { chapter, stage } }).catch(() => null);
+  }
+  if (mode === 'tower') return prisma.storyProgress.update({ where: { userId }, data: { towerFloor: p.towerFloor + 1 } }).catch(() => null);
+  return prisma.storyProgress.update({ where: { userId }, data: { dungeonFloor: p.dungeonFloor + 1 } }).catch(() => null);
+}
+const fuLocks = new Set();
+async function fuBattle(i, mode, runs = 1) {
+  await fuDefer(i);
+  const key = `${i.user.id}:${mode}`;
+  if (fuLocks.has(key)) return fuReply(i, `⏳ You already have **${mode}** running.`);
+  fuLocks.add(key);
+  try {
+    const max = Math.max(1, Math.min(30, runs));
+    let wins = 0, total = { gold: 0, tokens: 0, rolls: 0, xp: 0 };
+    let out = `**${max > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} LIVE BATTLE**\n`;
+    await i.editReply(out).catch(() => null);
+    await new Promise(r => setTimeout(r, 1200));
+    for (let run = 1; run <= max; run++) {
+      const p = await getOrCreateProgress(i.user.id);
+      const formations = fuNeeded(mode, p);
+      const my = await fuPower(i.user.id, formations);
+      const req = fuReq(mode, p, formations);
+      const enemies = await fuPickEnemies(formations * 6, run + (mode === 'story' ? p.chapter : mode === 'tower' ? p.towerFloor : p.dungeonFloor));
+      const title = mode === 'story' ? `Chapter ${p.chapter}/80 • Stage ${p.stage}/30` : mode === 'tower' ? `Tower Floor ${p.towerFloor}` : `Dungeon Floor ${p.dungeonFloor}`;
+      let enemyHp = Math.max(1200, req * 6);
+      let teamHp = Math.max(1200, my.total * 6);
+      out += `\n**${title}**\nRequired formations: **${formations}** × 6 characters\nTeam HP: **${money(teamHp)}** | Enemy HP: **${money(enemyHp)}**\n`;
+      await i.editReply(out.slice(-1850)).catch(() => null);
+      await new Promise(r => setTimeout(r, 1200));
+      for (let round = 1; round <= 5; round++) {
+        const team = my.teams[(round - 1) % Math.max(1, my.teams.length)] || [];
+        const hero = team[(round - 1) % Math.max(1, team.length)];
+        const enemy = enemies[(round - 1) % enemies.length];
+        const heroName = hero ? fuBaseName(hero.character.name) : 'Your Formation';
+        const enemyName = enemy ? fuBaseName(enemy.name) : 'Enemy';
+        const hit = Math.floor(my.total / (4 + round) + Math.random() * 700);
+        const enemyHit = Math.floor(req / (5 + round) + Math.random() * 400);
+        enemyHp = Math.max(0, enemyHp - hit);
+        teamHp = Math.max(0, teamHp - enemyHit);
+        out += `• Round ${round}: **${heroName}** attacked **${enemyName}** for **${money(hit)}**. Enemy HP left: **${money(enemyHp)}**\n`;
+        await i.editReply(out.slice(-1850)).catch(() => null);
+        await new Promise(r => setTimeout(r, 1300));
+        out += `  **${enemyName}** countered for **${money(enemyHit)}**. Your team HP left: **${money(teamHp)}**\n`;
+        await i.editReply(out.slice(-1850)).catch(() => null);
+        await new Promise(r => setTimeout(r, 1300));
+        if (round === 3 || enemyHp <= req * 2) {
+          const finisher = team[(round + 1) % Math.max(1, team.length)] || hero;
+          const ult = Math.floor(hit * 1.9);
+          enemyHp = Math.max(0, enemyHp - ult);
+          out += `  🔥 **ULTIMATE! ${fuBaseName((finisher?.character || finisher || {}).name || heroName)}** used a finisher on **${enemyName}** for **${money(ult)}**. Enemy HP: **${money(enemyHp)}**\n`;
+          await i.editReply(out.slice(-1850)).catch(() => null);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+        if (enemyHp <= 0 || teamHp <= 0) break;
+      }
+      const won = enemyHp <= 0 || (teamHp > 0 && my.total >= req);
+      if (!won) {
+        out += `❌ **Defeat.** Enemy survived with **${money(enemyHp)} HP**.\n`;
+        await i.editReply(out.slice(-1850)).catch(() => null);
+        break;
+      }
+      const latest = await getOrCreateProgress(i.user.id);
+      const same = mode === 'story' ? latest.chapter === p.chapter && latest.stage === p.stage : mode === 'tower' ? latest.towerFloor === p.towerFloor : latest.dungeonFloor === p.dungeonFloor;
+      if (!same) { out += `⛔ Duplicate reward blocked.\n`; await i.editReply(out.slice(-1850)).catch(() => null); break; }
+      const rw = fuRewards(mode, req, p);
+      await fuAdvance(i.user.id, mode, p);
+      await prisma.user.update({ where: { id: i.user.id }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
+      if (typeof addUserXp === 'function') await addUserXp(i.user.id, rw.xp, mode).catch(() => null);
+      wins++; total.gold += rw.gold; total.tokens += rw.tokens; total.rolls += rw.rolls; total.xp += rw.xp;
+      out += `✅ **Victory!** Rewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**\n`;
+      await i.editReply(out.slice(-1850)).catch(() => null);
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    out += `\n**TOTAL**\nWins: **${wins}/${max}**\nRewards: **${money(total.gold)} Gold**, **${total.tokens} Tokens**, **${total.rolls} Rolls**, **${total.xp} XP**`;
+    return i.editReply(out.slice(-1900)).catch(() => null);
+  } finally { fuLocks.delete(key); }
+}
+async function fuTrain(i) {
+  await fuDefer(i);
+  const q = i.options.getString('name', true);
+  const card = (await fuFindOwned(i.user.id, q, 1))[0];
+  if (!card) return fuReply(i, `No owned character found for **${q}**.`);
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const level = Math.max(1, Number(card.level || 1));
+  if (level >= 99) return fuReply(i, `**${fuBaseName(card.character.name)}** is already level 99.`);
+  const cost = 500 + level * 250;
+  if ((user?.gold || 0) < cost) return fuReply(i, `You need **${money(cost)} Gold** to train **${fuBaseName(card.character.name)}**.`);
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { decrement: cost } } });
+  await prisma.userCard.update({ where: { id: card.id }, data: { level: level + 1, power: { increment: 25 } } }).catch(() => null);
+  return fuReply(i, `✅ **${fuBaseName(card.character.name)}** trained!\nLevel: **${level} → ${level + 1}**\nCost: **${money(cost)} Gold**\nNo card ID needed.`);
+}
+async function fuAscend(i) {
+  await fuDefer(i);
+  const q = i.options.getString('name', true);
+  const card = (await fuFindOwned(i.user.id, q, 1))[0];
+  if (!card) return fuReply(i, `No owned character found for **${q}**.`);
+  const dupes = await prisma.userCard.findMany({ where: { userId: i.user.id, characterId: card.characterId }, include: { character: true }, orderBy: { power: 'asc' }, take: 10 });
+  const consume = dupes.find(c => c.id !== card.id);
+  if (!consume) return fuReply(i, `You need a duplicate of **${fuBaseName(card.character.name)}** to ascend.`);
+  await prisma.userCard.delete({ where: { id: consume.id } }).catch(() => null);
+  await prisma.userCard.update({ where: { id: card.id }, data: { power: { increment: 150 } } }).catch(() => null);
+  return fuReply(i, `✨ **${fuBaseName(card.character.name)} ascended!**\nConsumed duplicate automatically.\nNo card ID needed.`);
+}
+async function fuBoss(i, coop = false) {
+  await fuDefer(i);
+  const formations = coop ? 2 : 1;
+  const my = await fuPower(i.user.id, formations);
+  const enemies = await fuPickEnemies(coop ? 8 : 5, coop ? 50 : 20);
+  const boss = enemies[0];
+  let bossHp = coop ? 2200000 : 1100000;
+  let teamHp = Math.max(2000, my.total * 7);
+  let out = `**${coop ? 'CO-OP ' : 'SOLO '}BOSS RUSH LIVE**\nBoss: **${fuBaseName(boss.name)}** • ${boss.anime || 'Anime'}\nBoss HP: **${money(bossHp)}** | Team HP: **${money(teamHp)}**\n`;
+  await i.editReply(out).catch(() => null);
+  await new Promise(r => setTimeout(r, 1200));
+  const teams = my.teams || [];
+  for (let round = 1; round <= 8; round++) {
+    const team = teams[(round - 1) % Math.max(1, teams.length)] || [];
+    const hero = team[(round - 1) % Math.max(1, team.length)];
+    const heroName = hero ? fuBaseName(hero.character.name) : 'Your Team';
+    const hit = Math.floor(my.total / (3 + round) + Math.random() * 9000);
+    const bossHit = Math.floor((coop ? 90000 : 45000) + Math.random() * 5000);
+    bossHp = Math.max(0, bossHp - hit);
+    teamHp = Math.max(0, teamHp - bossHit);
+    out += `\nRound ${round}: **${heroName}** hit **${fuBaseName(boss.name)}** for **${money(hit)}**. Boss HP: **${money(bossHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(() => null);
+    await new Promise(r => setTimeout(r, 1200));
+    out += `\nBoss countered for **${money(bossHit)}**. Team HP: **${money(teamHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(() => null);
+    await new Promise(r => setTimeout(r, 1200));
+    if (round === 3 || round === 6) {
+      const ult = Math.floor(hit * 2.2);
+      bossHp = Math.max(0, bossHp - ult);
+      out += `\n🔥 **ULTIMATE! ${heroName}** dealt extra **${money(ult)}**. Boss HP: **${money(bossHp)}**`;
+      await i.editReply(out.slice(-1850)).catch(() => null);
+      await new Promise(r => setTimeout(r, 1400));
+    }
+    if (bossHp <= 0 || teamHp <= 0) break;
+  }
+  const clear = bossHp <= 0;
+  const damage = (coop ? 2200000 : 1100000) - bossHp;
+  const rw = { gold: Math.floor(damage * .45), tokens: Math.max(8, Math.floor(damage / 45000)), rolls: clear ? 10 : 4, xp: clear ? 220 : 100 };
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { increment: rw.gold }, tokens: { increment: rw.tokens }, rolls: { increment: rw.rolls } } }).catch(() => null);
+  if (typeof addUserXp === 'function') await addUserXp(i.user.id, rw.xp, 'boss-rush').catch(() => null);
+  out += `\n\n**${clear ? 'Boss Cleared!' : 'Boss Escaped!'}**\nRewards: **${money(rw.gold)} Gold**, **${rw.tokens} Tokens**, **${rw.rolls} Rolls**, **${rw.xp} XP**`;
+  return i.editReply(out.slice(-1900)).catch(() => null);
+}
+async function fuFinalHandler(i, userId, commandName) {
+  if (commandName === 'inventory') {
+    const page = i.options?.getInteger?.('page') || 0;
+    const data = await fuInventoryPage(userId, page);
+    if (data.empty) return i.reply('You do not have any cards yet.');
+    return i.reply({ embeds: [data.embed], components: [data.row] });
+  }
+  if (commandName === 'train') return fuTrain(i);
+  if (commandName === 'ascend') return fuAscend(i);
+  if (commandName === 'story') return fuBattle(i, 'story', 1);
+  if (commandName === 'tower') return fuBattle(i, 'tower', 1);
+  if (commandName === 'dungeon') return fuBattle(i, 'dungeon', 1);
+  if (commandName === 'auto-story') return fuBattle(i, 'story', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-tower') return fuBattle(i, 'tower', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-dungeon') return fuBattle(i, 'dungeon', i.options.getInteger('runs') || 10);
+  if (commandName === 'boss-rush') return fuBoss(i, false);
+  if (commandName === 'coop-boss-rush') return fuBoss(i, true);
+  return false;
+}
+// ===== END FINAL USER FIX =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
+      if (i.customId.startsWith('vri_')) {
+        const [, dir, raw] = i.customId.split('_');
+        const current = Number(raw || 0);
+        const next = dir === 'next' ? current + 1 : current - 1;
+        const data = await fuInventoryPage(i.user.id, next);
+        if (data.empty) return i.reply({ content: 'You do not have any cards yet.', ephemeral: true });
+        return i.update({ embeds: [data.embed], components: [data.row] });
+      }
       await ensureUser(i.user);
       if (i.customId.startsWith('inv_')) {
         const [, dir, raw] = i.customId.split('_');
