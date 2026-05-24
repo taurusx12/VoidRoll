@@ -159,21 +159,6 @@ const commands = [
   new SlashCommandBuilder().setName('cores-shop').setDescription('Show guaranteed cores market'),
 
   new SlashCommandBuilder()
-    .setName('cores-roll')
-    .setDescription('Use tokens for guaranteed rarity character')
-    .addStringOption(o =>
-      o.setName('rarity')
-        .setDescription('legendary/mythic/divine/secret')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Legendary - 100 tokens', value: 'legendary' },
-          { name: 'Mythic - 250 tokens', value: 'mythic' },
-          { name: 'Divine - 350 tokens', value: 'divine' },
-          { name: 'Secret - 500 tokens', value: 'secret' }
-        )
-    ),
-
-  new SlashCommandBuilder()
     .setName('ascend')
     .setDescription('Upgrade a character rarity and power using gold/tokens')
     .addStringOption(o =>

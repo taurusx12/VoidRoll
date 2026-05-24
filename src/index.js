@@ -3445,6 +3445,227 @@ async function finalModeAliasHandler(i, userId, commandName) {
 }
 // ===== END FINAL BALANCE + MODE ALIAS FIX =====
 
+
+// ===== NO-HANG MODES + REMOVE CORES ROLL PATCH =====
+const fastModeLocks = new Set();
+
+function fastModeKey(userId, mode) {
+  return `${userId}:${mode}`;
+}
+
+async function fastGetProgress(userId) {
+  let progress = await prisma.storyProgress.findUnique({ where: { userId } }).catch(() => null);
+  if (!progress) {
+    progress = await prisma.storyProgress.create({
+      data: {
+        userId,
+        chapter: 1,
+        stage: 1,
+        towerFloor: 1,
+        dungeonFloor: 1
+      }
+    }).catch(async () => getOrCreateProgress(userId));
+  }
+  return progress;
+}
+
+async function fastTeamPower(userId, formations = 1) {
+  const take = Math.max(1, Math.min(6, formations)) * 6;
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take
+  });
+
+  const power = cards.reduce((sum, c) => sum + Number(c.power || 0), 0);
+  return { cards, power };
+}
+
+function fastModeNeed(mode, progress) {
+  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
+  if (value >= 60) return 6;
+  if (value >= 48) return 5;
+  if (value >= 36) return 4;
+  if (value >= 24) return 3;
+  if (value >= 12) return 2;
+  return 1;
+}
+
+function fastRequired(mode, progress, formations) {
+  const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+  const base = mode === 'story'
+    ? 650 + storyIndex * 300
+    : mode === 'tower'
+      ? 1100 + progress.towerFloor * 520
+      : 900 + progress.dungeonFloor * 430;
+
+  const late = mode === 'story' ? Math.max(0, progress.chapter - 40) * 0.035 : 0;
+  return Math.floor(base * (1 + ((formations - 1) * 0.95) + late));
+}
+
+function fastRewards(mode, required, progress) {
+  const progressNumber = mode === 'story'
+    ? (((progress.chapter - 1) * 30) + progress.stage)
+    : mode === 'tower'
+      ? progress.towerFloor
+      : progress.dungeonFloor;
+
+  return {
+    gold: Math.floor(required * (mode === 'story' ? 0.85 : mode === 'tower' ? 0.8 : 0.75)),
+    tokens: Math.max(2, Math.floor(progressNumber / 4) + (mode === 'story' ? 3 : 2)),
+    rolls: mode === 'story' ? 3 : 2,
+    xp: mode === 'story' ? 75 : mode === 'tower' ? 85 : 65
+  };
+}
+
+async function fastAdvance(userId, mode, progress) {
+  if (mode === 'story') {
+    let chapter = progress.chapter;
+    let stage = progress.stage + 1;
+
+    if (stage > 30) {
+      stage = 1;
+      chapter += 1;
+    }
+
+    if (chapter > 80) {
+      chapter = 80;
+      stage = 30;
+    }
+
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: { chapter, stage }
+    });
+  }
+
+  if (mode === 'tower') {
+    return prisma.storyProgress.update({
+      where: { userId },
+      data: { towerFloor: progress.towerFloor + 1 }
+    });
+  }
+
+  return prisma.storyProgress.update({
+    where: { userId },
+    data: { dungeonFloor: progress.dungeonFloor + 1 }
+  });
+}
+
+async function fastGive(userId, rewards, mode) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      gold: { increment: rewards.gold },
+      tokens: { increment: rewards.tokens },
+      rolls: { increment: rewards.rolls }
+    }
+  });
+
+  if (typeof addUserXp === 'function') {
+    await addUserXp(userId, rewards.xp, mode).catch(() => null);
+  }
+}
+
+async function fastRunMode(i, mode, runs = 1) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const userId = i.user.id;
+  const key = fastModeKey(userId, mode);
+
+  if (fastModeLocks.has(key)) {
+    return i.editReply(`⏳ You already have **${mode}** running. Wait until it finishes.`);
+  }
+
+  fastModeLocks.add(key);
+
+  try {
+    const maxRuns = Math.max(1, Math.min(30, runs));
+    let wins = 0;
+    let totalGold = 0;
+    let totalTokens = 0;
+    let totalRolls = 0;
+    let totalXp = 0;
+    let text = `**${maxRuns > 1 ? 'AUTO ' : ''}${mode.toUpperCase()} STARTED**\n`;
+
+    for (let run = 1; run <= maxRuns; run++) {
+      const progress = await fastGetProgress(userId);
+      const formations = fastModeNeed(mode, progress);
+      const team = await fastTeamPower(userId, formations);
+      const required = fastRequired(mode, progress, formations);
+
+      const label = mode === 'story'
+        ? `Chapter ${progress.chapter}/80 • Stage ${progress.stage}/30`
+        : mode === 'tower'
+          ? `Tower Floor ${progress.towerFloor}`
+          : `Dungeon Floor ${progress.dungeonFloor}`;
+
+      let energy = 0;
+      text += `\nRun ${run}: **${label}** | F${formations} | ${money(team.power)} vs ${money(required)}\n`;
+
+      for (let r = 1; r <= 3; r++) {
+        const dmg = Math.floor(team.power / (4 + r) + Math.random() * 500);
+        energy += 34;
+        text += `• Round ${r}: dealt **${money(dmg)}** damage. Energy ${Math.min(100, energy)}/100\n`;
+        if (energy >= 100) {
+          text += `  🔥 **ULTIMATE COMBO!** Your formation unleashed a finisher.\n`;
+          energy = 0;
+        }
+      }
+
+      const won = team.power >= required || Math.random() < Math.min(0.18, team.power / Math.max(1, required) / 5);
+      if (!won) {
+        text += `❌ **Defeat.** Upgrade your formations.\n`;
+        break;
+      }
+
+      const latest = await fastGetProgress(userId);
+      const same = mode === 'story'
+        ? latest.chapter === progress.chapter && latest.stage === progress.stage
+        : mode === 'tower'
+          ? latest.towerFloor === progress.towerFloor
+          : latest.dungeonFloor === progress.dungeonFloor;
+
+      if (!same) {
+        text += `⛔ Duplicate reward blocked. Progress already advanced.\n`;
+        break;
+      }
+
+      const rewards = fastRewards(mode, required, progress);
+      await fastAdvance(userId, mode, progress);
+      await fastGive(userId, rewards, mode);
+
+      wins++;
+      totalGold += rewards.gold;
+      totalTokens += rewards.tokens;
+      totalRolls += rewards.rolls;
+      totalXp += rewards.xp;
+
+      text += `✅ **Victory!** Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**\n`;
+
+      if (run % 4 === 0) await i.editReply(text.slice(-1800)).catch(() => null);
+    }
+
+    text += `\n**TOTAL**\nWins: **${wins}/${maxRuns}**\nRewards: **${money(totalGold)} Gold**, **${totalTokens} Tokens**, **${totalRolls} Rolls**, **${totalXp} XP**`;
+    return i.editReply(text.slice(-1900));
+  } finally {
+    fastModeLocks.delete(key);
+  }
+}
+
+async function fastNoHangHandler(i, userId, commandName) {
+  if (commandName === 'story' || commandName === 'story-start') return fastRunMode(i, 'story', 1);
+  if (commandName === 'tower' || commandName === 'tower-start' || commandName === 'class-tower') return fastRunMode(i, 'tower', 1);
+  if (commandName === 'dungeon' || commandName === 'dungeon-start') return fastRunMode(i, 'dungeon', 1);
+  if (commandName === 'auto-story') return fastRunMode(i, 'story', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-tower') return fastRunMode(i, 'tower', i.options.getInteger('runs') || 10);
+  if (commandName === 'auto-dungeon') return fastRunMode(i, 'dungeon', i.options.getInteger('runs') || 10);
+  if (commandName === 'cores-roll') return i.reply('This command was removed.');
+  return false;
+}
+// ===== END NO-HANG MODES PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
