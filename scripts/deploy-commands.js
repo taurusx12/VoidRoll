@@ -14,6 +14,15 @@ const commands = [
         .addChoices({ name: 'YES', value: 'YES' })
     ),
   new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),
+  new SlashCommandBuilder()
+    .setName('train')
+    .setDescription('Train a character by name, no ID needed')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('train-info')
+    .setDescription('Show train cost and next power gain by character name')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),

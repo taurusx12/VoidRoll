@@ -7989,6 +7989,193 @@ async function srHardHandler(i, userId, commandName) {
 }
 // ===== END SECRET RATE DISPLAY HARD FIX =====
 
+
+// ===== TRAIN BY CHARACTER NAME PATCH =====
+// /train name:CharacterName
+// No ID needed. Finds the owned character by name/anime, raises level, and increases power.
+
+function tbNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function tbClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function tbMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function tbStarsFromTrait(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Number(m[1] || 0) : 0;
+}
+function tbLevelFromTrait(trait = '') {
+  const m = String(trait || '').match(/Level:(\d+)/i);
+  return m ? Math.max(1, Math.min(99, Number(m[1] || 1))) : 1;
+}
+function tbSetLevelTrait(trait = '', level = 1) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Level:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Level:${Math.max(1, Math.min(99, Number(level || 1)))}`;
+}
+async function tbFindOwned(userId, q, limit = 10) {
+  const tokens = tbNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 2000
+  }).catch(() => []);
+
+  return cards.map(card => {
+    const c = card.character || {};
+    const full = `${tbNorm(tbClean(c.name || ''))} ${tbNorm(c.name || '')} ${tbNorm(c.anime || '')}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 60;
+      if (tbNorm(c.name || '').includes(t)) score += 90;
+      if (tbNorm(c.anime || '').includes(t)) score += 25;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 180;
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))
+    .slice(0, limit)
+    .map(x => x.card);
+}
+function tbTrainCost(level, rarity) {
+  const mult = {
+    COMMON: 1,
+    RARE: 1.6,
+    EPIC: 2.4,
+    LEGENDARY: 3.8,
+    MYTHIC: 6,
+    DIVINE: 9,
+    SECRET: 14
+  }[String(rarity || '').toUpperCase()] || 1;
+
+  return {
+    gold: Math.floor((350 + level * 150) * mult),
+    tokens: level >= 50 ? Math.max(1, Math.floor(level / 20) * Math.ceil(mult / 3)) : 0
+  };
+}
+function tbPowerGain(level, rarity, stars = 0) {
+  const mult = {
+    COMMON: 1,
+    RARE: 1.25,
+    EPIC: 1.6,
+    LEGENDARY: 2.1,
+    MYTHIC: 2.8,
+    DIVINE: 3.6,
+    SECRET: 5
+  }[String(rarity || '').toUpperCase()] || 1;
+
+  return Math.floor((35 + level * 8) * mult * (1 + stars * 0.05));
+}
+async function tbTrain(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const matches = await tbFindOwned(i.user.id, q, 5);
+
+  if (!matches.length) {
+    return i.editReply(`No owned character found for **${q}**.`);
+  }
+
+  const card = matches[0];
+  const c = card.character;
+
+  // Prefer actual level column if it exists; fallback to trait Level:X.
+  const currentLevel = Math.max(1, Math.min(99, Number(card.level || tbLevelFromTrait(card.trait) || 1)));
+  if (currentLevel >= 99) {
+    return i.editReply(`**${tbClean(c.name)}** is already max level **99**.`);
+  }
+
+  const stars = tbStarsFromTrait(card.trait);
+  const cost = tbTrainCost(currentLevel, c.rarity);
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+
+  if ((user?.gold || 0) < cost.gold || (user?.tokens || 0) < cost.tokens) {
+    return i.editReply(
+      `Not enough resources to train **${tbClean(c.name)}**.\n` +
+      `Need: **${tbMoney(cost.gold)} Gold**` + (cost.tokens ? ` + **${cost.tokens} Tokens**` : ``) + `\n` +
+      `You have: **${tbMoney(user?.gold || 0)} Gold** + **${user?.tokens || 0} Tokens**`
+    );
+  }
+
+  const nextLevel = currentLevel + 1;
+  const gain = tbPowerGain(currentLevel, c.rarity, stars);
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: {
+      gold: { decrement: cost.gold },
+      tokens: { decrement: cost.tokens }
+    }
+  }).catch(async () => {
+    // fallback if tokens decrement by 0 causes issue in a schema variation
+    await prisma.user.update({
+      where: { id: i.user.id },
+      data: { gold: { decrement: cost.gold } }
+    }).catch(() => null);
+  });
+
+  // Try real level column first. If schema rejects it, store level in trait.
+  let updated = await prisma.userCard.update({
+    where: { id: card.id },
+    data: {
+      level: nextLevel,
+      power: { increment: gain },
+      trait: tbSetLevelTrait(card.trait, nextLevel)
+    }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.userCard.update({
+      where: { id: card.id },
+      data: {
+        power: { increment: gain },
+        trait: tbSetLevelTrait(card.trait, nextLevel)
+      }
+    }).catch(() => null);
+  }
+
+  return i.editReply(
+    `✅ **TRAIN SUCCESS**\n` +
+    `Character: **${tbClean(c.name)}**\n` +
+    `Level: **${currentLevel} → ${nextLevel}**\n` +
+    `Power gained: **+${tbMoney(gain)}**\n` +
+    `Cost: **${tbMoney(cost.gold)} Gold**` + (cost.tokens ? ` + **${cost.tokens} Tokens**` : ``) + `\n` +
+    `No ID needed.`
+  );
+}
+async function tbTrainInfo(i) {
+  const q = i.options.getString('name', true);
+  const card = (await tbFindOwned(i.user.id, q, 1))[0];
+  if (!card) return i.reply(`No owned character found for **${q}**.`);
+
+  const c = card.character;
+  const level = Math.max(1, Math.min(99, Number(card.level || tbLevelFromTrait(card.trait) || 1)));
+  const stars = tbStarsFromTrait(card.trait);
+  const cost = tbTrainCost(level, c.rarity);
+  const gain = tbPowerGain(level, c.rarity, stars);
+
+  return i.reply(
+    `**${tbClean(c.name)}**\n` +
+    `Rarity: **${c.rarity}**\n` +
+    `Level: **${level}/99**\n` +
+    `Next train cost: **${tbMoney(cost.gold)} Gold**` + (cost.tokens ? ` + **${cost.tokens} Tokens**` : ``) + `\n` +
+    `Next power gain: **+${tbMoney(gain)}**`
+  );
+}
+async function tbHandler(i, userId, commandName) {
+  if (commandName === 'train') return tbTrain(i);
+  if (commandName === 'train-info') return tbTrainInfo(i);
+  return false;
+}
+// ===== END TRAIN BY CHARACTER NAME PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -8170,6 +8357,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const tbHandled = await tbHandler(i, userId, commandName);
+    if (tbHandled !== false) return tbHandled;
 
     const srHandled = await srHardHandler(i, userId, commandName);
     if (srHandled !== false) return srHandled;
