@@ -1469,19 +1469,228 @@ async function inventoryEmbed(userId, index = 0) {
 }
 
 
-function teamRequirementFor(mode, progress) {
-  const value = mode === 'story'
-    ? progress.chapter
+
+// ===== FULL STARTER UPDATE HELPERS =====
+const VR_NO_NEUTRAL_ELEMENTS = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul'];
+
+function vrHashNumber(text = '') {
+  let h = 0;
+  for (const ch of String(text)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+
+function vrSafeElement(character) {
+  const existing = String(character?.element || '').trim();
+  if (existing && existing !== 'Neutral' && existing !== 'Anime') return existing;
+
+  const n = phase2Normalize(character?.name || '');
+  const anime = phase2Normalize(character?.anime || '');
+
+  if (/(sukuna|makima|toji|ainz|dio|alucard|devil|demon|curse)/.test(`${n} ${anime}`)) return 'Dark';
+  if (/(sung jin|shadow|kage|igris|beru|cid)/.test(`${n} ${anime}`)) return 'Shadow';
+  if (/(gojo|rimuru|gilgamesh|aizen|void|space|time)/.test(`${n} ${anime}`)) return 'Void';
+  if (/(saber|artoria|goku|naruto|luffy|saitama|hero|saint)/.test(`${n} ${anime}`)) return 'Light';
+  if (/(ace|rengoku|natsu|shinra|flame|fire|yamamoto)/.test(`${n} ${anime}`)) return 'Fire';
+  if (/(killua|zenitsu|kakashi|thunder|lightning)/.test(`${n} ${anime}`)) return 'Lightning';
+  if (/(ichigo|rukia|bleach|soul|spirit)/.test(`${n} ${anime}`)) return 'Soul';
+  if (/(ice|frost|snow)/.test(`${n} ${anime}`)) return 'Ice';
+
+  return VR_NO_NEUTRAL_ELEMENTS[vrHashNumber(`${n}${anime}`) % VR_NO_NEUTRAL_ELEMENTS.length];
+}
+
+function vrCharacterRole(character) {
+  const n = phase2Normalize(character?.name || '');
+  if (/(lelouch|aizen|makima|kurapika|shikamaru|light yagami|near|l lawliet)/.test(n)) return 'Control';
+  if (/(rimuru|megumi|kakashi|sakura|orihime|shoko|reigen|chopper|tsunade)/.test(n)) return 'Support';
+  if (/(saber|artoria|ainz|whitebeard|kaido|all might|escanor|albedo|reinhard)/.test(n)) return 'Tank';
+  if (/(killua|toji|levi|hisoka|zenitsu|yoroichi|akame|kirito)/.test(n)) return 'Assassin';
+  if (/(gojo|madara|gilgamesh|sukuna|yhwach|dio|meruem|frieren|sinbad)/.test(n)) return 'Mage';
+  return 'DPS';
+}
+
+function vrCharacterPassive(character) {
+  const n = phase2Normalize(character?.name || '');
+  const anime = phase2Normalize(character?.anime || '');
+
+  if (n.includes('sung jin')) return 'Shadow Monarch: gains stacking ATK after every defeated enemy and boosts Shadow allies.';
+  if (n.includes('gojo')) return 'Infinity: reduces incoming damage and charges ultimate when attacked.';
+  if (n.includes('geto')) return 'Cursed Spirit Control: increases Curse/Summon damage and weakens enemy DEF.';
+  if (n.includes('saber') || n.includes('artoria')) return 'Avalon: grants shield at battle start and reduces burst damage.';
+  if (n.includes('makima')) return 'Control Devil: lowers enemy ATK and increases control chance.';
+  if (n.includes('reze')) return 'Bomb Devil: ultimate applies explosive burst damage over time.';
+  if (n.includes('denji')) return 'Chainsaw Heart: lifesteal increases when HP is low.';
+  if (n.includes('luffy')) return 'Liberation Rhythm: gains ATK and speed every round.';
+  if (n.includes('zoro')) return 'Three Sword Style: high crit damage against bosses.';
+  if (n.includes('sanji')) return 'Diable Jambe: fire damage and dodge chance.';
+  if (n.includes('naruto')) return 'Nine-Tails Chakra: heals slightly and boosts Light allies.';
+  if (n.includes('sasuke')) return 'Sharingan: crit and counter chance.';
+  if (n.includes('itachi')) return 'Tsukuyomi: chance to delay enemy ultimate.';
+  if (n.includes('madara')) return 'Uchiha Dominion: AoE ultimate damage increased.';
+  if (n.includes('ichigo')) return 'Bankai Pressure: Soul damage and speed increase.';
+  if (n.includes('aizen')) return 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.';
+  if (n.includes('killua')) return 'Godspeed: high speed and crit burst.';
+  if (n.includes('gon')) return 'Jajanken: huge single target ultimate damage.';
+  if (n.includes('kurapika')) return 'Chain Judgment: bonus damage against villain teams.';
+  if (n.includes('toji')) return 'Heavenly Restriction: ignores part of enemy DEF.';
+  if (n.includes('sukuna')) return 'King of Curses: executes weakened enemies and boosts Dark damage.';
+  if (n.includes('rimuru')) return 'Predator: copies a small part of enemy buffs.';
+  if (n.includes('ainz')) return 'Overlord: boosts Dark allies and reduces enemy resistance.';
+  if (n.includes('gilgamesh')) return 'Gate of Babylon: high PEN and ultimate burst.';
+  if (n.includes('vegeta')) return 'Saiyan Pride: gains ATK after taking damage.';
+  if (n.includes('goku')) return 'Limit Breaker: ultimate damage scales with battle rounds.';
+  if (anime.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
+  if (anime.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
+  if (anime.includes('jujutsu')) return 'Cursed Energy: PEN and control resistance.';
+  if (anime.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
+  if (anime.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
+  if (anime.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
+  return 'Battle Instinct: small ATK and ultimate charge bonus.';
+}
+
+const VR_TEAM_UP_RULES = [
+  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
+  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
+  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
+  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
+  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
+  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% PEN, +12% shield' },
+  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
+  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
+  { name: 'Saiyan Rivalry', keys: ['goku','vegeta'], buff: '+18% ATK after round 3' },
+  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ult charge' },
+  { name: 'Demon Slayer Trio', keys: ['tanjiro','zenitsu','inosuke'], buff: '+12% speed, +12% crit' },
+  { name: 'Shadow Army', keys: ['sung jin','igris'], buff: '+15% Shadow damage' }
+];
+
+function vrTeamUpsForCharacter(character) {
+  const n = phase2Normalize(character?.name || '');
+  return VR_TEAM_UP_RULES
+    .filter(rule => rule.keys.some(k => n.includes(k)))
+    .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
+}
+
+function vrTeamUpsForCards(cards) {
+  const text = cards.map(c => phase2Normalize(c.character?.name || c.name || '')).join(' | ');
+  const active = [];
+  for (const rule of VR_TEAM_UP_RULES) {
+    if (rule.keys.every(k => text.includes(k))) active.push(rule);
+  }
+
+  const counts = {};
+  for (const c of cards) {
+    const e = vrSafeElement(c.character || c);
+    counts[e] = (counts[e] || 0) + 1;
+  }
+
+  for (const [element, count] of Object.entries(counts)) {
+    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team damage and HP' : '+12% team damage and HP' });
+  }
+
+  return active;
+}
+
+function vrStatsLine(card, character) {
+  const p = Math.max(1, Number(card?.power || character?.basePower || 100));
+  const role = vrCharacterRole(character);
+  const rarity = character?.rarity || 'COMMON';
+  const rarityMult = { COMMON: 0.8, RARE: 1.0, EPIC: 1.25, LEGENDARY: 1.55, MYTHIC: 2.05, DIVINE: 2.8, SECRET: 3.6 }[rarity] || 1;
+  const level = Number(card?.level || 1);
+  const levelMult = 1 + ((level - 1) * 0.04);
+
+  let atkScale = 1.05, hpScale = 7.2, defScale = 0.58, spd = 105, crit = 14, energy = 100, shield = 0, pen = 0;
+  if (role === 'Tank') { atkScale = 0.72; hpScale = 13.5; defScale = 1.22; spd = 92; shield = 20; crit = 8; }
+  if (role === 'Support') { atkScale = 0.78; hpScale = 9.0; defScale = 0.82; spd = 112; energy = 140; shield = 12; crit = 10; }
+  if (role === 'Control') { atkScale = 0.88; hpScale = 8.5; defScale = 0.76; spd = 120; energy = 128; crit = 12; }
+  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
+  if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
+  if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
+
+  const atk = Math.floor(p * atkScale * rarityMult * levelMult);
+  const hp = Math.floor(p * hpScale * rarityMult * levelMult);
+  const def = Math.floor(p * defScale * rarityMult * levelMult);
+
+  return (
+    `Class: **${role}** | Element: **${vrSafeElement(character)}**\n` +
+    `Level **${level}/99** • ATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${spd}**\n` +
+    `CRIT **${crit}%** • PEN **${pen}%** • Energy **${energy}%** • Shield **${shield}%**\n` +
+    `Character Passive: ${vrCharacterPassive(character)}`
+  );
+}
+
+function vrFullStatsBlock(card, character, includeTeamUps = true) {
+  const teamUps = includeTeamUps ? vrTeamUpsForCharacter(character) : [];
+  return vrStatsLine(card, character) + (teamUps.length ? `\n\nTeam Up Buffs:\n${teamUps.join('\n')}` : '\n\nTeam Up Buffs:\nNone');
+}
+
+function vrFormationRequirement(mode, progress) {
+  const value = mode === 'story' ? progress.chapter : mode === 'tower' ? progress.towerFloor : progress.dungeonFloor;
+  if (value >= 72) return 9;
+  if (value >= 64) return 8;
+  if (value >= 56) return 7;
+  if (value >= 48) return 6;
+  if (value >= 40) return 5;
+  if (value >= 32) return 4;
+  if (value >= 20) return 3;
+  if (value >= 10) return 2;
+  return 1;
+}
+
+async function vrGetFormations(userId, formationCount = 1) {
+  const take = Math.max(1, Math.min(9, formationCount)) * 6;
+  const slots = await prisma.teamSlot.findMany({
+    where: { userId },
+    include: { card: { include: { character: true } } },
+    orderBy: { slot: 'asc' }
+  }).catch(() => []);
+
+  const allFallback = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take
+  });
+
+  const teams = [];
+  for (let f = 1; f <= formationCount; f++) {
+    const start = (f - 1) * 6 + 1;
+    const end = start + 5;
+    let cards = slots.filter(s => s.slot >= start && s.slot <= end).map(s => s.card).filter(Boolean);
+    if (!cards.length) cards = allFallback.slice((f - 1) * 6, f * 6);
+    teams.push(cards.slice(0, 6));
+  }
+  return teams;
+}
+
+async function vrFormationPower(userId, formationCount = 1) {
+  const teams = await vrGetFormations(userId, formationCount);
+  let power = 0;
+  const buffs = [];
+  for (const team of teams) {
+    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
+    const syn = vrTeamUpsForCards(team);
+    power += Math.floor(base * (1 + (syn.length * 0.08)));
+    buffs.push(...syn.map(s => `${s.name}: ${s.buff}`));
+  }
+  return { teams, power, buffs: [...new Set(buffs)] };
+}
+
+function vrRewardsFor(mode, required, progress) {
+  const progressNumber = mode === 'story'
+    ? (((progress.chapter - 1) * 30) + progress.stage)
     : mode === 'tower'
       ? progress.towerFloor
       : progress.dungeonFloor;
 
-  if (value >= 60 || value >= 201) return 6;
-  if (value >= 50 || value >= 151) return 5;
-  if (value >= 35 || value >= 101) return 4;
-  if (value >= 20 || value >= 51) return 3;
-  if (value >= 10 || value >= 21) return 2;
-  return 1;
+  const gold = Math.floor(required * (mode === 'story' ? 0.8 : mode === 'tower' ? 0.75 : 0.7));
+  const tokens = Math.max(1, Math.floor(progressNumber / 5) + (mode === 'story' ? 2 : 1));
+  const rolls = mode === 'story' ? 3 : 2;
+  const xp = mode === 'story' ? 65 : mode === 'tower' ? 75 : 55;
+  return { gold, tokens, rolls, xp };
+}
+// ===== END FULL STARTER UPDATE HELPERS =====
+
+function teamRequirementFor(mode, progress) {
+  return vrFormationRequirement(mode, progress);
 }
 
 const SYNERGY_RULES = [
@@ -1558,21 +1767,11 @@ function enemyTeamMultiplier(teamCount) {
 }
 
 async function getMultiTeamPower(userId, teamCount = 1) {
-  const teams = await getUserTeams(userId, teamCount);
-  let total = 0;
-  const synergyNames = [];
-
-  for (const team of teams) {
-    const base = team.reduce((sum, c) => sum + Number(c.power || 0), 0);
-    const syn = calculateSynergies(team);
-    total += Math.floor(base * (1 + syn.bonus));
-    synergyNames.push(...syn.active.map(s => s.name));
-  }
-
+  const data = await vrFormationPower(userId, teamCount);
   return {
-    power: total,
-    teams,
-    synergies: [...new Set(synergyNames)]
+    power: data.power,
+    teams: data.teams,
+    synergies: data.buffs
   };
 }
 
@@ -1633,8 +1832,8 @@ async function updateProgressAfterWin(userId, mode, progress) {
       nextChapter += 1;
     }
 
-    if (nextChapter > 60) {
-      nextChapter = 60;
+    if (nextChapter > 80) {
+      nextChapter = 80;
       nextStage = 30;
     }
 
@@ -1664,14 +1863,14 @@ async function getUserBattleTeam(userId) {
     orderBy: { slot: 'asc' }
   }).catch(() => []);
 
-  const fromTeam = teamSlots.map(s => s.card).filter(Boolean).slice(0, 5);
+  const fromTeam = teamSlots.map(s => s.card).filter(Boolean).slice(0, 6);
   if (fromTeam.length) return fromTeam;
 
   return prisma.userCard.findMany({
     where: { userId },
     include: { character: true },
     orderBy: { power: 'desc' },
-    take: 5
+    take: 6
   });
 }
 
@@ -1699,97 +1898,88 @@ async function runProgressBattle(interaction, mode) {
 
   const userId = interaction.user.id;
   const progress = await getOrCreateProgress(userId);
-  const requiredTeams = teamRequirementFor(mode, progress);
-  const teamData = await getMultiTeamPower(userId, requiredTeams);
+  const requiredTeams = vrFormationRequirement(mode, progress);
+  const teamData = await vrFormationPower(userId, requiredTeams);
   const teamPower = teamData.power;
 
   const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
   const baseRequired = mode === 'story'
-    ? 700 + storyIndex * 260
+    ? 650 + storyIndex * 240
     : mode === 'tower'
-      ? 1200 + progress.towerFloor * 420
-      : 900 + progress.dungeonFloor * 330;
+      ? 1050 + progress.towerFloor * 390
+      : 850 + progress.dungeonFloor * 320;
 
-  const required = Math.floor(baseRequired * enemyTeamMultiplier(requiredTeams));
-  const enemies = await getAnimeEnemies(requiredTeams * 5, Math.max(0, required / 8));
+  const required = Math.floor(baseRequired * (1 + (requiredTeams - 1) * 0.78));
+  const enemies = await getAnimeEnemies(requiredTeams * 6, Math.max(0, required / 10));
+
   let allyMana = 0;
   let enemyMana = 0;
 
   let text =
     `**${mode.toUpperCase()} BATTLE STARTED**\n` +
     `${getProgressTitle(mode, progress)}\n` +
-    `Teams Required: **${requiredTeams}**\n` +
+    `Formations Required: **${requiredTeams}** | 6 characters each\n` +
     `Team Power: **${money(teamPower)}**\n` +
-    `Enemy Teams: **${requiredTeams}**\n` +
+    `Enemy Formations: **${requiredTeams}**\n` +
     `Required Power: **${money(required)}**\n` +
-    (teamData.synergies.length ? `Synergies: **${teamData.synergies.join(', ')}**\n` : '') +
-    `Enemies: **${enemies.join(', ')}**\n\n`;
+    (teamData.buffs.length ? `Team Buffs: **${teamData.buffs.slice(0, 6).join(' | ')}**\n` : '') +
+    `Enemies: **${enemies.slice(0, 12).join(', ')}**\n\n`;
 
   await interaction.editReply(text + 'Battle is starting...');
 
-  for (let r = 1; r <= 7; r++) {
-    const enemy = enemies[(r - 1) % enemies.length];
-    const hit = Math.max(50, Math.floor(teamPower / (7 + r) + Math.random() * 350));
-    const enemyHit = Math.max(30, Math.floor(required / (11 + r) + Math.random() * 220));
+  for (let r = 1; r <= 6; r++) {
+    const enemy = enemies[(r - 1) % Math.max(1, enemies.length)];
+    const hit = Math.max(50, Math.floor(teamPower / (6 + r) + Math.random() * 350));
+    const enemyHit = Math.max(30, Math.floor(required / (10 + r) + Math.random() * 220));
 
-    allyMana += 24 + Math.floor(Math.random() * 20);
+    allyMana += 24 + Math.floor(Math.random() * 20) + (teamData.buffs.length * 2);
     enemyMana += 17 + Math.floor(Math.random() * 18);
 
     text += `\n__Round ${r}__\n`;
-    text += `🩸 Your team hit **${enemy}** for **${money(hit)}**. Mana: ${Math.min(100, allyMana)}/100\n`;
+    text += `🩸 Your team hit **${enemy}** for **${money(hit)}**. Energy: ${Math.min(100, allyMana)}/100\n`;
 
     if (allyMana >= 100) {
-      const ult = Math.floor(hit * 2.6);
-      text += `**TEAM ULTIMATE!** Massive finisher dealt **${money(ult)}** damage!\n`;
+      const ult = Math.floor(hit * (2.4 + Math.min(0.6, teamData.buffs.length * 0.08)));
+      text += `**TEAM ULTIMATE COMBO!** dealt **${money(ult)}** damage!\n`;
       allyMana = 0;
     }
 
-    text += `🩸 **${enemy}** hit back for **${money(enemyHit)}**. Enemy Mana: ${Math.min(100, enemyMana)}/100\n`;
+    text += `🩸 **${enemy}** hit back for **${money(enemyHit)}**. Enemy Energy: ${Math.min(100, enemyMana)}/100\n`;
 
     if (enemyMana >= 100) {
-      const enemyUlt = Math.floor(enemyHit * 2.1);
-      text += `**ENEMY ULTIMATE!** ${enemy} used a special attack for **${money(enemyUlt)}** damage!\n`;
+      const enemyUlt = Math.floor(enemyHit * 2.0);
+      text += `**ENEMY ULTIMATE!** ${enemy} dealt **${money(enemyUlt)}** damage!\n`;
       enemyMana = 0;
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1100));
+    await new Promise(resolve => setTimeout(resolve, 450));
     await interaction.editReply(text.slice(-1900)).catch(() => {});
   }
 
-  const won = teamPower >= required || Math.random() < Math.min(0.45, teamPower / Math.max(1, required) / 3);
+  const won = teamPower >= required || Math.random() < Math.min(0.35, teamPower / Math.max(1, required) / 3);
 
   if (!won) {
-    text += `\nDefeat. Upgrade your team, train your characters, or use better items.`;
+    text += `\nDefeat. Upgrade your team, level characters, or use stronger formations.`;
     return interaction.editReply(text.slice(-1900));
   }
 
-  const gold = Math.floor(required * 0.75);
-  const progressNumber = mode === 'story'
-    ? (((progress.chapter - 1) * 30) + progress.stage)
-    : mode === 'tower'
-      ? progress.towerFloor
-      : progress.dungeonFloor;
-
-  const tokens = progressNumber % 5 === 0
-    ? Math.max(1, Math.floor(progressNumber / 5)) * (mode === 'story' ? 5 : 4)
-    : 0;
-  const rolls = mode === 'story' ? 3 : 2;
+  const rewards = vrRewardsFor(mode, required, progress);
 
   await prisma.user.update({
     where: { id: userId },
     data: {
-      gold: { increment: gold },
-      tokens: { increment: tokens },
-      rolls: { increment: rolls }
+      gold: { increment: rewards.gold },
+      tokens: { increment: rewards.tokens },
+      rolls: { increment: rewards.rolls }
     }
   });
 
   await updateProgressAfterWin(userId, mode, progress);
-  const xpResult = await addUserXp(userId, mode === 'story' ? 45 : mode === 'tower' ? 55 : 40, mode);
+  const xpResult = await addUserXp(userId, rewards.xp, mode);
 
   text +=
     `\n**Victory!**\n` +
-    `Rewards: **${money(gold)} gold**, **${tokens} tokens**, **${rolls} rolls**.\n` +
+    `Rewards: **${money(rewards.gold)} Gold**, **${rewards.tokens} Tokens**, **${rewards.rolls} Rolls**, **${rewards.xp} XP**.\n` +
     `Progress saved.` + levelUpText(xpResult);
 
   return interaction.editReply(text.slice(-1900));
@@ -2224,13 +2414,13 @@ client.on('interactionCreate', async (i) => {
         include: { card: { include: { character: true } } },
         orderBy: { slot: 'asc' }
       }).catch(() => []);
-      const teamCards = teamSlots.map(s => s.card).filter(Boolean).slice(0, 5);
-      const syn = vrSynergyForCards(teamCards);
+      const teamCards = teamSlots.map(s => s.card).filter(Boolean).slice(0, 6);
+      const activeBuffs = vrTeamUpsForCards(teamCards);
 
       return i.reply(
         `${rarityEmoji(card.character.rarity)} **${card.character.name}** • ${card.character.anime} • PWR **${money(card.power)}**\n` +
-        vrStatsLine(card, card.character) +
-        (syn.length ? `\n\n**Current Team Buffs**\n${syn.map(s => `• **${s.name}**: ${s.buff}`).join('\n')}` : '')
+        vrFullStatsBlock(card, card.character, true) +
+        (activeBuffs.length ? `\n\nCurrent Formation Buffs:\n${activeBuffs.map(s => `• **${s.name}**: ${s.buff}`).join('\n')}` : '')
       );
     }
 
@@ -2416,7 +2606,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
             `Anime: **${result.character.anime}**\n` +
             `Rarity: **${result.character.rarity}**\n` +
             `Power: **${result.card.power}**\n` +
-            vrStatsLine(result.card, result.character) + `\n` +
+            vrFullStatsBlock(result.card, result.character, true) + `\n` +
             `Card ID: \`${result.card.id}\`` + fusionText(fusionResults) + fusionText(fusionResults)
           )
           .setColor(embedColor(aura.color));
@@ -2447,7 +2637,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
     if (commandName === 'search') {
       const q = i.options.getString('name', true);
-      const tokens = vrQueryTokens(q);
+      const tokens = phase2Normalize(q).replace(/[\/:_\-]+/g, ' ').split(/\s+/).filter(Boolean);
 
       const candidates = await prisma.character.findMany({
         where: {
@@ -2466,8 +2656,19 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       });
 
       const chars = candidates
-        .map(c => ({ c, score: vrSearchScore(c, tokens) }))
-        .filter(x => !tokens.length || tokens.every(t => `${phase2Normalize(x.c.name)} ${phase2Normalize(x.c.anime)}`.replace(/[\/:_\-]+/g, ' ').includes(t)))
+        .map(c => {
+          const full = `${phase2Normalize(c.name)} ${phase2Normalize(c.anime)}`.replace(/[\/:_\-]+/g, ' ');
+          let score = 0;
+          for (const t of tokens) {
+            if (full.includes(t)) score += 40;
+            if (phase2Normalize(c.name).includes(t)) score += 60;
+            if (phase2Normalize(c.anime).includes(t)) score += 35;
+          }
+          if (tokens.length && tokens.every(t => full.includes(t))) score += 140;
+          score += { SECRET: 70, DIVINE: 55, MYTHIC: 40, LEGENDARY: 28, EPIC: 16, RARE: 8, COMMON: 0 }[c.rarity] || 0;
+          return { c, score };
+        })
+        .filter(x => x.score > 0)
         .sort((a, b) => b.score - a.score || Number(b.c.basePower || 0) - Number(a.c.basePower || 0))
         .slice(0, 10)
         .map(x => x.c);
@@ -2480,10 +2681,10 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         .setDescription(
           `**Best Match**\n` +
           `${rarityEmoji(first.rarity)} **${first.name}** • ${first.anime} • PWR **${money(first.basePower)}**\n` +
-          vrStatsLine({ power: first.basePower, level: 1 }, first) +
+          vrFullStatsBlock({ power: first.basePower, level: 1 }, first, true) +
           `\n\n**Results**\n` +
           chars.map((c, idx) =>
-            `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)} • ${vrRole(c)} • ${vrElement(c)}`
+            `${idx + 1}. ${rarityEmoji(c.rarity)} **${c.name}** • ${c.anime} • PWR ${money(c.basePower)} • ${vrCharacterRole(c)} • ${vrSafeElement(c)}`
           ).join('\n')
         )
         .setColor(embedColor(getAura(first).color));
@@ -2520,28 +2721,25 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
     if (commandName === 'inv-search') {
       const q = i.options.getString('name', true);
-      const tokens = typeof vrQueryTokens === 'function' ? vrQueryTokens(q) : q.toLowerCase().split(/\s+/).filter(Boolean);
+      const tokens = phase2Normalize(q).split(/\s+/).filter(Boolean);
 
       const owned = await prisma.userCard.findMany({
         where: { userId },
         include: { character: true },
         orderBy: { power: 'desc' },
-        take: 300
+        take: 400
       });
 
       const matches = owned
         .map(card => {
           const full = `${phase2Normalize(card.character.name)} ${phase2Normalize(card.character.anime)}`.replace(/[\/:_\-]+/g, ' ');
           let score = 0;
-
           for (const t of tokens) {
             if (full.includes(t)) score += 50;
             if (phase2Normalize(card.character.name).includes(t)) score += 70;
             if (phase2Normalize(card.character.anime).includes(t)) score += 35;
           }
-
           if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
-
           return { card, score };
         })
         .filter(x => x.score > 0)
@@ -2557,17 +2755,77 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
         .setDescription(
           `**Best Owned Match**\n` +
           `${rarityEmoji(first.character.rarity)} **${first.character.name}** • ${first.character.anime} • PWR **${money(first.power)}**\n` +
-          vrStatsLine(first, first.character) +
+          vrFullStatsBlock(first, first.character, true) +
           `\n\n**Owned Results**\n` +
           matches.map((c, idx) =>
-            `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)} • ${vrRole(c.character)} • ${vrElement(c.character)}`
+            `${idx + 1}. ${rarityEmoji(c.character.rarity)} **${c.character.name}** • ${c.character.anime} • PWR ${money(c.power)} • ${vrCharacterRole(c.character)} • ${vrSafeElement(c.character)}`
           ).join('\n')
         )
         .setColor(embedColor(getAura(first.character).color));
 
       if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
-
       return i.reply({ embeds: [embed] });
+    }
+
+
+    if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
+      await i.deferReply();
+      const mode = commandName.replace('auto-', '');
+      const maxRuns = Math.max(1, Math.min(30, i.options.getInteger('runs') || 10));
+      let wins = 0;
+      let totalGold = 0;
+      let totalTokens = 0;
+      let totalRolls = 0;
+      let totalXp = 0;
+      let text = `**AUTO ${mode.toUpperCase()} STARTED**\n`;
+
+      for (let run = 1; run <= maxRuns; run++) {
+        const progress = await getOrCreateProgress(userId);
+        const requiredTeams = vrFormationRequirement(mode, progress);
+        const teamData = await vrFormationPower(userId, requiredTeams);
+
+        const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
+        const baseRequired = mode === 'story'
+          ? 650 + storyIndex * 240
+          : mode === 'tower'
+            ? 1050 + progress.towerFloor * 390
+            : 850 + progress.dungeonFloor * 320;
+        const required = Math.floor(baseRequired * (1 + (requiredTeams - 1) * 0.78));
+
+        const won = teamData.power >= required || Math.random() < Math.min(0.25, teamData.power / Math.max(1, required) / 4);
+
+        text += `\nRun ${run}: ${getProgressTitle(mode, progress)} | Formations ${requiredTeams} | ${money(teamData.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
+
+        if (!won) break;
+
+        wins++;
+        const rewards = vrRewardsFor(mode, required, progress);
+        totalGold += rewards.gold;
+        totalTokens += rewards.tokens;
+        totalRolls += rewards.rolls;
+        totalXp += rewards.xp;
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            gold: { increment: rewards.gold },
+            tokens: { increment: rewards.tokens },
+            rolls: { increment: rewards.rolls }
+          }
+        });
+
+        await addUserXp(userId, rewards.xp, mode).catch(() => null);
+        await updateProgressAfterWin(userId, mode, progress);
+
+        if (run % 4 === 0) await i.editReply(text.slice(-1500)).catch(() => {});
+      }
+
+      text +=
+        `\n\n**AUTO COMPLETE**\n` +
+        `Wins: **${wins}/${maxRuns}**\n` +
+        `Rewards: **${money(totalGold)} Gold**, **${totalTokens} Tokens**, **${totalRolls} Rolls**, **${totalXp} XP**`;
+
+      return i.editReply(text.slice(-1900));
     }
 
     if (commandName === 'pvp') {
