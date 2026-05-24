@@ -5053,6 +5053,217 @@ async function pityHandler(i, userId, commandName) {
 }
 // ===== END SECRET DAILY BANNER + PITY PATCH =====
 
+
+// ===== PACK BANNER SELECT + AUTOCOMPLETE PATCH =====
+// /pack now shows banner packs through autocomplete.
+// The list updates daily with the daily SECRET banner names.
+
+async function pbDailyChoices() {
+  let picks = [];
+  if (typeof pityDailyBannerCharacters === 'function') {
+    picks = await pityDailyBannerCharacters().catch(() => []);
+  }
+
+  if (!picks.length) {
+    picks = await prisma.character.findMany({
+      where: { active: true, rarity: 'SECRET' },
+      orderBy: { basePower: 'desc' },
+      take: 4
+    }).catch(() => []);
+  }
+
+  const choices = [
+    {
+      name: 'Daily SECRET Banner - All 4 Featured',
+      value: 'daily-secret'
+    }
+  ];
+
+  for (const c of picks.slice(0, 4)) {
+    const clean = typeof pityCleanName === 'function'
+      ? pityCleanName(c.name)
+      : String(c.name || '').replace(/\s*\([^)]*\)\s*/g, '').trim();
+
+    choices.push({
+      name: `Rate Up: ${clean}`,
+      value: `featured:${c.id}`
+    });
+  }
+
+  return choices.slice(0, 25);
+}
+
+async function pbAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await pbDailyChoices();
+  const filtered = choices
+    .filter(c => c.name.toLowerCase().includes(focused))
+    .slice(0, 25);
+
+  await i.respond(filtered).catch(() => null);
+  return true;
+}
+
+async function pbPickFeaturedCharacter(value) {
+  if (value && value.startsWith('featured:')) {
+    const id = value.replace('featured:', '');
+    const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+    if (c && c.active) return c;
+  }
+
+  if (typeof pityPickBannerSecret === 'function') {
+    return pityPickBannerSecret();
+  }
+
+  const choices = await pbDailyChoices();
+  const featured = choices.find(c => c.value.startsWith('featured:'));
+  if (featured) {
+    const id = featured.value.replace('featured:', '');
+    const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+    if (c && c.active) return c;
+  }
+
+  return prisma.character.findFirst({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' }
+  }).catch(() => null);
+}
+
+async function pbCreateCard(userId, character) {
+  if (typeof pityCreateCard === 'function') {
+    return pityCreateCard(userId, character);
+  }
+
+  const cardId = typeof nanoid === 'function' ? nanoid(12) : `${userId}_${character.id}_${Date.now()}`;
+  return prisma.userCard.create({
+    data: {
+      id: cardId,
+      userId,
+      characterId: character.id,
+      power: Number(character.basePower || 3000)
+    }
+  }).catch(() => prisma.userCard.create({
+    data: {
+      userId,
+      characterId: character.id,
+      power: Number(character.basePower || 3000)
+    }
+  }));
+}
+
+function pbCleanName(name = '') {
+  if (typeof pityCleanName === 'function') return pityCleanName(name);
+  if (typeof absCleanName === 'function') return absCleanName(name);
+  return String(name || '').replace(/\s*\([^)]*\)\s*/g, '').trim();
+}
+
+function pbMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function pbEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+
+function pbGetPity(user) {
+  if (typeof pityGetUserCounter === 'function') return pityGetUserCounter(user);
+  return 0;
+}
+
+async function pbSavePity(userId, counter) {
+  if (typeof pitySaveCounter === 'function') return pitySaveCounter(userId, counter);
+}
+
+async function pbPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const banner = i.options.getString('banner', false) || 'daily-secret';
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+
+  const cost = 10;
+  if ((user?.rolls || 0) < cost) {
+    return i.editReply(`You need **${cost} rolls** for a pack, you have **${user?.rolls || 0}**.`);
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { rolls: { decrement: cost } }
+  }).catch(() => null);
+
+  let pity = pbGetPity(user);
+  const lines = [];
+  const embeds = [];
+
+  // 10-pull pack: same pity rules, plus selected featured banner affects forced SECRET.
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+
+    const softBonus = pity >= 60 ? Math.min(0.45, (pity - 59) * 0.025) : 0;
+    const hard = pity >= 90;
+    const forcedSecret = hard || Math.random() < softBonus;
+
+    let result = null;
+
+    if (forcedSecret) {
+      const secret = await pbPickFeaturedCharacter(banner);
+      if (secret) {
+        const card = await pbCreateCard(i.user.id, secret);
+        result = { character: secret, card };
+        pity = 0;
+      }
+    }
+
+    if (!result) {
+      result = await rollCard(i.user.id);
+      if (String(result.character?.rarity || '').toUpperCase() === 'SECRET') {
+        pity = 0;
+      }
+    }
+
+    const c = result.character;
+    const card = result.card;
+
+    lines.push(
+      `${n + 1}. ${pbEmoji(c.rarity)} **${pbCleanName(c.name)}** • ${c.anime} • ${c.rarity} • PWR ${pbMoney(card.power || c.basePower)} • Pity ${pity}/90`
+    );
+
+    if (embeds.length < 3 && String(c.rarity || '').toUpperCase() === 'SECRET') {
+      const embed = new EmbedBuilder()
+        .setTitle(`${pbEmoji(c.rarity)} ${pbCleanName(c.name)}`)
+        .setDescription(
+          `Anime: **${c.anime}**\n` +
+          `Rarity: **${c.rarity}**\n` +
+          `Power: **${pbMoney(card.power || c.basePower)}**\n` +
+          `Banner Pack: **${banner === 'daily-secret' ? 'Daily SECRET Banner' : 'Featured Rate Up'}**\n` +
+          `Pity: **${pity}/90**`
+        )
+        .setColor(0xe74c3c);
+      if (c.imageUrl) embed.setImage(c.imageUrl);
+      embeds.push(embed);
+    }
+  }
+
+  await pbSavePity(i.user.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Banner: **${banner === 'daily-secret' ? 'Daily SECRET Banner' : 'Featured Rate Up'}**\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `Rolls left: **${(user?.rolls || 0) - cost}**\n` +
+      `Current pity: **${pity}/90**`).slice(0, 1900),
+    embeds
+  });
+}
+
+async function pbHandler(i, userId, commandName) {
+  if (commandName === 'pack') return pbPack(i);
+  return false;
+}
+// ===== END PACK BANNER SELECT PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -5189,6 +5400,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const pbHandled = await pbHandler(i, userId, commandName);
+    if (pbHandled !== false) return pbHandled;
 
     const pityHandled = await pityHandler(i, userId, commandName);
     if (pityHandled !== false) return pityHandled;

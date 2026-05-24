@@ -105,8 +105,16 @@ const commands = [
 
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
+  new SlashCommandBuilder()
+    .setName('pack')
+    .setDescription('Open a 10-roll banner pack')
+    .addStringOption(o =>
+      o.setName('banner')
+        .setDescription('Choose daily banner pack or featured character')
+        .setRequired(false)
+        .setAutocomplete(true)
+    ),
   new SlashCommandBuilder().setName('banner').setDescription('Show daily SECRET banner with pity info'),
-  new SlashCommandBuilder().setName('pack').setDescription('10-pull character pack'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
   new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
