@@ -47,6 +47,9 @@ const commands = [
     .setName('pvp')
     .setDescription('Fight another player using your strongest characters')
     .addUserOption(o => o.setName('opponent').setDescription('Player to fight').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('admin-fix-all-for-one')
+    .setDescription('Admin: set All For One to Mythic and fix his passive'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),

@@ -8384,6 +8384,110 @@ async function uiHandler(i,userId,commandName){
 }
 // ===== END UNLIMITED INVENTORY + PVP + TOP CHARACTER PATCH =====
 
+
+// ===== ALL FOR ONE MYTHIC + PASSIVE PATCH =====
+// Makes All For One Mythic and gives him an anime-accurate passive.
+// Existing special passives for other characters stay untouched.
+
+function afoNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function afoIsAllForOne(c) {
+  const n = afoNorm(c?.name || '');
+  return n === 'all for one' || n.includes('all for one');
+}
+
+function afoPassive(c) {
+  if (afoIsAllForOne(c)) {
+    return 'Quirk Steal: steals enemy buffs after ultimate, reduces their ATK/DEF, and gains extra power for every stolen effect.';
+  }
+
+  // Keep the strongest existing passive systems untouched.
+  if (typeof uxPassive === 'function') return uxPassive(c);
+  if (typeof upUniquePassive === 'function') return upUniquePassive(c);
+  if (typeof roPassive === 'function') return roPassive(c);
+  if (typeof brsPassive === 'function') return brsPassive(c);
+
+  return 'Battle Rhythm: ATK rises every round and spikes after ultimate.';
+}
+
+// Override passive helpers so All For One always shows the correct passive.
+if (typeof uxPassive === 'function') {
+  const oldUxPassive = uxPassive;
+  uxPassive = function(c) {
+    if (afoIsAllForOne(c)) return afoPassive(c);
+    return oldUxPassive(c);
+  };
+}
+if (typeof roPassive === 'function') {
+  const oldRoPassive = roPassive;
+  roPassive = function(c) {
+    if (afoIsAllForOne(c)) return afoPassive(c);
+    return oldRoPassive(c);
+  };
+}
+if (typeof brsPassive === 'function') {
+  const oldBrsPassive = brsPassive;
+  brsPassive = function(c) {
+    if (afoIsAllForOne(c)) return afoPassive(c);
+    return oldBrsPassive(c);
+  };
+}
+if (typeof uiPassive === 'function') {
+  const oldUiPassive = uiPassive;
+  uiPassive = function(c) {
+    if (afoIsAllForOne(c)) return afoPassive(c);
+    return oldUiPassive(c);
+  };
+}
+
+async function afoApplyMythic() {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    take: 2000
+  }).catch(() => []);
+
+  let updated = 0;
+  for (const c of chars) {
+    if (!afoIsAllForOne(c)) continue;
+    if (String(c.rarity || '').toUpperCase() !== 'MYTHIC') {
+      await prisma.character.update({
+        where: { id: c.id },
+        data: { rarity: 'MYTHIC' }
+      }).catch(() => null);
+      updated++;
+    }
+  }
+  return updated;
+}
+
+async function afoAdminFix(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+  const updated = await afoApplyMythic();
+  return i.editReply(
+    `✅ **All For One updated**\n` +
+    `Rarity: **MYTHIC**\n` +
+    `Passive: **Quirk Steal**\n` +
+    `Updated records: **${updated}**`
+  );
+}
+
+async function afoHandler(i, userId, commandName) {
+  if (commandName === 'admin-fix-all-for-one') return afoAdminFix(i);
+  return false;
+}
+
+// Auto-apply once on startup too.
+setTimeout(() => {
+  afoApplyMythic()
+    .then(count => {
+      if (count) console.log(`[All For One Fix] Updated ${count} character(s) to MYTHIC`);
+    })
+    .catch(() => null);
+}, 5000);
+// ===== END ALL FOR ONE MYTHIC + PASSIVE PATCH =====
+
 client.on('interactionCreate', async (i) => {
     const uiButtonHandled = await uiButtons(i);
     if (uiButtonHandled !== false) return uiButtonHandled;
@@ -8568,6 +8672,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const afoHandled = await afoHandler(i, userId, commandName);
+    if (afoHandled !== false) return afoHandled;
 
     const uiHandled = await uiHandler(i, userId, commandName);
     if (uiHandled !== false) return uiHandled;
