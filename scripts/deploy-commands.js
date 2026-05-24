@@ -4,7 +4,50 @@ const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 const config = require('../src/lib/config');
 
 const commands = [
-  new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),,
+  new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
+  new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
+  new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
+  new SlashCommandBuilder().setName('help').setDescription('Show help'),
+  new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
+
+  new SlashCommandBuilder()
+    .setName('roll')
+    .setDescription('Roll a character')
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('r')
+    .setDescription('Quick roll')
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('i')
+    .setDescription('Quick item roll')
+    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Search characters')
+    .addStringOption(o => o.setName('name').setDescription('Character or anime name').setRequired(true)),
+
+  new SlashCommandBuilder().setName('secrets').setDescription('Show SECRET characters'),
+  new SlashCommandBuilder().setName('rarity').setDescription('Show rarity rates'),
+
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Show character passive, stars and team-ups')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('inv-search')
+    .setDescription('Search inventory with passive, stars and team-ups')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('inventory')
+    .setDescription('Show inventory with images and left/right buttons')
+    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
+
   new SlashCommandBuilder()
     .setName('quick-sell')
     .setDescription('Quick sell unequipped characters by rarity')
@@ -40,48 +83,6 @@ const commands = [
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('stats')
-    .setDescription('Show character passive, stars and team-ups')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('inv-search')
-    .setDescription('Search inventory with passive, stars and team-ups')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-  new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
-  new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
-  new SlashCommandBuilder().setName('help').setDescription('Show help'),
-  new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
-
-  new SlashCommandBuilder()
-    .setName('roll')
-    .setDescription('Roll a character')
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('r')
-    .setDescription('Quick roll')
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('i')
-    .setDescription('Quick item roll')
-    .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('search')
-    .setDescription('Search characters')
-    .addStringOption(o => o.setName('name').setDescription('Character or anime name').setRequired(true)),
-
-  new SlashCommandBuilder().setName('secrets').setDescription('Show SECRET characters'),
-  new SlashCommandBuilder().setName('rarity').setDescription('Show rarity rates'),,
-
-  new SlashCommandBuilder()
-    .setName('inventory')
-    .setDescription('Show inventory with images and left/right buttons')
-    .addIntegerOption(o => o.setName('page').setDescription('Start page').setRequired(false)),
-
-  new SlashCommandBuilder()
     .setName('autoteam')
     .setDescription('Automatically equip strongest formations')
     .addIntegerOption(o => o.setName('formations').setDescription('Formations 1-6').setRequired(false)),
@@ -104,7 +105,7 @@ const commands = [
 
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
-  new SlashCommandBuilder().setName('banner').setDescription('Show banners'),
+  new SlashCommandBuilder().setName('banner').setDescription('Show daily rotating banner'),
   new SlashCommandBuilder().setName('pack').setDescription('10-pull character pack'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
@@ -128,11 +129,6 @@ const commands = [
 
   new SlashCommandBuilder().setName('boss-rush').setDescription('Solo Boss Rush'),
   new SlashCommandBuilder().setName('coop-boss-rush').setDescription('Co-op Boss Rush'),
-
-  new SlashCommandBuilder()
-    .setName('train')
-    .setDescription('Train a character by name using Gold')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('admin-dedupe-characters')
@@ -168,8 +164,10 @@ async function main() {
     process.exit(1);
   }
 
-  const safeCommands = commands.filter(cmd => cmd && typeof cmd.toJSON === 'function');
-  const body = safeCommands.map(cmd => cmd.toJSON()).filter(cmd => cmd && cmd.name && cmd.description);
+  const body = commands
+    .filter(cmd => cmd && typeof cmd.toJSON === 'function')
+    .map(cmd => cmd.toJSON())
+    .filter(cmd => cmd && cmd.name && cmd.description);
 
   const seen = new Set();
   for (const cmd of body) {

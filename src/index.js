@@ -4562,6 +4562,269 @@ async function ofFinalHandler(i, userId, commandName) {
 }
 // ===== END ONE FILE FINAL SYSTEMS PATCH =====
 
+
+// ===== ABSOLUTE FIX: QUICK SELL + STARS + DAILY BANNER =====
+// This block is inserted before every old handler. It does not depend on old systems.
+
+function absNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function absCleanName(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function absMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function absStarsFromTrait(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Math.max(0, Math.min(10, Number(m[1] || 0))) : 0;
+}
+function absSetStarsTrait(trait = '', stars = 0) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Stars:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Stars:${Math.max(0, Math.min(10, stars))}`;
+}
+function absStarsLine(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return '★'.repeat(stars) + '☆'.repeat(10 - stars);
+}
+function absRarityRank(rarity) {
+  return { COMMON: 1, RARE: 2, EPIC: 3, LEGENDARY: 4, MYTHIC: 5, DIVINE: 6, SECRET: 7 }[String(rarity || '').toUpperCase()] || 1;
+}
+function absRankRarity(rank) {
+  return { 1: 'COMMON', 2: 'RARE', 3: 'EPIC', 4: 'LEGENDARY', 5: 'MYTHIC', 6: 'DIVINE', 7: 'SECRET' }[rank] || 'COMMON';
+}
+function absNextRarity(current, stars) {
+  const rank = absRarityRank(current);
+  if (rank >= 7) return 'SECRET';
+  return absRankRarity(Math.min(7, rank + Math.floor(Number(stars || 0) / 2)));
+}
+function absAscendCost(rarity, nextStars) {
+  const base = {
+    COMMON: { gold: 700, tokens: 0 },
+    RARE: { gold: 1800, tokens: 1 },
+    EPIC: { gold: 4500, tokens: 2 },
+    LEGENDARY: { gold: 12000, tokens: 5 },
+    MYTHIC: { gold: 28000, tokens: 12 },
+    DIVINE: { gold: 65000, tokens: 25 },
+    SECRET: { gold: 110000, tokens: 45 }
+  }[String(rarity || '').toUpperCase()] || { gold: 1000, tokens: 0 };
+  return { gold: base.gold * Math.max(1, nextStars), tokens: base.tokens * Math.max(1, Math.ceil(nextStars / 2)) };
+}
+async function absFindOwned(userId, q, limit = 20) {
+  const tokens = absNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 2000
+  }).catch(() => []);
+  return cards.map(card => {
+    const full = `${absNorm(absCleanName(card.character?.name || ''))} ${absNorm(card.character?.name || '')} ${absNorm(card.character?.anime || '')}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (absNorm(card.character?.name || '').includes(t)) score += 80;
+      if (absNorm(card.character?.anime || '').includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 150;
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0)).slice(0, limit).map(x => x.card);
+}
+function absQuickSellValue(rarity) {
+  return { COMMON: 250, RARE: 900, EPIC: 2500, LEGENDARY: 8000, MYTHIC: 18000, DIVINE: 40000, SECRET: 90000 }[String(rarity || '').toUpperCase()] || 100;
+}
+async function absQuickSell(i) {
+  const rarity = String(i.options.getString('rarity', true) || '').toUpperCase();
+  const confirm = String(i.options.getString('confirm', false) || '').toUpperCase();
+
+  if (confirm !== 'YES') {
+    return i.reply(
+      `⚠️ **Quick Sell Preview**\n` +
+      `Rarity: **${rarity}**\n` +
+      `This sells all **unequipped** ${rarity} characters.\n` +
+      `Cards equipped in formations are protected.\n\n` +
+      `Run again with **confirm:YES**.`
+    );
+  }
+
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const equipped = await prisma.teamSlot.findMany({
+    where: { userId: i.user.id },
+    select: { cardId: true }
+  }).catch(() => []);
+  const protectedIds = new Set(equipped.map(x => x.cardId).filter(Boolean));
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId: i.user.id },
+    include: { character: true },
+    take: 5000
+  }).catch(() => []);
+
+  const matching = cards.filter(c => String(c.character?.rarity || '').toUpperCase() === rarity);
+  const sellable = matching.filter(c => !protectedIds.has(c.id));
+  const protectedCount = matching.length - sellable.length;
+
+  if (!sellable.length) {
+    return i.editReply(
+      `No unequipped **${rarity}** characters to sell.` +
+      (protectedCount ? `\nProtected equipped cards: **${protectedCount}**` : '')
+    );
+  }
+
+  const ids = sellable.map(c => c.id);
+  const gold = sellable.reduce((sum, c) => sum + absQuickSellValue(c.character?.rarity), 0);
+
+  await prisma.marketListing.updateMany({
+    where: { cardId: { in: ids }, status: 'ACTIVE' },
+    data: { status: 'CANCELLED' }
+  }).catch(() => null);
+
+  let deleted = 0;
+  for (let start = 0; start < ids.length; start += 100) {
+    const chunk = ids.slice(start, start + 100);
+    await prisma.userCard.deleteMany({ where: { id: { in: chunk } } }).catch(async () => {
+      for (const id of chunk) await prisma.userCard.delete({ where: { id } }).catch(() => null);
+    });
+    deleted += chunk.length;
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { increment: gold } } }).catch(() => null);
+
+  return i.editReply(
+    `✅ **Quick Sell Complete**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Sold: **${deleted}** character(s)\n` +
+    `Gold gained: **${absMoney(gold)}**\n` +
+    (protectedCount ? `Protected equipped: **${protectedCount}**` : '')
+  );
+}
+async function absStarsInfo(i) {
+  const q = i.options.getString('name', true);
+  const card = (await absFindOwned(i.user.id, q, 1))[0];
+  if (!card) return i.reply(`No owned character found for **${q}**.`);
+
+  const stars = absStarsFromTrait(card.trait);
+  const rarity = String(card.character?.rarity || 'COMMON').toUpperCase();
+  const nextStars = Math.min(10, stars + 1);
+  const nextRarity = absNextRarity(rarity, nextStars);
+  const cost = absAscendCost(rarity, nextStars);
+
+  return i.reply(
+    `**${absCleanName(card.character.name)}**\n` +
+    `Rarity: **${rarity}**\n` +
+    `Stars: **${absStarsLine(stars)}**\n` +
+    `Next cost: **${absMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+    (nextRarity !== rarity ? `Next rarity evolution: **${rarity} → ${nextRarity}**` : `Next rarity evolution: **None yet**`)
+  );
+}
+async function absAscend(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const matches = await absFindOwned(i.user.id, q, 50);
+  if (!matches.length) return i.editReply(`No owned character found for **${q}**.`);
+
+  const main = matches.sort((a, b) => Number(b.power || 0) - Number(a.power || 0))[0];
+  const dupes = await prisma.userCard.findMany({
+    where: { userId: i.user.id, characterId: main.characterId },
+    include: { character: true },
+    orderBy: { power: 'asc' },
+    take: 50
+  }).catch(() => []);
+  const consume = dupes.find(c => c.id !== main.id);
+
+  if (!consume) return i.editReply(`You need a duplicate of **${absCleanName(main.character.name)}** to ascend.`);
+
+  const currentStars = absStarsFromTrait(main.trait);
+  if (currentStars >= 10) return i.editReply(`**${absCleanName(main.character.name)}** is already max stars: **${absStarsLine(10)}**.`);
+
+  const nextStars = currentStars + 1;
+  const currentRarity = String(main.character?.rarity || 'COMMON').toUpperCase();
+  const nextRarity = absNextRarity(currentRarity, nextStars);
+  const cost = absAscendCost(currentRarity, nextStars);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.gold || 0) < cost.gold || (user?.tokens || 0) < cost.tokens) {
+    return i.editReply(
+      `Not enough resources.\n` +
+      `Need: **${absMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**\n` +
+      `You have: **${absMoney(user?.gold || 0)} Gold** + **${user?.tokens || 0} Tokens**`
+    );
+  }
+
+  await prisma.marketListing.updateMany({ where: { cardId: consume.id, status: 'ACTIVE' }, data: { status: 'CANCELLED' } }).catch(() => null);
+  await prisma.user.update({ where: { id: i.user.id }, data: { gold: { decrement: cost.gold }, tokens: { decrement: cost.tokens } } }).catch(() => null);
+  await prisma.userCard.delete({ where: { id: consume.id } }).catch(() => null);
+
+  const powerGain = 125 + (nextStars * 75);
+  await prisma.userCard.update({
+    where: { id: main.id },
+    data: { power: { increment: powerGain }, trait: absSetStarsTrait(main.trait, nextStars) }
+  }).catch(() => null);
+
+  let rarityText = '';
+  if (nextRarity !== currentRarity) {
+    await prisma.character.update({ where: { id: main.characterId }, data: { rarity: nextRarity } }).catch(() => null);
+    rarityText = `\n🔥 Rarity evolved: **${currentRarity} → ${nextRarity}**`;
+  }
+
+  return i.editReply(
+    `✨ **ASCEND SUCCESS**\n` +
+    `Character: **${absCleanName(main.character.name)}**\n` +
+    `Stars: **${absStarsLine(currentStars)} → ${absStarsLine(nextStars)}**\n` +
+    `Consumed duplicate automatically.\n` +
+    `Power gained: **+${powerGain}**\n` +
+    `Cost: **${absMoney(cost.gold)} Gold** + **${cost.tokens} Tokens**` +
+    rarityText
+  );
+}
+function absDaySeed() {
+  return Math.floor(Date.now() / 86400000);
+}
+async function absDailyBanner(i) {
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    orderBy: { basePower: 'desc' },
+    take: 250
+  }).catch(() => []);
+
+  const pool = chars.length ? chars : [];
+  const seed = absDaySeed();
+  const picks = [];
+  for (let x = 0; x < Math.min(5, pool.length); x++) {
+    picks.push(pool[(seed * 13 + x * 29) % pool.length]);
+  }
+
+  const ends = Math.floor(((seed + 1) * 86400000) / 1000);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily Void Banner')
+    .setDescription(
+      `Refreshes daily automatically.\nEnds: <t:${ends}:R>\n\n` +
+      (picks.length
+        ? picks.map((c, idx) => `${idx + 1}. ${absCleanName(c.name)} • ${c.anime} • **${c.rarity}**`).join('\n')
+        : 'No banner characters found.')
+    )
+    .setColor(0x9b59b6);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+
+  return i.reply({ embeds: [embed] });
+}
+async function absAbsoluteHandler(i, userId, commandName) {
+  if (commandName === 'quick-sell') return absQuickSell(i);
+  if (commandName === 'stars') return absStarsInfo(i);
+  if (commandName === 'ascend') return absAscend(i);
+  if (commandName === 'banner') return absDailyBanner(i);
+  return false;
+}
+// ===== END ABSOLUTE FIX PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -4698,6 +4961,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const absHandled = await absAbsoluteHandler(i, userId, commandName);
+    if (absHandled !== false) return absHandled;
 
     const hxHandled = await hxHardHandler(i, userId, commandName);
     if (hxHandled !== false) return hxHandled;
