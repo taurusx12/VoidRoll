@@ -4945,6 +4945,7 @@ async function pityCreateCard(userId, character) {
   return prisma.userCard.create({
     data: {
       id: cardId,
+      serial: psSerial(),
       userId,
       characterId: character.id,
       power: Number(character.basePower || 3000)
@@ -5134,6 +5135,7 @@ async function pbCreateCard(userId, character) {
   return prisma.userCard.create({
     data: {
       id: cardId,
+      serial: psSerial(),
       userId,
       characterId: character.id,
       power: Number(character.basePower || 3000)
@@ -5403,6 +5405,7 @@ async function tpCreateCard(userId, character) {
   return prisma.userCard.create({
     data: {
       id: cardId,
+      serial: psSerial(),
       userId,
       characterId: character.id,
       power: Number(character.basePower || 1000)
@@ -6226,6 +6229,7 @@ async function ulCreateCard(userId, character) {
       return await prisma.userCard.create({
         data: {
           id: ulCardId(),
+          serial: psSerial(),
           userId: String(userId),
           characterId: String(character.id),
           power: Number(character.basePower || 1000)
@@ -6351,7 +6355,287 @@ async function ulHandler(i, userId, commandName) {
 }
 // ===== END PACK ULTRA CLEAN FINAL =====
 
+
+// ===== PACK SERIAL + IMAGES + TRUE AUTOCOMPLETE FINAL =====
+// Fixes missing serial, blocks old "All 4 Featured", and returns 10 image/stat embeds.
+
+const psMemory = new Map();
+
+function psClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function psMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function psEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function psId() {
+  return `card_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function psSerial() {
+  // Prisma Int max is 2,147,483,647. Keep it inside safe range and retry on collisions.
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+function psDaySeed() {
+  return Math.floor(Date.now() / 86400000);
+}
+function psPityKey(characterId) {
+  return `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+function psTraitGet(trait = '', key = '') {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : null;
+}
+function psTraitSet(trait = '', key = '', value = 0) {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+async function psGetPity(userId, characterId) {
+  const key = psPityKey(characterId);
+  const memKey = `${userId}:${key}`;
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const traitValue = psTraitGet(user?.trait, key);
+  if (traitValue !== null) return traitValue;
+  return psMemory.get(memKey) || 0;
+}
+async function psSavePity(userId, characterId, value) {
+  const key = psPityKey(characterId);
+  const memKey = `${userId}:${key}`;
+  psMemory.set(memKey, value);
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trait: psTraitSet(user.trait, key, value) }
+  }).catch(() => null);
+}
+async function psDailySecrets() {
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 400
+  }).catch(() => []);
+  const unique = [];
+  const seen = new Set();
+  for (const c of all) {
+    const key = `${psClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  const seed = psDaySeed();
+  const picks = [];
+  for (let i = 0; i < Math.min(4, unique.length); i++) {
+    picks.push(unique[(seed * 17 + i * 31) % unique.length]);
+  }
+  return picks;
+}
+async function psChoices() {
+  const picks = await psDailySecrets();
+  return picks.map(c => ({
+    name: `Rate Up: ${psClean(c.name)}`,
+    value: `ps:${c.id}`
+  })).slice(0, 25);
+}
+async function psAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await psChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+async function psSelected(value) {
+  const choices = await psChoices();
+  let id = null;
+  const v = String(value || '');
+  if (v.startsWith('ps:')) id = v.replace('ps:', '');
+  else if (v.startsWith('ul:')) id = v.replace('ul:', '');
+  else if (v.startsWith('featured:')) id = v.replace('featured:', '');
+  else id = choices[0]?.value?.replace('ps:', '');
+  if (!id) return null;
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function psPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 400 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+async function psCreateCard(userId, character) {
+  // Schema requires id AND serial. Never call create without both.
+  let lastErr = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: psId(),
+          serial: psSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+function psRole(c) {
+  const n = String(c?.name || '').toLowerCase();
+  if (/(rimuru|sakura|orihime|tsunade|cc|c\.c)/.test(n)) return 'Support';
+  if (/(gojo|sukuna|aizen|madara|gilgamesh|rimuru)/.test(n)) return 'Mage';
+  if (/(saber|kaido|whitebeard|all might)/.test(n)) return 'Tank';
+  if (/(killua|levi|toji|gabimaru|zenitsu)/.test(n)) return 'Assassin';
+  return 'DPS';
+}
+function psElement(c) {
+  const t = `${String(c?.name || '').toLowerCase()} ${String(c?.anime || '').toLowerCase()}`;
+  if (/(sukuna|aizen|dio|curse|demon)/.test(t)) return 'Dark';
+  if (/(gojo|rimuru|void|time|space)/.test(t)) return 'Void';
+  if (/(luffy|goku|naruto|saber)/.test(t)) return 'Light';
+  if (/(ace|natsu|rengoku|fire|flame)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|lightning)/.test(t)) return 'Lightning';
+  return 'Light';
+}
+function psStatsText(card, c) {
+  const p = Number(card.power || c.basePower || 1000);
+  const role = psRole(c);
+  let atkS=1.05,hpS=7.2,defS=.55,spd=105,crit=15,pen=0;
+  if (role === 'Tank') { atkS=.72; hpS=13; defS=1.2; spd=90; crit=8; }
+  if (role === 'Support') { atkS=.8; hpS=8.8; defS=.82; spd=110; crit=10; }
+  if (role === 'Assassin') { atkS=1.28; hpS=5.8; defS=.42; spd=140; crit=28; pen=12; }
+  if (role === 'Mage') { atkS=1.34; hpS=6.1; defS=.48; spd=108; crit=17; pen=22; }
+  return `Class: **${role}** | Element: **${psElement(c)}**
+ATK **${psMoney(Math.floor(p*atkS))}** • HP **${psMoney(Math.floor(p*hpS))}** • DEF **${psMoney(Math.floor(p*defS))}** • SPD **${spd}
+CRIT **${crit}%** • PEN **${pen}%**`;
+}
+async function psBanner(i) {
+  const picks = await psDailySecrets();
+  const ends = Math.floor(((psDaySeed() + 1) * 86400000) / 1000);
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await psGetPity(i.user.id, c.id);
+    lines.push(`${idx + 1}. **${psClean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function psPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await psSelected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${psMoney(cost)} Tokens** for 10 pulls.\nYou have **${psMoney(user?.tokens || 0)} Tokens**.`);
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = await psGetPity(i.user.id, selected.id);
+  const before = pity;
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSecret = true;
+      pity = 0;
+    } else {
+      character = await psPickByRarity(rarities[n]);
+    }
+    if (!character) continue;
+
+    const card = await psCreateCard(i.user.id, character);
+    lines.push(`${n + 1}. ${psEmoji(character.rarity)} **${psClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${psMoney(card.power || character.basePower)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${psEmoji(character.rarity)} ${psClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${psMoney(card.power || character.basePower)}**\n` +
+        `${psStatsText(card, character)}\n` +
+        `Selected Rate Up: **${psClean(selected.name)}**\n` +
+        `This character pity: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. ${psClean(selected.name)} pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  await psSavePity(i.user.id, selected.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${psClean(selected.name)}**\n` +
+      `Cost: **${psMoney(cost)} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSecret ? `🔥 SECRET pulled! ${psClean(selected.name)} pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${psMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function psHandler(i, userId, commandName) {
+  if (commandName === 'banner') return psBanner(i);
+  if (commandName === 'pack') return psPack(i);
+  return false;
+}
+// ===== END PACK SERIAL + IMAGES FINAL =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const psAuto = await psAutocomplete(i);
+      if (psAuto) return;
+      return;
+    }
+
   try {
     if (i.isButton()) {
       if (i.customId.startsWith('hxi_')) {
@@ -6520,6 +6804,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const psHandled = await psHandler(i, userId, commandName);
+    if (psHandled !== false) return psHandled;
 
     const ulHandled = await ulHandler(i, userId, commandName);
     if (ulHandled !== false) return ulHandled;
