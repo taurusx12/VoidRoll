@@ -6974,7 +6974,7 @@ async function arAdminHandler(i, userId, commandName) {
 // ===== NORMAL ROLL RATES + STATS PATCH =====
 // Normal /roll and /r use exact rates, no soft pity, no hard pity.
 // Rates:
-// Common 72%, Rare 22%, Epic 5.65%, Legendary 1%, Mythic 0.75%, Divine 0.5%, Secret 0.1%
+// Common 72%, Rare 22%, Epic 5.65%, Legendary 1%, Mythic 0.75%, Divine 0.1%, Secret 0.1%
 // Roll result shows stats.
 
 function nrMoney(n) {
@@ -7110,7 +7110,7 @@ function nrPassive(c) {
   if (/goku|gokuu/.test(n)) return 'Limit Breaker: ATK and ultimate damage scale every round.';
   if (/vegeta/.test(n)) return 'Saiyan Pride: gains ATK after taking damage.';
   if (/nanami/.test(n)) return 'Ratio Technique: massive critical chance against healthy enemies.';
-  return `${nrElement(c)} ${nrRole(c)} Passive: improves battle performance.`;
+  return `${nrElement(c)} ${nrRole(c)} Passive: Battle Rhythm: ATK rises every round and spikes after ultimate.`;
 }
 
 function nrStatsText(card, c) {
@@ -7158,7 +7158,7 @@ async function nrNormalRoll(i) {
         `Power: **${nrMoney(power)}**\n` +
         `${nrStatsText(card, character)}\n\n` +
         `Normal Roll Rates:\n` +
-        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.5% • Secret 0.1%`
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
       )
       .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
 
@@ -7185,7 +7185,7 @@ async function nrRates(i) {
     `Epic: **5.65%**\n` +
     `Legendary: **1%**\n` +
     `Mythic: **0.75%**\n` +
-    `Divine: **0.5%**\n` +
+    `Divine: **0.1%**\n` +
     `Secret: **0.1%**\n\n` +
     `Normal rolls have **no soft pity** and **no hard pity**.`
   );
@@ -7288,7 +7288,7 @@ function roPassive(c) {
   if (/goku|gokuu/.test(n)) return 'Limit Breaker: ATK and ultimate damage scale every round.';
   if (/vegeta/.test(n)) return 'Saiyan Pride: gains ATK after taking damage.';
   if (/nanami/.test(n)) return 'Ratio Technique: massive critical chance against healthy enemies.';
-  return `${roElement(c)} ${roRole(c)} Passive: improves battle performance.`;
+  return `${roElement(c)} ${roRole(c)} Passive: Battle Rhythm: ATK rises every round and spikes after ultimate.`;
 }
 function roStats(card, c) {
   const p = Number(card.power || c.basePower || 1000);
@@ -7342,7 +7342,7 @@ async function roNormalRoll(i) {
         `Power: **${roMoney(power)}**\n` +
         `${roStats(card, character)}\n\n` +
         `**Normal Roll Rates**\n` +
-        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.5% • Secret 0.1%`
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
       )
       .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
 
@@ -7363,7 +7363,7 @@ async function roRates(i) {
     `Epic: **5.65%**\n` +
     `Legendary: **1%**\n` +
     `Mythic: **0.75%**\n` +
-    `Divine: **0.5%**\n` +
+    `Divine: **0.1%**\n` +
     `Secret: **0.1%**\n\n` +
     `Normal rolls are based on rates only.\n` +
     `Pity exists only in **/pack banner**.`
@@ -7572,6 +7572,397 @@ async function upPassiveHandler(i, userId, commandName) {
 }
 // ===== END UNIQUE PASSIVES FIX PATCH =====
 
+
+// ===== FORCE UNIQUE PASSIVES IN ROLL PATCH =====
+// This fully overrides /roll, /r, /stats, /inv-search before old handlers.
+// It never outputs "improves battle performance".
+
+function uxNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function uxClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function uxMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function uxEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function uxHash(s = '') {
+  let h = 0;
+  for (const ch of String(s)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+function uxRole(c) {
+  const n = uxNorm(c?.name || '');
+  if (/(rimuru|sakura|orihime|tsunade|cc|c c|chopper|shoko)/.test(n)) return 'Support';
+  if (/(gojo|sukuna|aizen|madara|gilgamesh|frieren|ainz|meruem)/.test(n)) return 'Mage';
+  if (/(saber|artoria|kaido|whitebeard|all might|escanor|naofumi|albedo)/.test(n)) return 'Tank';
+  if (/(killua|levi|toji|gabimaru|zenitsu|akame|yoroichi|hisoka)/.test(n)) return 'Assassin';
+  if (/(lelouch|makima|shikamaru|kurapika|light yagami|senku)/.test(n)) return 'Control';
+  return 'DPS';
+}
+function uxElement(c) {
+  const t = `${uxNorm(c?.name)} ${uxNorm(c?.anime)}`;
+  if (/(sukuna|aizen|dio|curse|demon|makima|muzan|devil)/.test(t)) return 'Dark';
+  if (/(gojo|rimuru|void|time|space|gilgamesh|accelerator)/.test(t)) return 'Void';
+  if (/(luffy|goku|gokuu|naruto|saber|all might|tanjiro)/.test(t)) return 'Light';
+  if (/(ace|natsu|rengoku|fire|flame|gabimaru|shinra)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|lightning|thunder|misaka)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|soul|bleach|shinigami)/.test(t)) return 'Soul';
+  if (/(ice|frost|snow|todoroki)/.test(t)) return 'Ice';
+  return 'Light';
+}
+function uxPassive(c) {
+  const n = uxNorm(c?.name || '');
+  const anime = uxNorm(c?.anime || '');
+  const role = uxRole(c);
+  const element = uxElement(c);
+
+  const specific = [
+    [/gojo/, 'Limitless Infinity: reduces incoming damage and charges Hollow Purple when attacked.'],
+    [/rimuru/, 'Predator / Great Sage: copies enemy buffs, improves sustain, and boosts team energy recovery.'],
+    [/sukuna/, 'Malevolent Shrine: executes weakened enemies and boosts Dark ultimate damage.'],
+    [/goku|gokuu/, 'Limit Breaker: ATK and ultimate damage scale every round.'],
+    [/vegeta/, 'Saiyan Pride: gains ATK after taking damage and powers up after allies fall.'],
+    [/nanami/, 'Ratio Technique: critical chance and critical damage massively increase against enemies above 70% HP.'],
+    [/lelouch/, 'Geass Command: controls the battlefield and boosts team ultimate charge.'],
+    [/c c|^cc$/, 'Immortal Witch: regenerates each round and gives energy to the strongest ally.'],
+    [/gabimaru/, 'Ninja of the Hollow: gains dodge, poison resistance, and burst damage after ultimate.'],
+    [/makima/, 'Control Devil: lowers enemy ATK and increases control chance.'],
+    [/aizen/, 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [/madara/, 'Uchiha Dominion: increases AoE ultimate damage and pressure.'],
+    [/itachi/, 'Tsukuyomi: delays enemy ultimate and increases control chance.'],
+    [/killua/, 'Godspeed: very high speed, dodge, and crit burst.'],
+    [/gon/, 'Jajanken: huge single-target ultimate damage.'],
+    [/luffy/, 'Nika Rhythm: gains ATK and speed every round.'],
+    [/zoro/, 'Three Sword Style: increases boss damage and critical damage.'],
+    [/ichigo/, 'Bankai Pressure: Soul damage and speed increase after ultimate.'],
+    [/saber|artoria/, 'Avalon: grants a starting shield and reduces burst damage.'],
+    [/gilgamesh/, 'Gate of Babylon: increases penetration and ultimate burst damage.'],
+    [/sung jin|jinwoo|jin woo/, 'Shadow Monarch: defeated enemies empower Shadow allies and stack ATK.'],
+    [/naruto/, 'Nine-Tails Resolve: heals when low HP and boosts Light damage after ultimate.'],
+    [/sasuke/, 'Sharingan Precision: increases crit and dodge against faster enemies.'],
+    [/tanjiro/, 'Hinokami Kagura: Fire damage rises after each round and boosts boss damage.'],
+    [/zenitsu/, 'Thunderclap Flash: first attack has huge speed and crit bonus.'],
+    [/inosuke/, 'Beast Instinct: gains ATK and dodge when HP drops below 50%.'],
+    [/nezuko/, 'Demon Blood Burst: burns enemies and protects the lowest HP ally.'],
+    [/eren/, 'Titan Rage: gains DEF and ATK after taking heavy damage.'],
+    [/levi/, 'Humanity’s Strongest: high crit against bosses and elite enemies.'],
+    [/mikasa/, 'Ackerman Guard: counters attacks and protects the leader slot.'],
+    [/light yagami/, 'Death Note: chance to instantly weaken the highest ATK enemy.'],
+    [/dio/, 'The World: chance to delay enemy action and increase Dark burst.'],
+    [/jotaro/, 'Star Platinum: counters after dodging and gains crit damage.'],
+    [/deku|midoriya/, 'One For All: ATK grows every round, but DEF drops slightly after ultimate.'],
+    [/bakugo/, 'Explosion Tempo: crit damage rises after every attack.'],
+    [/todoroki/, 'Half-Cold Half-Hot: alternates Ice shields and Fire burst damage.'],
+    [/all might/, 'Symbol of Peace: boosts team ATK and reduces incoming damage in early rounds.'],
+    [/asta/, 'Anti-Magic: ignores part of enemy shields and resists control.'],
+    [/yuno/, 'Spirit Wind: increases speed and dodge for Wind/Light allies.'],
+    [/frieren/, 'Ancient Magecraft: ultimate damage scales with enemy max HP.'],
+    [/denji/, 'Chainsaw Frenzy: lifesteal and bleed damage increase against bosses.'],
+    [/power/, 'Blood Fiend: crit chance rises when allies fall below 50% HP.'],
+    [/aki/, 'Future Contract: first ultimate has bonus damage and accuracy.'],
+    [/toji/, 'Heavenly Restriction: ignores control effects and gains massive crit burst.']
+  ];
+  for (const [rx, text] of specific) if (rx.test(n)) return text;
+
+  if (/jujutsu kaisen/.test(anime)) return `Cursed Flow: ${element} attacks reduce enemy DEF and build ultimate charge faster.`;
+  if (/naruto|boruto/.test(anime)) return `Shinobi Tactics: dodge and crit increase after every ultimate cycle.`;
+  if (/one piece/.test(anime)) return `Pirate Will: gains ATK when an ally attacks the same target.`;
+  if (/dragon ball/.test(anime)) return `Ki Surge: damage increases each round and spikes after taking a hit.`;
+  if (/bleach/.test(anime)) return `Spiritual Pressure: lowers enemy speed and boosts Soul/Light damage.`;
+  if (/demon slayer|kimetsu/.test(anime)) return `Breathing Focus: crit chance rises when fighting bosses or elite enemies.`;
+  if (/attack on titan|shingeki/.test(anime)) return `Survival Instinct: DEF and counter chance increase when HP is low.`;
+  if (/fate/.test(anime)) return `Noble Phantasm: ultimate damage and shield strength increase with energy.`;
+  if (/hunter x hunter/.test(anime)) return `Nen Focus: speed and penetration increase after round 2.`;
+  if (/my hero|boku no hero/.test(anime)) return `Hero Drive: protects allies and gains ATK after saving low HP teammates.`;
+  if (/black clover/.test(anime)) return `Grimoire Burst: ultimate charge and magic damage scale over time.`;
+  if (/chainsaw/.test(anime)) return `Devil Contract: lifesteal and bleed damage increase after each kill.`;
+  if (/jojo/.test(anime)) return `Stand Pressure: chance to counter and delay enemy ultimate.`;
+
+  const templates = {
+    Tank: [
+      `${element} Bulwark: starts battle with a shield and gains DEF after being hit.`,
+      `Last Stand: reduces burst damage and protects the weakest ally once per battle.`,
+      `Guardian Oath: increases HP scaling and reflects a small part of damage.`
+    ],
+    Support: [
+      `${element} Blessing: restores energy to the strongest ally every two rounds.`,
+      `Field Medic: heals the lowest HP ally and increases team sustain.`,
+      `Tactical Support: boosts team speed and ultimate charge after round 2.`
+    ],
+    Control: [
+      `Pressure Command: reduces enemy ultimate charge and improves control chance.`,
+      `${element} Seal: chance to weaken the enemy with the highest ATK.`,
+      `Mind Game: lowers enemy accuracy and increases ally dodge.`
+    ],
+    Assassin: [
+      `Silent Execution: bonus crit against enemies below 60% HP.`,
+      `${element} Ambush: first attack gains speed and partial DEF ignore.`,
+      `Killer Tempo: crit damage increases after every successful hit.`
+    ],
+    Mage: [
+      `${element} Overload: ultimate damage scales with penetration.`,
+      `Arcane Pulse: damages all enemies slightly after casting ultimate.`,
+      `Mana Break: lowers enemy resistance and boosts elemental burst.`
+    ],
+    DPS: [
+      `${element} Battle Rhythm: ATK rises every round and spikes after ultimate.`,
+      `Relentless Strike: consecutive attacks increase crit chance.`,
+      `Finisher Instinct: deals bonus damage to enemies below 35% HP.`
+    ]
+  };
+  const list = templates[role] || templates.DPS;
+  return list[uxHash(`${c?.name}:${c?.anime}:${role}:${element}`) % list.length];
+}
+function uxPickRarity() {
+  const r = Math.random();
+  if (r < 0.7200) return 'COMMON';
+  if (r < 0.9400) return 'RARE';
+  if (r < 0.9965) return 'EPIC';
+  if (r < 0.9975) return 'LEGENDARY';
+  if (r < 0.99825) return 'MYTHIC';
+  if (r < 0.99875) return 'DIVINE';
+  return 'SECRET';
+}
+async function uxPickCharacter(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 700 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  const fallback = await prisma.character.findMany({ where: { active: true }, take: 700 }).catch(() => []);
+  return fallback[Math.floor(Math.random() * Math.max(1, fallback.length))] || null;
+}
+function uxId() {
+  return `roll_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function uxSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function uxCreateCard(userId, character) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: uxId(),
+          serial: uxSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
+}
+function uxStatsText(card, c) {
+  const p = Number(card.power || c.basePower || 1000);
+  const role = uxRole(c);
+  let atkS = 1.05, hpS = 7.2, defS = .55, spd = 105, crit = 15, critDmg = 170, pen = 0;
+  if (role === 'Tank') { atkS = .72; hpS = 13; defS = 1.2; spd = 90; crit = 8; }
+  if (role === 'Support') { atkS = .8; hpS = 8.8; defS = .82; spd = 110; crit = 10; }
+  if (role === 'Control') { atkS = .9; hpS = 8.4; defS = .76; spd = 118; crit = 12; }
+  if (role === 'Assassin') { atkS = 1.28; hpS = 5.8; defS = .42; spd = 140; crit = 28; critDmg = 205; pen = 12; }
+  if (role === 'Mage') { atkS = 1.34; hpS = 6.1; defS = .48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
+  if (/nanami/i.test(c?.name || '')) { crit = 40; critDmg = 235; pen = Math.max(pen, 12); }
+  return `Class: **${role}** | Element: **${uxElement(c)}**
+ATK **${uxMoney(Math.floor(p * atkS))}** • HP **${uxMoney(Math.floor(p * hpS))}** • DEF **${uxMoney(Math.floor(p * defS))}** • SPD **${spd}**
+CRIT **${crit}%** • CRIT DMG **${critDmg}%** • PEN **${pen}%**
+Passive: ${uxPassive(c)}`;
+}
+async function uxRoll(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+  const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.rolls || 0) < amount) return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
+  await prisma.user.update({ where: { id: i.user.id }, data: { rolls: { decrement: amount } } }).catch(() => null);
+  const lines = [];
+  const embeds = [];
+  for (let n = 0; n < amount; n++) {
+    const rarity = uxPickRarity();
+    const character = await uxPickCharacter(rarity);
+    if (!character) continue;
+    const card = await uxCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+    lines.push(`${n + 1}. ${uxEmoji(character.rarity)} **${uxClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${uxMoney(power)}`);
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${uxEmoji(character.rarity)} ${uxClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${uxMoney(power)}**\n` +
+        `${uxStatsText(card, character)}\n\n` +
+        `**Normal Roll Rates**\n` +
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.1%`
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+  return i.editReply({
+    content: (`**NORMAL ROLL x${amount}**\nBased on rates only. Pity is only for banner packs.\n\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function uxFindOwned(userId, q) {
+  const tokens = uxNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({ where: { userId }, include: { character: true }, orderBy: { power: 'desc' }, take: 1000 }).catch(() => []);
+  return cards.map(card => {
+    const full = `${uxNorm(uxClean(card.character.name))} ${uxNorm(card.character.name)} ${uxNorm(card.character.anime)}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 50;
+      if (uxNorm(card.character.name).includes(t)) score += 80;
+      if (uxNorm(card.character.anime).includes(t)) score += 30;
+    }
+    return { card, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))[0]?.card;
+}
+async function uxStats(i, userId, commandName) {
+  const name = i.options.getString('name', true);
+  const card = await uxFindOwned(userId, name);
+  if (!card) return i.reply(`No owned character found for **${name}**.`);
+  const c = card.character;
+  const embed = new EmbedBuilder()
+    .setTitle(`${commandName === 'stats' ? 'Stats' : 'Inventory Search'}: ${uxClean(c.name)}`)
+    .setDescription(
+      `**${uxClean(c.name)}** • ${c.anime}\n` +
+      `Rarity: **${c.rarity}** • Power: **${uxMoney(card.power || c.basePower || 0)}**\n` +
+      `${uxStatsText(card, c)}`
+    )
+    .setColor(0x9b59b6);
+  if (c.imageUrl) embed.setThumbnail(c.imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function uxHandler(i, userId, commandName) {
+  if (commandName === 'roll' || commandName === 'r') return uxRoll(i);
+  if (commandName === 'stats' || commandName === 'inv-search') return uxStats(i, userId, commandName);
+  return false;
+}
+// ===== END FORCE UNIQUE PASSIVES IN ROLL PATCH =====
+
+
+// ===== BOSS RUSH DAMAGE REWARDS + ULTRA SECRET RATE PATCH =====
+function brsMoney(n){return typeof money==='function'?money(n):Number(n||0).toLocaleString('en-US')}
+function brsClean(name=''){return String(name||'').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim()}
+function brsEmoji(r){return typeof rarityEmoji==='function'?rarityEmoji(r):'⭐'}
+function brsPickNormalRarity(){
+  const weights=[['COMMON',72],['RARE',22],['EPIC',5.65],['LEGENDARY',1],['MYTHIC',0.75],['DIVINE',0.1],['SECRET',0.00001]];
+  const total=weights.reduce((s,x)=>s+x[1],0);
+  let r=Math.random(), acc=0;
+  for(const [rarity,w] of weights){acc+=w/total;if(r<acc)return rarity}
+  return 'COMMON';
+}
+async function brsPickCharacter(rarity){
+  const chars=await prisma.character.findMany({where:{active:true,rarity},take:700}).catch(()=>[]);
+  if(chars.length)return chars[Math.floor(Math.random()*chars.length)];
+  const fallback=await prisma.character.findMany({where:{active:true},take:700}).catch(()=>[]);
+  return fallback[Math.floor(Math.random()*Math.max(1,fallback.length))]||null;
+}
+function brsId(prefix='roll'){return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,11)}_${Math.random().toString(36).slice(2,7)}`}
+function brsSerial(){return Math.floor((Date.now()+Math.floor(Math.random()*1000000))%2000000000)}
+async function brsCreateCard(userId,character,prefix='roll'){
+  for(let attempt=0;attempt<6;attempt++){
+    try{return await prisma.userCard.create({data:{id:brsId(prefix),serial:brsSerial(),userId:String(userId),characterId:String(character.id),power:Number(character.basePower||1000)}})}
+    catch(err){if(attempt===5)throw err}
+  }
+}
+function brsRole(c){if(typeof uxRole==='function')return uxRole(c);if(typeof roRole==='function')return roRole(c);return 'DPS'}
+function brsElement(c){if(typeof uxElement==='function')return uxElement(c);if(typeof roElement==='function')return roElement(c);return c?.element||'Light'}
+function brsPassive(c){if(typeof uxPassive==='function')return uxPassive(c);if(typeof roPassive==='function')return roPassive(c);return 'Battle Rhythm: ATK rises every round and spikes after ultimate.'}
+function brsStatsText(card,c){
+  if(typeof uxStatsText==='function')return uxStatsText(card,c);
+  const p=Number(card.power||c.basePower||1000);
+  return `Class: **${brsRole(c)}** | Element: **${brsElement(c)}**
+ATK **${brsMoney(Math.floor(p*1.05))}** • HP **${brsMoney(Math.floor(p*7.2))}** • DEF **${brsMoney(Math.floor(p*.55))}**
+Passive: ${brsPassive(c)}`;
+}
+async function brsNormalRoll(i){
+  if(!i.deferred&&!i.replied)await i.deferReply().catch(()=>null);
+  const amount=Math.max(1,Math.min(10,i.options.getInteger('amount')||1));
+  const user=await prisma.user.findUnique({where:{id:i.user.id}});
+  if((user?.rolls||0)<amount)return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls||0}**.`);
+  await prisma.user.update({where:{id:i.user.id},data:{rolls:{decrement:amount}}}).catch(()=>null);
+  const lines=[],embeds=[];
+  for(let n=0;n<amount;n++){
+    const rarity=brsPickNormalRarity();
+    const character=await brsPickCharacter(rarity);
+    if(!character)continue;
+    const card=await brsCreateCard(i.user.id,character,'roll');
+    const power=Number(card.power||character.basePower||0);
+    lines.push(`${n+1}. ${brsEmoji(character.rarity)} **${brsClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${brsMoney(power)}`);
+    const embed=new EmbedBuilder()
+      .setTitle(`${n+1}. ${brsEmoji(character.rarity)} ${brsClean(character.name)}`)
+      .setDescription(`Anime: **${character.anime}**\nRarity: **${character.rarity}**\nPower: **${brsMoney(power)}**\n${brsStatsText(card,character)}\n\n**Normal Roll Rates**\nCommon 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.1% • Secret 0.00001%`)
+      .setColor(String(character.rarity).toUpperCase()==='SECRET'?0xe74c3c:0x9b59b6);
+    if(character.imageUrl)embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+  return i.editReply({content:(`**NORMAL ROLL x${amount}**\nBased on rates only. Pity is only for banner packs.\n\n${lines.join('\n')}\n\nRolls left: **${(user?.rolls||0)-amount}**`).slice(0,1900),embeds:embeds.slice(0,10)});
+}
+async function brsRates(i){
+  return i.reply(`**NORMAL ROLL RATES**\n\nCommon: **72%**\nRare: **22%**\nEpic: **5.65%**\nLegendary: **1%**\nMythic: **0.75%**\nDivine: **0.1%**\nSecret: **0.00001%**\n\nNormal rolls are rates only.\nPity exists only in **/pack banner**.`);
+}
+async function brsOwnedPower(userId,formations=1){
+  const cards=await prisma.userCard.findMany({where:{userId},include:{character:true},orderBy:{power:'desc'},take:Math.max(6,formations*6)}).catch(()=>[]);
+  return {cards,power:cards.reduce((s,c)=>s+Number(c.power||c.character?.basePower||0),0)};
+}
+async function brsEnemyBoss(){
+  const bosses=await prisma.character.findMany({where:{active:true,rarity:'SECRET'},orderBy:{basePower:'desc'},take:200}).catch(()=>[]);
+  if(bosses.length)return bosses[Math.floor(Math.random()*bosses.length)];
+  return prisma.character.findFirst({where:{active:true},orderBy:{basePower:'desc'}}).catch(()=>null);
+}
+function brsBossRewards(damage,cleared){
+  const dmg=Math.max(0,Number(damage||0));
+  return {gold:Math.floor(3500+dmg*.55),tokens:8,rolls:Math.max(1,Math.min(60,Math.floor(dmg/85000)+(cleared?5:0))),xp:Math.max(50,Math.min(1000,Math.floor(dmg/12000)))};
+}
+async function brsBossRush(i,coop=false){
+  if(!i.deferred&&!i.replied)await i.deferReply().catch(()=>null);
+  const formations=coop?2:1, team=await brsOwnedPower(i.user.id,formations), boss=await brsEnemyBoss();
+  if(!boss)return i.editReply('No boss found.');
+  const bossMaxHp=coop?2400000:1200000;
+  let bossHp=bossMaxHp, teamHp=Math.max(5000,team.power*(coop?10:7)), damage=0;
+  let out=`**${coop?'CO-OP ':'SOLO '}BOSS RUSH**\nBoss: **${brsClean(boss.name)}** • ${boss.anime}\nBoss HP: **${brsMoney(bossHp)}** | Team HP: **${brsMoney(teamHp)}**\nRewards: Tokens fixed **8**, Gold/Rolls scale with damage.\n`;
+  await i.editReply(out).catch(()=>null);
+  await new Promise(r=>setTimeout(r,900));
+  for(let round=1;round<=8;round++){
+    const hero=team.cards[(round-1)%Math.max(1,team.cards.length)];
+    const heroName=hero?.character?.name?brsClean(hero.character.name):'Your Team';
+    const hit=Math.floor((team.power/(3+round))+Math.random()*(coop?15000:8000));
+    const bossHit=Math.floor((coop?95000:48000)+Math.random()*6000);
+    bossHp=Math.max(0,bossHp-hit); damage+=hit;
+    out+=`\nRound ${round}: **${heroName}** dealt **${brsMoney(hit)}** damage. Boss HP: **${brsMoney(bossHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,900));
+    if(round===3||round===6){
+      const ult=Math.floor(hit*2.25); bossHp=Math.max(0,bossHp-ult); damage+=ult;
+      out+=`\n🔥 **ULTIMATE!** Extra **${brsMoney(ult)}** damage. Boss HP: **${brsMoney(bossHp)}**`;
+      await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,900));
+    }
+    teamHp=Math.max(0,teamHp-bossHit);
+    out+=`\nBoss countered for **${brsMoney(bossHit)}**. Team HP: **${brsMoney(teamHp)}**`;
+    await i.editReply(out.slice(-1850)).catch(()=>null); await new Promise(r=>setTimeout(r,900));
+    if(bossHp<=0||teamHp<=0)break;
+  }
+  const cleared=bossHp<=0, rw=brsBossRewards(damage,cleared);
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{increment:rw.gold},tokens:{increment:rw.tokens},rolls:{increment:rw.rolls}}}).catch(()=>null);
+  if(typeof addUserXp==='function')await addUserXp(i.user.id,rw.xp,'boss-rush').catch(()=>null);
+  out+=`\n\n**${cleared?'Boss Cleared!':'Boss Escaped!'}**\nTotal Damage: **${brsMoney(damage)}**\nRewards:\nGold: **${brsMoney(rw.gold)}**\nTokens: **8** fixed\nRolls: **${rw.rolls}**\nXP: **${rw.xp}**`;
+  return i.editReply(out.slice(-1900)).catch(()=>null);
+}
+async function brsHandler(i,userId,commandName){
+  if(commandName==='roll'||commandName==='r')return brsNormalRoll(i);
+  if(commandName==='rates')return brsRates(i);
+  if(commandName==='boss-rush')return brsBossRush(i,false);
+  if(commandName==='coop-boss-rush')return brsBossRush(i,true);
+  return false;
+}
+// ===== END BOSS RUSH DAMAGE REWARDS + ULTRA SECRET RATE PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -7753,6 +8144,12 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const brsHandled = await brsHandler(i, userId, commandName);
+    if (brsHandled !== false) return brsHandled;
+
+    const uxHandled = await uxHandler(i, userId, commandName);
+    if (uxHandled !== false) return uxHandled;
 
     const upHandled = await upPassiveHandler(i, userId, commandName);
     if (upHandled !== false) return upHandled;
@@ -8077,9 +8474,9 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
       return i.reply(
         `**NORMAL ROLL RATES**\n\n` +
         `Character Roll\n` +
-        `Common: 72%\nRare: 22%\nEpic: 5.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.5%\nSecret: 0.1%\n\n` +
+        `Common: 72%\nRare: 22%\nEpic: 5.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.1%\n\n` +
         `Item Roll\n` +
-        `Common: 65%\nRare: 26%\nEpic: 7.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.5%\nSecret: 0.1%`
+        `Common: 65%\nRare: 26%\nEpic: 7.65%\nLegendary: 1%\nMythic: 0.75%\nDivine: 0.1%\nSecret: 0.1%`
       );
     }
 
