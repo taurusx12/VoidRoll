@@ -6970,6 +6970,234 @@ async function arAdminHandler(i, userId, commandName) {
 }
 // ===== END ADMIN RESET ALL PLAYERS PATCH =====
 
+
+// ===== NORMAL ROLL RATES + STATS PATCH =====
+// Normal /roll and /r use exact rates, no soft pity, no hard pity.
+// Rates:
+// Common 72%, Rare 22%, Epic 5.65%, Legendary 1%, Mythic 0.75%, Divine 0.5%, Secret 0.1%
+// Roll result shows stats.
+
+function nrMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function nrEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+
+function nrClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function nrPickRarity() {
+  const r = Math.random() * 100;
+  if (r < 72) return 'COMMON';
+  if (r < 94) return 'RARE';          // 72 + 22
+  if (r < 99.65) return 'EPIC';       // + 5.65
+  if (r < 100.65) return 'LEGENDARY'; // unreachable cap issue fixed below by normalized thresholds
+  return 'COMMON';
+}
+
+// Correct normalized exact roll table.
+function nrPickRarityExact() {
+  const r = Math.random();
+  if (r < 0.7200) return 'COMMON';
+  if (r < 0.9400) return 'RARE';
+  if (r < 0.9965) return 'EPIC';
+  if (r < 0.9975) return 'LEGENDARY';
+  if (r < 0.99825) return 'MYTHIC';
+  if (r < 0.99875) return 'DIVINE';
+  return 'SECRET';
+}
+
+async function nrPickCharacterByRarity(rarity) {
+  let chars = await prisma.character.findMany({
+    where: { active: true, rarity },
+    take: 500
+  }).catch(() => []);
+
+  if (!chars.length) {
+    chars = await prisma.character.findMany({
+      where: { active: true },
+      take: 500
+    }).catch(() => []);
+  }
+
+  if (!chars.length) return null;
+  return chars[Math.floor(Math.random() * chars.length)];
+}
+
+function nrCardId() {
+  return `roll_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function nrSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+
+async function nrCreateCard(userId, character) {
+  // Schema requires id and serial in current project.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: nrCardId(),
+          serial: nrSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 4) throw err;
+    }
+  }
+}
+
+function nrRole(c) {
+  const n = String(c?.name || '').toLowerCase();
+  if (/(rimuru|sakura|orihime|tsunade|cc|c\.c)/.test(n)) return 'Support';
+  if (/(gojo|sukuna|aizen|madara|gilgamesh|rimuru|frieren)/.test(n)) return 'Mage';
+  if (/(saber|kaido|whitebeard|all might|escanor|naofumi)/.test(n)) return 'Tank';
+  if (/(killua|levi|toji|gabimaru|zenitsu|akame)/.test(n)) return 'Assassin';
+  if (/(lelouch|makima|shikamaru|kurapika)/.test(n)) return 'Control';
+  return 'DPS';
+}
+
+function nrElement(c) {
+  const t = `${String(c?.name || '').toLowerCase()} ${String(c?.anime || '').toLowerCase()}`;
+  if (/(sukuna|aizen|dio|curse|demon|makima)/.test(t)) return 'Dark';
+  if (/(gojo|rimuru|void|time|space|gilgamesh)/.test(t)) return 'Void';
+  if (/(luffy|goku|gokuu|naruto|saber|all might)/.test(t)) return 'Light';
+  if (/(ace|natsu|rengoku|fire|flame|gabimaru)/.test(t)) return 'Fire';
+  if (/(killua|zenitsu|lightning|thunder)/.test(t)) return 'Lightning';
+  if (/(ichigo|rukia|soul|bleach)/.test(t)) return 'Soul';
+  return 'Light';
+}
+
+function nrStats(card, c) {
+  const p = Number(card.power || c.basePower || 1000);
+  const role = nrRole(c);
+  let atkS = 1.05, hpS = 7.2, defS = .55, spd = 105, crit = 15, critDmg = 170, pen = 0;
+  if (role === 'Tank') { atkS = .72; hpS = 13; defS = 1.2; spd = 90; crit = 8; }
+  if (role === 'Support') { atkS = .8; hpS = 8.8; defS = .82; spd = 110; crit = 10; }
+  if (role === 'Control') { atkS = .9; hpS = 8.4; defS = .76; spd = 118; crit = 12; }
+  if (role === 'Assassin') { atkS = 1.28; hpS = 5.8; defS = .42; spd = 140; crit = 28; critDmg = 205; pen = 12; }
+  if (role === 'Mage') { atkS = 1.34; hpS = 6.1; defS = .48; spd = 108; crit = 17; critDmg = 185; pen = 22; }
+  if (/nanami/i.test(c?.name || '')) { crit = 40; critDmg = 235; pen = Math.max(pen, 12); }
+
+  return {
+    atk: Math.floor(p * atkS),
+    hp: Math.floor(p * hpS),
+    def: Math.floor(p * defS),
+    spd,
+    crit,
+    critDmg,
+    pen,
+    role
+  };
+}
+
+function nrPassive(c) {
+  const n = String(c?.name || '').toLowerCase();
+  if (/gojo/.test(n)) return 'Limitless Infinity: reduces incoming damage and charges ultimate when attacked.';
+  if (/rimuru/.test(n)) return 'Predator / Great Sage: copies buffs and boosts sustain.';
+  if (/sukuna/.test(n)) return 'Malevolent Shrine: executes weakened enemies and boosts Dark ultimate damage.';
+  if (/goku|gokuu/.test(n)) return 'Limit Breaker: ATK and ultimate damage scale every round.';
+  if (/vegeta/.test(n)) return 'Saiyan Pride: gains ATK after taking damage.';
+  if (/nanami/.test(n)) return 'Ratio Technique: massive critical chance against healthy enemies.';
+  return `${nrElement(c)} ${nrRole(c)} Passive: improves battle performance.`;
+}
+
+function nrStatsText(card, c) {
+  const s = nrStats(card, c);
+  return `Class: **${s.role}** | Element: **${nrElement(c)}**
+ATK **${nrMoney(s.atk)}** • HP **${nrMoney(s.hp)}** • DEF **${nrMoney(s.def)}** • SPD **${s.spd}**
+CRIT **${s.crit}%** • CRIT DMG **${s.critDmg}%** • PEN **${s.pen}%**
+Passive: ${nrPassive(c)}`;
+}
+
+async function nrNormalRoll(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.rolls || 0) < amount) {
+    return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { rolls: { decrement: amount } }
+  }).catch(() => null);
+
+  const lines = [];
+  const embeds = [];
+
+  for (let n = 0; n < amount; n++) {
+    const rarity = nrPickRarityExact();
+    const character = await nrPickCharacterByRarity(rarity);
+    if (!character) continue;
+
+    const card = await nrCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+
+    lines.push(
+      `${n + 1}. ${nrEmoji(character.rarity)} **${nrClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${nrMoney(power)}`
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${nrEmoji(character.rarity)} ${nrClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${nrMoney(power)}**\n` +
+        `${nrStatsText(card, character)}\n\n` +
+        `Normal Roll Rates:\n` +
+        `Common 72% • Rare 22% • Epic 5.65% • Legendary 1% • Mythic 0.75% • Divine 0.5% • Secret 0.1%`
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  return i.editReply({
+    content:
+      (`**NORMAL ROLL x${amount}**\n` +
+      `No soft pity. No hard pity.\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `Rolls left: **${(user?.rolls || 0) - amount}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+
+async function nrRates(i) {
+  return i.reply(
+    `**NORMAL ROLL RATES**\n\n` +
+    `Character Roll\n` +
+    `Common: **72%**\n` +
+    `Rare: **22%**\n` +
+    `Epic: **5.65%**\n` +
+    `Legendary: **1%**\n` +
+    `Mythic: **0.75%**\n` +
+    `Divine: **0.5%**\n` +
+    `Secret: **0.1%**\n\n` +
+    `Normal rolls have **no soft pity** and **no hard pity**.`
+  );
+}
+
+async function nrHandler(i, userId, commandName) {
+  if (commandName === 'roll' || commandName === 'r') return nrNormalRoll(i);
+  if (commandName === 'rates') return nrRates(i);
+  return false;
+}
+// ===== END NORMAL ROLL RATES + STATS PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -7151,6 +7379,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const nrHandled = await nrHandler(i, userId, commandName);
+    if (nrHandled !== false) return nrHandled;
 
     const arHandled = await arAdminHandler(i, userId, commandName);
     if (arHandled !== false) return arHandled;

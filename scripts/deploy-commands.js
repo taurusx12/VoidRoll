@@ -13,6 +13,7 @@ const commands = [
         .setRequired(true)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
+  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -21,12 +22,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('roll')
-    .setDescription('Roll with soft/hard pity')
+    .setDescription('Normal roll without pity')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('r')
-    .setDescription('Quick roll with pity')
+    .setDescription('Quick normal roll without pity')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
