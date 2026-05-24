@@ -8176,6 +8176,93 @@ async function tbHandler(i, userId, commandName) {
 }
 // ===== END TRAIN BY CHARACTER NAME PATCH =====
 
+
+// ===== GOLD ONLY TRAIN ASCEND OVERRIDE =====
+function golNorm(v=''){return String(v||'').toLowerCase().replace(/[().\-_:\/]+/g,' ').replace(/\s+/g,' ').trim()}
+function golClean(name=''){return String(name||'').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig,' ').replace(/\s+/g,' ').trim()}
+function golMoney(n){return typeof money==='function'?money(n):Number(n||0).toLocaleString('en-US')}
+function golStars(trait=''){const m=String(trait||'').match(/Stars:(\d+)/i);return m?Math.max(0,Math.min(10,Number(m[1]||0))):0}
+function golSetStars(trait='',stars=0){const clean=String(trait||'').replace(/\s*\|?\s*Stars:\d+/ig,'').trim();return `${clean}${clean?' | ':''}Stars:${Math.max(0,Math.min(10,Number(stars||0)))}`}
+function golStarsLine(stars){stars=Math.max(0,Math.min(10,Number(stars||0)));return '★'.repeat(stars)+'☆'.repeat(10-stars)}
+function golLevel(trait=''){const m=String(trait||'').match(/Level:(\d+)/i);return m?Math.max(1,Math.min(99,Number(m[1]||1))):1}
+function golSetLevel(trait='',level=1){const clean=String(trait||'').replace(/\s*\|?\s*Level:\d+/ig,'').trim();return `${clean}${clean?' | ':''}Level:${Math.max(1,Math.min(99,Number(level||1)))}`}
+function golRank(r){return {COMMON:1,RARE:2,EPIC:3,LEGENDARY:4,MYTHIC:5,DIVINE:6,SECRET:7}[String(r||'').toUpperCase()]||1}
+function golRarity(rank){return {1:'COMMON',2:'RARE',3:'EPIC',4:'LEGENDARY',5:'MYTHIC',6:'DIVINE',7:'SECRET'}[rank]||'COMMON'}
+function golNextRarity(current,stars){const rank=golRank(current);if(rank>=7)return 'SECRET';return golRarity(Math.min(7,rank+Math.floor(Number(stars||0)/2)))}
+async function golFind(userId,q,limit=20){
+  const tokens=golNorm(q).split(/\s+/).filter(Boolean);
+  const cards=await prisma.userCard.findMany({where:{userId},include:{character:true},orderBy:{power:'desc'},take:2000}).catch(()=>[]);
+  return cards.map(card=>{
+    const c=card.character||{};
+    const full=`${golNorm(golClean(c.name||''))} ${golNorm(c.name||'')} ${golNorm(c.anime||'')}`;
+    let score=0;
+    for(const t of tokens){if(full.includes(t))score+=60;if(golNorm(c.name||'').includes(t))score+=90;if(golNorm(c.anime||'').includes(t))score+=25}
+    if(tokens.length&&tokens.every(t=>full.includes(t)))score+=180;
+    return {card,score};
+  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||Number(b.card.power||0)-Number(a.card.power||0)).slice(0,limit).map(x=>x.card);
+}
+function golTrainCost(level,rarity){const m={COMMON:1,RARE:1.6,EPIC:2.4,LEGENDARY:3.8,MYTHIC:6,DIVINE:9,SECRET:14}[String(rarity||'').toUpperCase()]||1;return Math.floor((350+level*150)*m)}
+function golTrainGain(level,rarity,stars=0){const m={COMMON:1,RARE:1.25,EPIC:1.6,LEGENDARY:2.1,MYTHIC:2.8,DIVINE:3.6,SECRET:5}[String(rarity||'').toUpperCase()]||1;return Math.floor((35+level*8)*m*(1+stars*.05))}
+function golAscCost(rarity,nextStars){const b={COMMON:1200,RARE:2800,EPIC:7000,LEGENDARY:18000,MYTHIC:42000,DIVINE:85000,SECRET:150000}[String(rarity||'').toUpperCase()]||1200;return b*Math.max(1,Number(nextStars||1))}
+async function golTrain(i){
+  if(!i.deferred&&!i.replied)await i.deferReply().catch(()=>null);
+  const q=i.options.getString('name',true);
+  const card=(await golFind(i.user.id,q,1))[0];
+  if(!card)return i.editReply(`No owned character found for **${q}**.`);
+  const c=card.character;
+  const lv=Math.max(1,Math.min(99,Number(card.level||golLevel(card.trait)||1)));
+  if(lv>=99)return i.editReply(`**${golClean(c.name)}** is already max level **99**.`);
+  const cost=golTrainCost(lv,c.rarity), user=await prisma.user.findUnique({where:{id:i.user.id}});
+  if((user?.gold||0)<cost)return i.editReply(`Not enough Gold to train **${golClean(c.name)}**.\nNeed: **${golMoney(cost)} Gold**\nYou have: **${golMoney(user?.gold||0)} Gold**`);
+  const next=lv+1, gain=golTrainGain(lv,c.rarity,golStars(card.trait));
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{decrement:cost}}}).catch(()=>null);
+  let updated=await prisma.userCard.update({where:{id:card.id},data:{level:next,power:{increment:gain},trait:golSetLevel(card.trait,next)}}).catch(()=>null);
+  if(!updated)await prisma.userCard.update({where:{id:card.id},data:{power:{increment:gain},trait:golSetLevel(card.trait,next)}}).catch(()=>null);
+  return i.editReply(`✅ **TRAIN SUCCESS**\nCharacter: **${golClean(c.name)}**\nLevel: **${lv} → ${next}**\nPower gained: **+${golMoney(gain)}**\nCost: **${golMoney(cost)} Gold**\nNo Tokens. No ID needed.`);
+}
+async function golTrainInfo(i){
+  const q=i.options.getString('name',true), card=(await golFind(i.user.id,q,1))[0];
+  if(!card)return i.reply(`No owned character found for **${q}**.`);
+  const c=card.character, lv=Math.max(1,Math.min(99,Number(card.level||golLevel(card.trait)||1)));
+  const cost=golTrainCost(lv,c.rarity), gain=golTrainGain(lv,c.rarity,golStars(card.trait));
+  return i.reply(`**${golClean(c.name)}**\nRarity: **${c.rarity}**\nLevel: **${lv}/99**\nNext train cost: **${golMoney(cost)} Gold**\nNext power gain: **+${golMoney(gain)}**\nNo Tokens.`);
+}
+async function golAscend(i){
+  if(!i.deferred&&!i.replied)await i.deferReply().catch(()=>null);
+  const q=i.options.getString('name',true), main=(await golFind(i.user.id,q,1))[0];
+  if(!main)return i.editReply(`No owned character found for **${q}**.`);
+  const dupes=await prisma.userCard.findMany({where:{userId:i.user.id,characterId:main.characterId},include:{character:true},orderBy:{power:'asc'},take:50}).catch(()=>[]);
+  const consume=dupes.find(c=>c.id!==main.id);
+  if(!consume)return i.editReply(`You need a duplicate of **${golClean(main.character.name)}** to ascend.`);
+  const stars=golStars(main.trait);
+  if(stars>=10)return i.editReply(`**${golClean(main.character.name)}** is already max stars: **${golStarsLine(10)}**.`);
+  const nextStars=stars+1, cur=String(main.character?.rarity||'COMMON').toUpperCase(), nextR=golNextRarity(cur,nextStars);
+  const cost=golAscCost(cur,nextStars), user=await prisma.user.findUnique({where:{id:i.user.id}});
+  if((user?.gold||0)<cost)return i.editReply(`Not enough Gold to ascend **${golClean(main.character.name)}**.\nNeed: **${golMoney(cost)} Gold**\nYou have: **${golMoney(user?.gold||0)} Gold**`);
+  await prisma.marketListing.updateMany({where:{cardId:consume.id,status:'ACTIVE'},data:{status:'CANCELLED'}}).catch(()=>null);
+  await prisma.user.update({where:{id:i.user.id},data:{gold:{decrement:cost}}}).catch(()=>null);
+  await prisma.userCard.delete({where:{id:consume.id}}).catch(()=>null);
+  const gain=125+nextStars*75;
+  await prisma.userCard.update({where:{id:main.id},data:{power:{increment:gain},trait:golSetStars(main.trait,nextStars)}}).catch(()=>null);
+  let rarityText='';
+  if(nextR!==cur){await prisma.character.update({where:{id:main.characterId},data:{rarity:nextR}}).catch(()=>null);rarityText=`\n🔥 Rarity evolved: **${cur} → ${nextR}**`}
+  return i.editReply(`✨ **ASCEND SUCCESS**\nCharacter: **${golClean(main.character.name)}**\nStars: **${golStarsLine(stars)} → ${golStarsLine(nextStars)}**\nConsumed duplicate automatically.\nPower gained: **+${golMoney(gain)}**\nCost: **${golMoney(cost)} Gold**${rarityText}\nNo Tokens. No ID needed.`);
+}
+async function golStarsInfo(i){
+  const q=i.options.getString('name',true), card=(await golFind(i.user.id,q,1))[0];
+  if(!card)return i.reply(`No owned character found for **${q}**.`);
+  const stars=golStars(card.trait), rarity=String(card.character.rarity||'COMMON').toUpperCase(), ns=Math.min(10,stars+1), nr=golNextRarity(rarity,ns), cost=golAscCost(rarity,ns);
+  return i.reply(`**${golClean(card.character.name)}**\nRarity: **${rarity}**\nStars: **${golStarsLine(stars)}**\nNext ascend cost: **${golMoney(cost)} Gold**\n${nr!==rarity?`Next rarity evolution: **${rarity} → ${nr}**\n`:`Next rarity evolution: **None yet**\n`}No Tokens.`);
+}
+async function golHandler(i,userId,commandName){
+  if(commandName==='train')return golTrain(i);
+  if(commandName==='train-info')return golTrainInfo(i);
+  if(commandName==='ascend')return golAscend(i);
+  if(commandName==='stars')return golStarsInfo(i);
+  return false;
+}
+// ===== END GOLD ONLY TRAIN ASCEND OVERRIDE =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const brAuto = await brAutocomplete(i);
@@ -8357,6 +8444,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const golHandled = await golHandler(i, userId, commandName);
+    if (golHandled !== false) return golHandled;
 
     const tbHandled = await tbHandler(i, userId, commandName);
     if (tbHandled !== false) return tbHandled;

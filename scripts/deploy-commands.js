@@ -13,15 +13,25 @@ const commands = [
         .setRequired(true)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
-  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),
+  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),,
   new SlashCommandBuilder()
     .setName('train')
-    .setDescription('Train a character by name, no ID needed')
+    .setDescription('Train a character by name using Gold only')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('train-info')
-    .setDescription('Show train cost and next power gain by character name')
+    .setDescription('Show train cost by character name')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('ascend')
+    .setDescription('Ascend by name using duplicate + Gold only')
+    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('stars')
+    .setDescription('Show stars and next ascend Gold cost')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
@@ -89,17 +99,7 @@ const commands = [
         .setDescription('Choose YES to confirm')
         .setRequired(false)
         .addChoices({ name: 'YES', value: 'YES' })
-    ),
-
-  new SlashCommandBuilder()
-    .setName('ascend')
-    .setDescription('Ascend by name using duplicate + Gold + Tokens')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('stars')
-    .setDescription('Show character stars and next ascend cost')
-    .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+    ),,
 
   new SlashCommandBuilder()
     .setName('autoteam')
