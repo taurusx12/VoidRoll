@@ -5853,6 +5853,248 @@ async function pcHandler(i, userId, commandName) {
 }
 // ===== END PER CHARACTER PITY + PACK CREATE FIX =====
 
+
+// ===== ABSOLUTE PACK FINAL OVERRIDE: REQUIRED ID + PER CHARACTER PITY =====
+// This handler is forced before every old /pack handler.
+// It fixes Prisma missing id by always using required String id.
+
+const pfMemory = new Map();
+
+function pfId() {
+  return `card_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function pfClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function pfMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function pfEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function pfDaySeed() {
+  return Math.floor(Date.now() / 86400000);
+}
+function pfSafeKey(characterId) {
+  return `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+function pfTraitGet(trait = '', key = '') {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : null;
+}
+function pfTraitSet(trait = '', key = '', value = 0) {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+async function pfGetPity(userId, characterId) {
+  const key = pfSafeKey(characterId);
+  const memKey = `${userId}:${key}`;
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const traitValue = pfTraitGet(user?.trait, key);
+  if (traitValue !== null) return traitValue;
+  return pfMemory.get(memKey) || 0;
+}
+async function pfSavePity(userId, characterId, value) {
+  const key = pfSafeKey(characterId);
+  const memKey = `${userId}:${key}`;
+  pfMemory.set(memKey, value);
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trait: pfTraitSet(user.trait, key, value) }
+  }).catch(() => null);
+}
+async function pfSecretPool() {
+  const chars = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 300
+  }).catch(() => []);
+  const seen = new Set();
+  const unique = [];
+  for (const c of chars) {
+    const key = `${pfClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+async function pfDailyBannerChars() {
+  const pool = await pfSecretPool();
+  const seed = pfDaySeed();
+  const picks = [];
+  for (let i = 0; i < Math.min(4, pool.length); i++) {
+    picks.push(pool[(seed * 17 + i * 31) % pool.length]);
+  }
+  return picks;
+}
+async function pfChoices() {
+  const picks = await pfDailyBannerChars();
+  return picks.slice(0, 4).map(c => ({
+    name: `Rate Up: ${pfClean(c.name)}`,
+    value: `featured:${c.id}`
+  }));
+}
+async function pfAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await pfChoices();
+  await i.respond(choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25)).catch(() => null);
+  return true;
+}
+async function pfSelectedCharacter(value) {
+  let selected = value;
+  const choices = await pfChoices();
+  if (!selected || !String(selected).startsWith('featured:')) selected = choices[0]?.value;
+  if (!selected) return null;
+  const id = String(selected).replace('featured:', '');
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity).toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function pfPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 300 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+async function pfCreateCard(userId, character) {
+  // This schema requires id. Never call create without id.
+  const data = {
+    id: pfId(),
+    userId: String(userId),
+    characterId: String(character.id),
+    power: Number(character.basePower || 1000)
+  };
+  try {
+    return await prisma.userCard.create({ data });
+  } catch (err) {
+    // Retry with a fresh id only. Do not fallback to create without id.
+    return await prisma.userCard.create({
+      data: { ...data, id: pfId() }
+    });
+  }
+}
+async function pfBanner(i) {
+  const picks = await pfDailyBannerChars();
+  const ends = Math.floor(((pfDaySeed() + 1) * 86400000) / 1000);
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await pfGetPity(i.user.id, c.id);
+    lines.push(`${idx + 1}. **${pfClean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose the exact Rate Up character in **/pack banner**.\n` +
+      `Each character has its own pity counter.\n` +
+      `10-pull cost: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function pfPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const bannerValue = i.options.getString('banner', true);
+  const selected = await pfSelectedCharacter(bannerValue);
+  if (!selected) return i.editReply('No selected featured SECRET character found. Try /banner then /pack again.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${pfMoney(cost)} Tokens** for 10 pulls.\nYou have **${pfMoney(user?.tokens || 0)} Tokens**.`);
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = await pfGetPity(i.user.id, selected.id);
+  const before = pity;
+
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const softChance = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + softChance);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSecret = true;
+      pity = 0; // reset immediately when selected SECRET comes, luck or guaranteed.
+    } else {
+      character = await pfPickByRarity(rarities[n]);
+    }
+    if (!character) continue;
+    const card = await pfCreateCard(i.user.id, character);
+
+    lines.push(`${n + 1}. ${pfEmoji(character.rarity)} **${pfClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${pfMoney(card.power || character.basePower)}`);
+
+    if (String(character.rarity || '').toUpperCase() === 'SECRET' || embeds.length < 2) {
+      const embed = new EmbedBuilder()
+        .setTitle(`${pfEmoji(character.rarity)} ${pfClean(character.name)}`)
+        .setDescription(
+          `Anime: **${character.anime}**\n` +
+          `Rarity: **${character.rarity}**\n` +
+          `Power: **${pfMoney(card.power || character.basePower)}**\n` +
+          `Selected Rate Up: **${pfClean(selected.name)}**\n` +
+          `This character pity: **${pity}/50**\n` +
+          (String(character.rarity).toUpperCase() === 'SECRET' ? `🔥 SECRET obtained. ${pfClean(selected.name)} pity reset.` : `Guaranteed at 50 pulls for this selected character.`)
+        )
+        .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+      if (character.imageUrl) embed.setImage(character.imageUrl);
+      embeds.push(embed);
+    }
+  }
+
+  await pfSavePity(i.user.id, selected.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${pfClean(selected.name)}**\n` +
+      `Cost: **${pfMoney(cost)} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSecret ? `🔥 SECRET pulled! ${pfClean(selected.name)} pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${pfMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 5)
+  });
+}
+async function pfHandler(i, userId, commandName) {
+  if (commandName === 'banner') return pfBanner(i);
+  if (commandName === 'pack') return pfPack(i);
+  return false;
+}
+// ===== END ABSOLUTE PACK FINAL OVERRIDE =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -5999,12 +6241,26 @@ client.on('interactionCreate', async (i) => {
       if (pbAuto) return;
     }
 
+    if (i.isAutocomplete()) {
+      const pfAuto = await pfAutocomplete(i);
+      if (pfAuto) return;
+      const pcAuto = typeof pcAutocomplete === 'function' ? await pcAutocomplete(i) : false;
+      if (pcAuto) return;
+      const tpAuto = typeof tpAutocomplete === 'function' ? await tpAutocomplete(i) : false;
+      if (tpAuto) return;
+      const pbAuto = typeof pbAutocomplete === 'function' ? await pbAutocomplete(i) : false;
+      if (pbAuto) return;
+    }
+
     if (!i.isChatInputCommand()) return;
 
     await ensureUser(i.user);
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const pfHandled = await pfHandler(i, userId, commandName);
+    if (pfHandled !== false) return pfHandled;
 
     const pcHandled = await pcHandler(i, userId, commandName);
     if (pcHandled !== false) return pcHandled;
