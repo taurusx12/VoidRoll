@@ -2251,6 +2251,261 @@ async function vrPrepareInteraction(i) {
   }
 }
 
+
+// ===== FINAL COMMANDS + PASSIVES + TEAM UPS PATCH =====
+async function vrPrepareInteraction(i) {
+  if (!i.isChatInputCommand()) return;
+
+  const originalReply = i.reply.bind(i);
+  const originalEditReply = i.editReply.bind(i);
+  const originalDeferReply = i.deferReply.bind(i);
+
+  i.deferReply = async function patchedDeferReply(options = {}) {
+    if (i.deferred || i.replied) return null;
+    return originalDeferReply(options).catch(() => null);
+  };
+
+  i.reply = async function patchedReply(payload) {
+    if (i.deferred || i.replied) {
+      return originalEditReply(payload).catch(async () => {
+        try { return await i.followUp(payload); } catch { return null; }
+      });
+    }
+
+    return originalReply(payload).catch(async () => {
+      try { await originalDeferReply(); } catch {}
+      return originalEditReply(payload).catch(() => null);
+    });
+  };
+
+  if (!i.deferred && !i.replied) {
+    await originalDeferReply().catch(() => null);
+  }
+}
+
+function vrText(character) {
+  return `${phase2Normalize(character?.name || '')} ${phase2Normalize(character?.anime || '')}`.replace(/[.\-_:\/]+/g, ' ');
+}
+
+function vrHas(character, keys = []) {
+  const text = vrText(character);
+  return keys.some(k => text.includes(phase2Normalize(k).replace(/[.\-_:\/]+/g, ' ')));
+}
+
+const VR_ELEMENTS_FINAL = ['Dark','Light','Fire','Ice','Shadow','Curse','Void','Lightning','Soul'];
+
+function vrHashFinal(text = '') {
+  let h = 0;
+  for (const ch of String(text)) h = ((h << 5) - h) + ch.charCodeAt(0);
+  return Math.abs(h);
+}
+
+function vrSafeElement(character) {
+  const old = String(character?.element || '').trim();
+  if (old && !['Neutral','Anime','undefined','null'].includes(old)) return old;
+
+  if (vrHas(character, ['sukuna','makima','toji','ainz','dio','alucard','devil','demon','curse'])) return 'Dark';
+  if (vrHas(character, ['sung jin','jinwoo','jin woo','shadow','igris','beru','cid kagenou'])) return 'Shadow';
+  if (vrHas(character, ['gojo','rimuru','gilgamesh','aizen','yhwach','void','space','time'])) return 'Void';
+  if (vrHas(character, ['saber','artoria','goku','naruto','luffy','saitama','hero','saint'])) return 'Light';
+  if (vrHas(character, ['ace','rengoku','natsu','shinra','flame','fire','yamamoto'])) return 'Fire';
+  if (vrHas(character, ['killua','zenitsu','kakashi','thunder','lightning'])) return 'Lightning';
+  if (vrHas(character, ['ichigo','rukia','bleach','soul','spirit'])) return 'Soul';
+  if (vrHas(character, ['ice','frost','snow','rukia'])) return 'Ice';
+  return VR_ELEMENTS_FINAL[vrHashFinal(vrText(character)) % VR_ELEMENTS_FINAL.length];
+}
+
+function vrCharacterRole(character) {
+  if (vrHas(character, ['lelouch','aizen','makima','kurapika','shikamaru','light yagami','near','l lawliet'])) return 'Control';
+  if (vrHas(character, ['rimuru','megumi','kakashi','sakura','orihime','shoko','reigen','chopper','tsunade','cc','c c'])) return 'Support';
+  if (vrHas(character, ['saber','artoria','ainz','whitebeard','kaido','all might','escanor','albedo','reinhard'])) return 'Tank';
+  if (vrHas(character, ['killua','toji','levi','hisoka','zenitsu','yoroichi','akame','kirito'])) return 'Assassin';
+  if (vrHas(character, ['gojo','madara','gilgamesh','sukuna','yhwach','dio','meruem','frieren','sinbad'])) return 'Mage';
+  return 'DPS';
+}
+
+function vrCharacterPassive(character) {
+  const t = vrText(character);
+
+  const exact = [
+    [['lelouch'], 'Geass Command: boosts team ultimate charge and reduces enemy control resistance.'],
+    [['c c','cc'], 'Immortal Witch: grants regeneration and extra energy to the highest ATK ally.'],
+    [['sung jin','jinwoo','jin woo'], 'Shadow Monarch: gains stacking ATK after every defeated enemy and boosts Shadow allies.'],
+    [['gojo'], 'Infinity: reduces incoming damage and charges ultimate when attacked.'],
+    [['geto'], 'Cursed Spirit Control: increases Curse/Summon damage and weakens enemy DEF.'],
+    [['saber','artoria'], 'Avalon: grants shield at battle start and reduces burst damage.'],
+    [['makima'], 'Control Devil: lowers enemy ATK and increases control chance.'],
+    [['reze'], 'Bomb Devil: ultimate applies explosive burst damage over time.'],
+    [['denji'], 'Chainsaw Heart: lifesteal increases when HP is low.'],
+    [['power'], 'Blood Fiend: crit chance increases after taking damage.'],
+    [['luffy'], 'Liberation Rhythm: gains ATK and speed every round.'],
+    [['zoro'], 'Three Sword Style: high crit damage against bosses.'],
+    [['sanji'], 'Diable Jambe: fire damage and dodge chance.'],
+    [['nami'], 'Weather Tempo: increases team speed and Lightning damage.'],
+    [['naruto'], 'Nine-Tails Chakra: heals slightly and boosts Light allies.'],
+    [['sasuke'], 'Sharingan: crit and counter chance.'],
+    [['itachi'], 'Tsukuyomi: chance to delay enemy ultimate.'],
+    [['madara'], 'Uchiha Dominion: AoE ultimate damage increased.'],
+    [['obito'], 'Kamui: dodge chance and enemy accuracy reduction.'],
+    [['ichigo'], 'Bankai Pressure: Soul damage and speed increase.'],
+    [['aizen'], 'Kyoka Suigetsu: lowers enemy accuracy and control resistance.'],
+    [['rukia'], 'Sode no Shirayuki: Ice damage and enemy speed reduction.'],
+    [['killua'], 'Godspeed: high speed and crit burst.'],
+    [['gon'], 'Jajanken: huge single target ultimate damage.'],
+    [['kurapika'], 'Chain Judgment: bonus damage against villain teams.'],
+    [['hisoka'], 'Bungee Gum: crit damage and dodge chance.'],
+    [['toji'], 'Heavenly Restriction: ignores part of enemy DEF.'],
+    [['sukuna'], 'King of Curses: executes weakened enemies and boosts Dark damage.'],
+    [['yuji'], 'Black Flash Chain: crit chance increases after every attack.'],
+    [['megumi'], 'Ten Shadows: summons add bonus Shadow damage.'],
+    [['nobara'], 'Resonance: marks enemy and increases team burst damage.'],
+    [['rimuru'], 'Predator: copies a small part of enemy buffs.'],
+    [['ainz'], 'Overlord: boosts Dark allies and reduces enemy resistance.'],
+    [['albedo'], 'Guardian Overseer: shields the frontline and boosts Tank DEF.'],
+    [['gilgamesh'], 'Gate of Babylon: high PEN and ultimate burst.'],
+    [['vegeta'], 'Saiyan Pride: gains ATK after taking damage.'],
+    [['goku'], 'Limit Breaker: ultimate damage scales with battle rounds.'],
+    [['saitama'], 'One Punch Pressure: massive single-hit scaling against bosses.'],
+    [['tanjiro'], 'Hinokami Kagura: Fire burst and small team heal.'],
+    [['nezuko'], 'Demon Blood Art: team regen and Dark resistance.'],
+    [['zenitsu'], 'Thunder Breathing: first ultimate charges faster.'],
+    [['inosuke'], 'Beast Instinct: bonus crit and lifesteal.'],
+    [['rengoku'], 'Flame Hashira: boosts Fire allies and frontline damage.']
+  ];
+
+  for (const [keys, passive] of exact) {
+    if (keys.some(k => t.includes(phase2Normalize(k).replace(/[.\-_:\/]+/g, ' ')))) return passive;
+  }
+
+  const anime = t;
+  if (anime.includes('code geass')) return 'Tactical Order: increases Control chance and ultimate charge.';
+  if (anime.includes('chainsaw')) return 'Devil Contract: bonus damage when HP is low.';
+  if (anime.includes('fate')) return 'Heroic Spirit: balanced stats and ultimate charge.';
+  if (anime.includes('jujutsu')) return 'Cursed Energy: PEN and control resistance.';
+  if (anime.includes('one piece')) return 'Grand Line Spirit: speed and crit chance.';
+  if (anime.includes('naruto')) return 'Shinobi Tactics: dodge and burst damage.';
+  if (anime.includes('bleach')) return 'Spiritual Pressure: Soul damage and resistance.';
+  if (anime.includes('hunter')) return 'Nen Flow: crit and energy regen.';
+  if (anime.includes('demon slayer')) return 'Breathing Style: speed and burst damage.';
+  if (anime.includes('dragon ball')) return 'Ki Surge: ATK increases each round.';
+
+  const role = vrCharacterRole(character);
+  const element = vrSafeElement(character);
+  const variants = {
+    Tank: [
+      `Iron Guard: +DEF scaling and ${element} resistance.`,
+      `Frontline Wall: absorbs part of ally damage.`,
+      `Last Stand: gains shield when HP is low.`
+    ],
+    Support: [
+      `Battle Support: increases team energy regen.`,
+      `Guardian Aid: grants small shield to weakest ally.`,
+      `Tactical Heal: improves sustain during long fights.`
+    ],
+    Control: [
+      `Mind Game: reduces enemy ultimate charge.`,
+      `Pressure Field: lowers enemy accuracy.`,
+      `Command Aura: increases control chance.`
+    ],
+    Assassin: [
+      `Killer Tempo: high crit after first attack.`,
+      `Silent Step: bonus speed and dodge chance.`,
+      `Weak Point: ignores part of DEF.`
+    ],
+    Mage: [
+      `${element} Burst: ultimate damage scales with PEN.`,
+      `Arcane Pressure: weakens enemy resistance.`,
+      `Mana Surge: faster ultimate charge.`
+    ],
+    DPS: [
+      `Battle Instinct: ATK rises every round.`,
+      `Power Strike: bonus damage to bosses.`,
+      `${element} Edge: basic attacks gain elemental damage.`
+    ]
+  };
+  const list = variants[role] || variants.DPS;
+  return list[vrHashFinal(t) % list.length];
+}
+
+const VR_TEAM_UP_RULES_FINAL = [
+  { name: 'Zero Requiem', keys: ['lelouch','c c'], buff: '+20% control chance, +15% ultimate charge' },
+  { name: 'Strongest Past', keys: ['gojo','geto'], buff: '+18% Void damage, +10% ultimate charge' },
+  { name: 'Hunter Bond', keys: ['gon','killua'], buff: '+15% speed, +12% crit' },
+  { name: 'Monster Trio', keys: ['luffy','zoro','sanji'], buff: '+18% ATK, +10% speed' },
+  { name: 'Uchiha Bloodline', keys: ['itachi','sasuke'], buff: '+15% crit, +10% control resist' },
+  { name: 'Rival Chakra', keys: ['naruto','sasuke'], buff: '+20% ultimate damage' },
+  { name: 'Fate Clash', keys: ['saber','gilgamesh'], buff: '+15% PEN, +12% shield' },
+  { name: 'Control Devils', keys: ['makima','reze'], buff: '+12% burst damage, enemy ATK down' },
+  { name: 'Bleach Pressure', keys: ['ichigo','aizen'], buff: '+15% Soul damage' },
+  { name: 'Saiyan Rivalry', keys: ['goku','vegeta'], buff: '+18% ATK after round 3' },
+  { name: 'Jujutsu Core', keys: ['yuji','megumi','nobara'], buff: '+12% ATK, +15% ult charge' },
+  { name: 'Demon Slayer Trio', keys: ['tanjiro','zenitsu','inosuke'], buff: '+12% speed, +12% crit' },
+  { name: 'Shadow Army', keys: ['sung jin','igris'], buff: '+15% Shadow damage' },
+  { name: 'Akatsuki Pressure', keys: ['pain','obito','itachi'], buff: '+15% Dark damage, enemy DEF down' }
+];
+
+function vrTeamUpsForCharacter(character) {
+  const text = vrText(character);
+  return VR_TEAM_UP_RULES_FINAL
+    .filter(rule => rule.keys.some(k => text.includes(phase2Normalize(k).replace(/[.\-_:\/]+/g, ' '))))
+    .map(rule => `• **${rule.name}** with ${rule.keys.map(k => `\`${k}\``).join(' + ')}: ${rule.buff}`);
+}
+
+function vrTeamUpsForCards(cards) {
+  const text = cards.map(c => vrText(c.character || c)).join(' | ');
+  const active = [];
+
+  for (const rule of VR_TEAM_UP_RULES_FINAL) {
+    if (rule.keys.every(k => text.includes(phase2Normalize(k).replace(/[.\-_:\/]+/g, ' ')))) active.push(rule);
+  }
+
+  const counts = {};
+  for (const c of cards) {
+    const e = vrSafeElement(c.character || c);
+    counts[e] = (counts[e] || 0) + 1;
+  }
+
+  for (const [element, count] of Object.entries(counts)) {
+    if (count >= 3) active.push({ name: `${element} Aura`, buff: count >= 6 ? '+24% team damage and HP' : '+12% team damage and HP' });
+  }
+
+  return active;
+}
+
+function vrStatsLine(card, character) {
+  const p = Math.max(1, Number(card?.power || character?.basePower || 100));
+  const role = vrCharacterRole(character);
+  const rarity = character?.rarity || 'COMMON';
+  const rarityMult = { COMMON: 0.8, RARE: 1.0, EPIC: 1.25, LEGENDARY: 1.55, MYTHIC: 2.05, DIVINE: 2.8, SECRET: 3.6 }[rarity] || 1;
+  const level = Number(card?.level || 1);
+  const levelMult = 1 + ((level - 1) * 0.04);
+
+  let atkScale = 1.05, hpScale = 7.2, defScale = 0.58, spd = 105, crit = 14, energy = 100, shield = 0, pen = 0;
+  if (role === 'Tank') { atkScale = 0.72; hpScale = 13.5; defScale = 1.22; spd = 92; shield = 20; crit = 8; }
+  if (role === 'Support') { atkScale = 0.78; hpScale = 9.0; defScale = 0.82; spd = 112; energy = 140; shield = 12; crit = 10; }
+  if (role === 'Control') { atkScale = 0.88; hpScale = 8.5; defScale = 0.76; spd = 120; energy = 128; crit = 12; }
+  if (role === 'Assassin') { atkScale = 1.35; hpScale = 5.8; defScale = 0.42; spd = 145; crit = 30; pen = 15; }
+  if (role === 'Mage') { atkScale = 1.42; hpScale = 6.2; defScale = 0.48; spd = 110; crit = 18; energy = 122; pen = 25; }
+  if (role === 'DPS') { atkScale = 1.18; hpScale = 7.2; defScale = 0.58; spd = 108; crit = 18; }
+
+  const atk = Math.floor(p * atkScale * rarityMult * levelMult);
+  const hp = Math.floor(p * hpScale * rarityMult * levelMult);
+  const def = Math.floor(p * defScale * rarityMult * levelMult);
+
+  return (
+    `Class: **${role}** | Element: **${vrSafeElement(character)}**\n` +
+    `Level **${level}/99** • ATK **${money(atk)}** • HP **${money(hp)}** • DEF **${money(def)}** • SPD **${spd}**\n` +
+    `CRIT **${crit}%** • PEN **${pen}%** • Energy **${energy}%** • Shield **${shield}%**\n` +
+    `Character Passive: ${vrCharacterPassive(character)}`
+  );
+}
+
+function vrFullStatsBlock(card, character, includeTeamUps = true) {
+  const teamUps = includeTeamUps ? vrTeamUpsForCharacter(character) : [];
+  return vrStatsLine(card, character) + (teamUps.length ? `\n\nTeam Up Buffs:\n${teamUps.join('\n')}` : '\n\nTeam Up Buffs:\nNone');
+}
+// ===== END FINAL PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -2393,28 +2648,26 @@ client.on('interactionCreate', async (i) => {
         orderBy: { slot: 'asc' }
       }).catch(() => []);
 
-      const cards = slots.map(s => s.card).filter(Boolean).slice(0, 5);
+      const cards = slots.map(s => s.card).filter(Boolean).slice(0, 6);
       if (!cards.length) return i.reply('No team equipped. Use /autoteam first.');
 
-      const syn = vrSynergyForCards(cards);
-      if (!syn.length) return i.reply('No active team synergy buffs.');
+      const buffs = vrTeamUpsForCards(cards);
+      if (!buffs.length) return i.reply('No active team-up buffs in current formation.');
 
-      return i.reply(
-        `**Team Synergy Buffs**\n` +
-        syn.map(s => `• **${s.name}**: ${s.buff}`).join('\n')
-      );
+      return i.reply(`**Current Team Up Buffs**\n` + buffs.map(b => `• **${b.name}**: ${b.buff}`).join('\n'));
     }
 
     if (commandName === 'stats') {
       const name = i.options.getString('name', true);
       const card = await phase2FindUserCardByName(userId, name);
 
-      const teamSlots = await prisma.teamSlot.findMany({
+      const slots = await prisma.teamSlot.findMany({
         where: { userId },
         include: { card: { include: { character: true } } },
         orderBy: { slot: 'asc' }
       }).catch(() => []);
-      const teamCards = teamSlots.map(s => s.card).filter(Boolean).slice(0, 6);
+
+      const teamCards = slots.map(s => s.card).filter(Boolean).slice(0, 6);
       const activeBuffs = vrTeamUpsForCards(teamCards);
 
       return i.reply(
@@ -2721,7 +2974,7 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
     if (commandName === 'inv-search') {
       const q = i.options.getString('name', true);
-      const tokens = phase2Normalize(q).split(/\s+/).filter(Boolean);
+      const tokens = phase2Normalize(q).replace(/[\/:_\-]+/g, ' ').split(/\s+/).filter(Boolean);
 
       const owned = await prisma.userCard.findMany({
         where: { userId },
@@ -2765,67 +3018,6 @@ XP: ${u.xp || 0}/${xpForLevel(u.level || 1)}`
 
       if (first.character.imageUrl) embed.setThumbnail(first.character.imageUrl);
       return i.reply({ embeds: [embed] });
-    }
-
-
-    if (commandName === 'auto-story' || commandName === 'auto-tower' || commandName === 'auto-dungeon') {
-      await i.deferReply();
-      const mode = commandName.replace('auto-', '');
-      const maxRuns = Math.max(1, Math.min(30, i.options.getInteger('runs') || 10));
-      let wins = 0;
-      let totalGold = 0;
-      let totalTokens = 0;
-      let totalRolls = 0;
-      let totalXp = 0;
-      let text = `**AUTO ${mode.toUpperCase()} STARTED**\n`;
-
-      for (let run = 1; run <= maxRuns; run++) {
-        const progress = await getOrCreateProgress(userId);
-        const requiredTeams = vrFormationRequirement(mode, progress);
-        const teamData = await vrFormationPower(userId, requiredTeams);
-
-        const storyIndex = ((progress.chapter - 1) * 30) + progress.stage;
-        const baseRequired = mode === 'story'
-          ? 650 + storyIndex * 240
-          : mode === 'tower'
-            ? 1050 + progress.towerFloor * 390
-            : 850 + progress.dungeonFloor * 320;
-        const required = Math.floor(baseRequired * (1 + (requiredTeams - 1) * 0.78));
-
-        const won = teamData.power >= required || Math.random() < Math.min(0.25, teamData.power / Math.max(1, required) / 4);
-
-        text += `\nRun ${run}: ${getProgressTitle(mode, progress)} | Formations ${requiredTeams} | ${money(teamData.power)} vs ${money(required)} → ${won ? 'WIN' : 'LOSE'}`;
-
-        if (!won) break;
-
-        wins++;
-        const rewards = vrRewardsFor(mode, required, progress);
-        totalGold += rewards.gold;
-        totalTokens += rewards.tokens;
-        totalRolls += rewards.rolls;
-        totalXp += rewards.xp;
-
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            gold: { increment: rewards.gold },
-            tokens: { increment: rewards.tokens },
-            rolls: { increment: rewards.rolls }
-          }
-        });
-
-        await addUserXp(userId, rewards.xp, mode).catch(() => null);
-        await updateProgressAfterWin(userId, mode, progress);
-
-        if (run % 4 === 0) await i.editReply(text.slice(-1500)).catch(() => {});
-      }
-
-      text +=
-        `\n\n**AUTO COMPLETE**\n` +
-        `Wins: **${wins}/${maxRuns}**\n` +
-        `Rewards: **${money(totalGold)} Gold**, **${totalTokens} Tokens**, **${totalRolls} Rolls**, **${totalXp} XP**`;
-
-      return i.editReply(text.slice(-1900));
     }
 
     if (commandName === 'pvp') {
