@@ -9346,6 +9346,253 @@ async function tacHandler(i, userId, commandName) {
 }
 // ===== END TOP ALL CHARACTERS BY RARITY PATCH =====
 
+
+// ===== AUTO TRAIN BY NAME PATCH =====
+// /train = one level only.
+// /auto-train = keeps training the character until Gold runs out or Level 99.
+// Gold only, no Tokens, no ID.
+
+function atNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function atClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function atMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function atStars(trait = '') {
+  const m = String(trait || '').match(/Stars:(\d+)/i);
+  return m ? Math.max(0, Math.min(10, Number(m[1] || 0))) : 0;
+}
+function atLevel(trait = '') {
+  const m = String(trait || '').match(/Level:(\d+)/i);
+  return m ? Math.max(1, Math.min(99, Number(m[1] || 1))) : 1;
+}
+function atSetLevel(trait = '', level = 1) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Level:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Level:${Math.max(1, Math.min(99, Number(level || 1)))}`;
+}
+async function atFindOwned(userId, q, limit = 10) {
+  const tokens = atNorm(q).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId },
+    include: { character: true },
+    orderBy: { power: 'desc' },
+    take: 2000
+  }).catch(() => []);
+
+  return cards.map(card => {
+    const c = card.character || {};
+    const full = `${atNorm(atClean(c.name || ''))} ${atNorm(c.name || '')} ${atNorm(c.anime || '')}`;
+    let score = 0;
+    for (const t of tokens) {
+      if (full.includes(t)) score += 60;
+      if (atNorm(c.name || '').includes(t)) score += 90;
+      if (atNorm(c.anime || '').includes(t)) score += 25;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 180;
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))
+    .slice(0, limit)
+    .map(x => x.card);
+}
+function atTrainCost(level, rarity) {
+  const mult = {
+    COMMON: 1,
+    RARE: 1.6,
+    EPIC: 2.4,
+    LEGENDARY: 3.8,
+    MYTHIC: 6,
+    DIVINE: 9,
+    SECRET: 14
+  }[String(rarity || '').toUpperCase()] || 1;
+
+  return Math.floor((350 + level * 150) * mult);
+}
+function atPowerGain(level, rarity, stars = 0) {
+  const mult = {
+    COMMON: 1,
+    RARE: 1.25,
+    EPIC: 1.6,
+    LEGENDARY: 2.1,
+    MYTHIC: 2.8,
+    DIVINE: 3.6,
+    SECRET: 5
+  }[String(rarity || '').toUpperCase()] || 1;
+
+  return Math.floor((35 + level * 8) * mult * (1 + stars * 0.05));
+}
+async function atTrainOne(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const card = (await atFindOwned(i.user.id, q, 1))[0];
+  if (!card) return i.editReply(`No owned character found for **${q}**.`);
+
+  const c = card.character;
+  const currentLevel = Math.max(1, Math.min(99, Number(card.level || atLevel(card.trait) || 1)));
+  if (currentLevel >= 99) return i.editReply(`**${atClean(c.name)}** is already max level **99**.`);
+
+  const cost = atTrainCost(currentLevel, c.rarity);
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+
+  if ((user?.gold || 0) < cost) {
+    return i.editReply(
+      `Not enough Gold to train **${atClean(c.name)}**.\n` +
+      `Need: **${atMoney(cost)} Gold**\n` +
+      `You have: **${atMoney(user?.gold || 0)} Gold**`
+    );
+  }
+
+  const nextLevel = currentLevel + 1;
+  const gain = atPowerGain(currentLevel, c.rarity, atStars(card.trait));
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { gold: { decrement: cost } }
+  }).catch(() => null);
+
+  let updated = await prisma.userCard.update({
+    where: { id: card.id },
+    data: {
+      level: nextLevel,
+      power: { increment: gain },
+      trait: atSetLevel(card.trait, nextLevel)
+    }
+  }).catch(() => null);
+
+  if (!updated) {
+    await prisma.userCard.update({
+      where: { id: card.id },
+      data: {
+        power: { increment: gain },
+        trait: atSetLevel(card.trait, nextLevel)
+      }
+    }).catch(() => null);
+  }
+
+  return i.editReply(
+    `✅ **TRAIN SUCCESS**\n` +
+    `Character: **${atClean(c.name)}**\n` +
+    `Level: **${currentLevel} → ${nextLevel}**\n` +
+    `Power gained: **+${atMoney(gain)}**\n` +
+    `Cost: **${atMoney(cost)} Gold**\n` +
+    `No Tokens. No ID needed.`
+  );
+}
+async function atAutoTrain(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const q = i.options.getString('name', true);
+  const card = (await atFindOwned(i.user.id, q, 1))[0];
+  if (!card) return i.editReply(`No owned character found for **${q}**.`);
+
+  const c = card.character;
+  let level = Math.max(1, Math.min(99, Number(card.level || atLevel(card.trait) || 1)));
+  if (level >= 99) return i.editReply(`**${atClean(c.name)}** is already max level **99**.`);
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  let gold = Number(user?.gold || 0);
+  let totalCost = 0;
+  let totalGain = 0;
+  let levelsGained = 0;
+
+  while (level < 99) {
+    const cost = atTrainCost(level, c.rarity);
+    if (gold < cost) break;
+
+    const gain = atPowerGain(level, c.rarity, atStars(card.trait));
+    gold -= cost;
+    totalCost += cost;
+    totalGain += gain;
+    level += 1;
+    levelsGained += 1;
+
+    // Safety cap, prevents accidental long loops if something changes.
+    if (levelsGained >= 98) break;
+  }
+
+  if (levelsGained <= 0) {
+    const nextCost = atTrainCost(level, c.rarity);
+    return i.editReply(
+      `Not enough Gold to auto-train **${atClean(c.name)}**.\n` +
+      `Current Level: **${level}/99**\n` +
+      `Next cost: **${atMoney(nextCost)} Gold**\n` +
+      `You have: **${atMoney(user?.gold || 0)} Gold**`
+    );
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { gold: { decrement: totalCost } }
+  }).catch(() => null);
+
+  let updated = await prisma.userCard.update({
+    where: { id: card.id },
+    data: {
+      level,
+      power: { increment: totalGain },
+      trait: atSetLevel(card.trait, level)
+    }
+  }).catch(() => null);
+
+  if (!updated) {
+    await prisma.userCard.update({
+      where: { id: card.id },
+      data: {
+        power: { increment: totalGain },
+        trait: atSetLevel(card.trait, level)
+      }
+    }).catch(() => null);
+  }
+
+  return i.editReply(
+    `✅ **AUTO TRAIN COMPLETE**\n` +
+    `Character: **${atClean(c.name)}**\n` +
+    `Levels gained: **+${levelsGained}**\n` +
+    `Final level: **${level}/99**\n` +
+    `Total Power gained: **+${atMoney(totalGain)}**\n` +
+    `Gold spent: **${atMoney(totalCost)}**\n` +
+    `Gold left: **${atMoney(gold)}**\n` +
+    `No Tokens. No ID needed.`
+  );
+}
+async function atTrainInfo(i) {
+  const q = i.options.getString('name', true);
+  const card = (await atFindOwned(i.user.id, q, 1))[0];
+  if (!card) return i.reply(`No owned character found for **${q}**.`);
+
+  const c = card.character;
+  const level = Math.max(1, Math.min(99, Number(card.level || atLevel(card.trait) || 1)));
+  const cost = level >= 99 ? 0 : atTrainCost(level, c.rarity);
+  const gain = level >= 99 ? 0 : atPowerGain(level, c.rarity, atStars(card.trait));
+
+  return i.reply(
+    `**${atClean(c.name)}**\n` +
+    `Rarity: **${c.rarity}**\n` +
+    `Level: **${level}/99**\n` +
+    (level >= 99
+      ? `Already max level.\n`
+      : `Next train cost: **${atMoney(cost)} Gold**\nNext power gain: **+${atMoney(gain)}**\n`) +
+    `Commands:\n` +
+    `\`/train name:${atClean(c.name)}\` — one level\n` +
+    `\`/auto-train name:${atClean(c.name)}\` — until Gold runs out`
+  );
+}
+async function atHandler(i, userId, commandName) {
+  if (commandName === 'train') return atTrainOne(i);
+  if (commandName === 'auto-train') return atAutoTrain(i);
+  if (commandName === 'train-info') return atTrainInfo(i);
+  return false;
+}
+// ===== END AUTO TRAIN BY NAME PATCH =====
+
 client.on('interactionCreate', async (i) => {
     const tacButtonHandled = await tacButtons(i);
     if (tacButtonHandled !== false) return tacButtonHandled;
@@ -9539,6 +9786,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const atHandled = await atHandler(i, userId, commandName);
+    if (atHandled !== false) return atHandled;
 
     const tacHandled = await tacHandler(i, userId, commandName);
     if (tacHandled !== false) return tacHandled;
