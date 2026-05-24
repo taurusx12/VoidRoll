@@ -12,12 +12,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('roll')
-    .setDescription('Roll a character')
+    .setDescription('Roll with soft/hard pity')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('r')
-    .setDescription('Quick roll')
+    .setDescription('Quick roll with pity')
     .addIntegerOption(o => o.setName('amount').setDescription('Roll amount 1-10').setRequired(false)),
 
   new SlashCommandBuilder()
@@ -105,7 +105,7 @@ const commands = [
 
   new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
   new SlashCommandBuilder().setName('shop').setDescription('Show shop'),
-  new SlashCommandBuilder().setName('banner').setDescription('Show daily rotating banner'),
+  new SlashCommandBuilder().setName('banner').setDescription('Show daily SECRET banner with pity info'),
   new SlashCommandBuilder().setName('pack').setDescription('10-pull character pack'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),

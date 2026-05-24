@@ -4825,6 +4825,234 @@ async function absAbsoluteHandler(i, userId, commandName) {
 }
 // ===== END ABSOLUTE FIX PATCH =====
 
+
+// ===== SECRET DAILY BANNER + SOFT/HARD PITY PATCH =====
+// Banner: 4 SECRET characters only, rotates daily.
+// Roll pity: soft pity starts after 60 rolls, hard pity at 90 rolls.
+// Pity counters are stored in user.trait when available, fallback is memory for current session.
+
+const pityMemory = new Map();
+
+function pityTodaySeed() {
+  return Math.floor(Date.now() / 86400000);
+}
+
+function pityCleanName(name = '') {
+  if (typeof absCleanName === 'function') return absCleanName(name);
+  if (typeof hxCleanName === 'function') return hxCleanName(name);
+  return String(name || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function pityMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+
+function pityEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+
+function pityGetUserCounter(user) {
+  const trait = String(user?.trait || '');
+  const m = trait.match(/Pity:(\d+)/i);
+  if (m) return Number(m[1] || 0);
+  return pityMemory.get(user?.id) || 0;
+}
+
+function pitySetUserTrait(trait = '', counter = 0) {
+  const clean = String(trait || '').replace(/\s*\|?\s*Pity:\d+/ig, '').trim();
+  return `${clean}${clean ? ' | ' : ''}Pity:${Math.max(0, Number(counter || 0))}`;
+}
+
+async function pitySaveCounter(userId, counter) {
+  pityMemory.set(userId, counter);
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  // Some schemas may not have trait on User, so safely fallback to memory if update fails.
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trait: pitySetUserTrait(user.trait, counter) }
+  }).catch(() => null);
+}
+
+async function pitySecretPool() {
+  let secrets = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 300
+  }).catch(() => []);
+
+  // Unique by clean name + anime to avoid duplicate forms.
+  const seen = new Set();
+  const unique = [];
+  for (const c of secrets) {
+    const key = `${pityCleanName(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+
+  return unique;
+}
+
+async function pityDailyBannerCharacters() {
+  const pool = await pitySecretPool();
+  const seed = pityTodaySeed();
+  const picks = [];
+
+  if (!pool.length) return picks;
+
+  for (let i = 0; i < Math.min(4, pool.length); i++) {
+    picks.push(pool[(seed * 17 + i * 31) % pool.length]);
+  }
+
+  return picks;
+}
+
+async function pityDailyBanner(i) {
+  const picks = await pityDailyBannerCharacters();
+  const seed = pityTodaySeed();
+  const ends = Math.floor(((seed + 1) * 86400000) / 1000);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Only **SECRET** characters.\n` +
+      `Rotates daily automatically.\n` +
+      `Soft pity: **60 rolls**\n` +
+      `Hard pity: **90 rolls**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (picks.length
+        ? picks.map((c, idx) => `${idx + 1}. **${pityCleanName(c.name)}** • ${c.anime} • SECRET`).join('\n')
+        : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+
+async function pityPickBannerSecret() {
+  const banner = await pityDailyBannerCharacters();
+  if (banner.length) return banner[Math.floor(Math.random() * banner.length)];
+  const pool = await pitySecretPool();
+  return pool[Math.floor(Math.random() * Math.max(1, pool.length))] || null;
+}
+
+async function pityCreateCard(userId, character) {
+  // Prefer original rollCard behavior if creating userCard schema is different.
+  // But if we need guaranteed SECRET from banner, create directly.
+  const cardId = typeof nanoid === 'function' ? nanoid(12) : `${userId}_${character.id}_${Date.now()}`;
+  return prisma.userCard.create({
+    data: {
+      id: cardId,
+      userId,
+      characterId: character.id,
+      power: Number(character.basePower || 3000)
+    }
+  }).catch(async () => {
+    // fallback if schema auto-generates id
+    return prisma.userCard.create({
+      data: {
+        userId,
+        characterId: character.id,
+        power: Number(character.basePower || 3000)
+      }
+    });
+  });
+}
+
+async function pityRoll(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const amount = Math.max(1, Math.min(10, i.options.getInteger('amount') || 1));
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  if ((user?.rolls || 0) < amount) {
+    return i.editReply(`You need **${amount} rolls**, you have **${user?.rolls || 0}**.`);
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { rolls: { decrement: amount } }
+  });
+
+  let pity = pityGetUserCounter(user);
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < amount; n++) {
+    pity += 1;
+
+    // Soft pity starts at 60: increasing chance every roll.
+    const softBonus = pity >= 60 ? Math.min(0.45, (pity - 59) * 0.025) : 0;
+    const hard = pity >= 90;
+
+    let forcedSecret = hard || Math.random() < softBonus;
+    let result;
+
+    if (forcedSecret) {
+      const secret = await pityPickBannerSecret();
+      if (secret) {
+        const card = await pityCreateCard(i.user.id, secret);
+        result = { character: secret, card };
+        gotSecret = true;
+        pity = 0;
+      }
+    }
+
+    if (!result) {
+      result = await rollCard(i.user.id);
+      if (String(result.character?.rarity || '').toUpperCase() === 'SECRET') {
+        gotSecret = true;
+        pity = 0;
+      }
+    }
+
+    const c = result.character;
+    const card = result.card;
+    const pityText = gotSecret && String(c.rarity).toUpperCase() === 'SECRET'
+      ? ' • PITY RESET'
+      : ` • Pity ${pity}/90`;
+
+    lines.push(
+      `${n + 1}. ${pityEmoji(c.rarity)} **${pityCleanName(c.name)}** • ${c.anime} • ${c.rarity} • PWR ${pityMoney(card.power || c.basePower)}${pityText}`
+    );
+
+    if (embeds.length < 5) {
+      const embed = new EmbedBuilder()
+        .setTitle(`${n + 1}. ${pityEmoji(c.rarity)} ${pityCleanName(c.name)}`)
+        .setDescription(
+          `Anime: **${c.anime}**\n` +
+          `Rarity: **${c.rarity}**\n` +
+          `Power: **${pityMoney(card.power || c.basePower)}**\n` +
+          `Pity: **${pity}/90**\n` +
+          (String(c.rarity).toUpperCase() === 'SECRET' ? `🔥 SECRET obtained. Pity reset.` : `Soft pity starts at 60. Hard pity at 90.`)
+        )
+        .setColor(String(c.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+      if (c.imageUrl) embed.setImage(c.imageUrl);
+      embeds.push(embed);
+    }
+  }
+
+  await pitySaveCounter(i.user.id, pity);
+
+  return i.editReply({
+    content:
+      (`**ROLL x${amount}**\n` +
+      `${lines.join('\n')}\n\n` +
+      `Rolls left: **${(user?.rolls || 0) - amount}**\n` +
+      `Current pity: **${pity}/90**`).slice(0, 1900),
+    embeds
+  });
+}
+
+async function pityHandler(i, userId, commandName) {
+  if (commandName === 'banner') return pityDailyBanner(i);
+  if (commandName === 'roll' || commandName === 'r') return pityRoll(i);
+  return false;
+}
+// ===== END SECRET DAILY BANNER + PITY PATCH =====
+
 client.on('interactionCreate', async (i) => {
   try {
     if (i.isButton()) {
@@ -4961,6 +5189,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const pityHandled = await pityHandler(i, userId, commandName);
+    if (pityHandled !== false) return pityHandled;
 
     const absHandled = await absAbsoluteHandler(i, userId, commandName);
     if (absHandled !== false) return absHandled;
