@@ -123,7 +123,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('formation-list')
     .setDescription('Show synced formation list from inventory power')
-    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
+    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),,
   new SlashCommandBuilder()
     .setName('give-character')
     .setDescription('Give one character from your inventory to another player')
@@ -134,7 +134,7 @@ const commands = [
     .setName('gift-character')
     .setDescription('Gift one character from your inventory to another player')
     .addUserOption(o => o.setName('user').setDescription('Player who receives the character').setRequired(true))
-    .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true)),
+    .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true)),,,
   new SlashCommandBuilder()
     .setName('trade-offer')
     .setDescription('Offer a character to another player for Tokens')

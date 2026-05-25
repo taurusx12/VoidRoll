@@ -12570,7 +12570,745 @@ async function trHandler(i, userId, commandName) {
 }
 // ===== END TRADE CHARACTER FOR TOKENS PATCH =====
 
+
+// ===== FINAL GIFT + TRADE COMMANDS FIX =====
+// Fixes:
+// 1) /gift-character and /give-character not showing.
+// 2) /trade-offer failed / trade accept issues.
+// 3) Trade ID confusion by also adding buttons Accept / Decline.
+// 4) Safer token update with BigInt/Number fallback.
+// 5) No ID needed for character names.
+
+const finalTradeMemory = global.finalTradeMemory || new Map();
+global.finalTradeMemory = finalTradeMemory;
+
+function ftClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function ftNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function ftMoney(n) {
+  if (typeof n === 'bigint') return n.toLocaleString('en-US');
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function ftBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined) return 0n;
+  try { return BigInt(String(v)); } catch { return 0n; }
+}
+function ftNumSafe(v) {
+  if (typeof v === 'bigint') {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+    if (v < BigInt(Number.MIN_SAFE_INTEGER)) return Number.MIN_SAFE_INTEGER;
+    return Number(v);
+  }
+  return Number(v || 0);
+}
+function ftEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function ftLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function ftStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function ftStarsText(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return stars > 0 ? '★'.repeat(stars) : '0';
+}
+function ftRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function ftTradeId() {
+  return `trade_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+async function ftFindOwnedCard(userId, query) {
+  const tokens = ftNorm(query).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take: 100000
+  }).catch(() => []);
+
+  const scored = cards.map(card => {
+    const c = card.character || {};
+    const cleanName = ftNorm(ftClean(c.name || ''));
+    const rawName = ftNorm(c.name || '');
+    const anime = ftNorm(c.anime || '');
+    const full = `${cleanName} ${rawName} ${anime}`;
+
+    let score = 0;
+    for (const t of tokens) {
+      if (cleanName.includes(t)) score += 120;
+      if (rawName.includes(t)) score += 90;
+      if (anime.includes(t)) score += 20;
+      if (full.includes(t)) score += 35;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 220;
+    if (cleanName === ftNorm(query)) score += 500;
+
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
+
+  return scored[0]?.card || null;
+}
+function ftCardLine(card) {
+  const c = card.character || {};
+  return `${ftEmoji(c.rarity)} **${ftClean(c.name)}** • ${c.anime}\n` +
+    `Rarity: **${c.rarity}** | Power: **${ftMoney(card.power || c.basePower || 0)}** | Level: **${ftLevel(card)}/99** | Stars: **${ftStarsText(ftStars(card))}** | Role: **${ftRole(c)}**`;
+}
+async function ftEnsureUser(userId) {
+  let user = await prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
+  if (user) return user;
+
+  // Very safe fallback. If schema has required fields not listed here, this will fail silently,
+  // but most users already exist after using the bot.
+  user = await prisma.user.create({
+    data: { id: String(userId), gold: 0, tokens: 0, rolls: 0 }
+  }).catch(() => null);
+
+  return user;
+}
+async function ftSetTokens(userId, newTokensBig) {
+  let updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: newTokensBig }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.user.update({
+      where: { id: String(userId) },
+      data: { tokens: ftNumSafe(newTokensBig) }
+    }).catch(() => null);
+  }
+
+  return updated;
+}
+function ftTradeExpired(trade) {
+  return !trade || Date.now() > Number(trade.expiresAt || 0);
+}
+async function ftGift(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const target = i.options.getUser('user', true);
+  const name = i.options.getString('name', true);
+
+  if (!target || target.bot) return i.editReply('You cannot give characters to a bot.');
+  if (target.id === i.user.id) return i.editReply('You cannot give a character to yourself.');
+
+  await ftEnsureUser(target.id).catch(() => null);
+
+  const card = await ftFindOwnedCard(i.user.id, name);
+  if (!card) return i.editReply(`I could not find **${name}** in your inventory.`);
+
+  const moved = await prisma.userCard.update({
+    where: { id: card.id },
+    data: { userId: String(target.id) }
+  }).catch(err => ({ __error: err }));
+
+  if (!moved || moved.__error) {
+    return i.editReply(`Gift failed: could not move the card.\n${moved?.__error?.message ? `\`${String(moved.__error.message).slice(0, 300)}\`` : ''}`);
+  }
+
+  const c = card.character || {};
+  const embed = new EmbedBuilder()
+    .setTitle('Gift Complete')
+    .setDescription(`${i.user} gave ${target}:\n\n${ftCardLine(card)}`)
+    .setColor(0x2ecc71);
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function ftTradeOffer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const buyer = i.options.getUser('user', true);
+  const name = i.options.getString('name', true);
+  const priceNumber = i.options.getInteger('tokens', true);
+
+  if (!buyer || buyer.bot) return i.editReply('You cannot trade with a bot.');
+  if (buyer.id === i.user.id) return i.editReply('You cannot trade with yourself.');
+  if (priceNumber <= 0) return i.editReply('Token price must be higher than 0.');
+
+  await ftEnsureUser(buyer.id).catch(() => null);
+
+  const card = await ftFindOwnedCard(i.user.id, name);
+  if (!card) return i.editReply(`I could not find **${name}** in your inventory.`);
+
+  const tradeId = ftTradeId();
+  const trade = {
+    id: tradeId,
+    sellerId: String(i.user.id),
+    buyerId: String(buyer.id),
+    cardId: String(card.id),
+    price: String(priceNumber),
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+
+  finalTradeMemory.set(tradeId, trade);
+
+  const c = card.character || {};
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Offer')
+    .setDescription(
+      `Seller: ${i.user}\n` +
+      `Buyer: ${buyer}\n\n` +
+      `${ftCardLine(card)}\n\n` +
+      `Price: **${ftMoney(priceNumber)} Tokens**\n` +
+      `Trade ID: \`${tradeId}\`\n` +
+      `Expires: <t:${Math.floor(trade.expiresAt / 1000)}:R>\n\n` +
+      `Buyer can press **Accept** below or use:\n` +
+      `\`/trade-accept trade_id:${tradeId}\``
+    )
+    .setColor(0xf1c40f);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`ft_accept_${tradeId}`).setLabel('Accept Trade').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`ft_decline_${tradeId}`).setLabel('Decline').setStyle(ButtonStyle.Danger)
+  );
+
+  return i.editReply({ embeds: [embed], components: [row] });
+}
+async function ftCompleteTrade(i, tradeId) {
+  const trade = finalTradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (ftTradeExpired(trade)) {
+    finalTradeMemory.delete(tradeId);
+    return i.editReply('This trade expired.');
+  }
+  if (String(i.user.id) !== String(trade.buyerId)) {
+    return i.editReply('Only the buyer can accept this trade.');
+  }
+
+  const card = await prisma.userCard.findUnique({
+    where: { id: trade.cardId },
+    include: { character: true }
+  }).catch(() => null);
+
+  if (!card) {
+    finalTradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: the card no longer exists.');
+  }
+  if (String(card.userId) !== String(trade.sellerId)) {
+    finalTradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: seller no longer owns this character.');
+  }
+
+  const buyer = await ftEnsureUser(trade.buyerId);
+  const seller = await ftEnsureUser(trade.sellerId);
+  if (!buyer || !seller) return i.editReply('Trade failed: buyer or seller profile was not found.');
+
+  const price = ftBig(trade.price);
+  const buyerTokens = ftBig(buyer.tokens || 0);
+  const sellerTokens = ftBig(seller.tokens || 0);
+
+  if (buyerTokens < price) {
+    return i.editReply(`You do not have enough Tokens.\nNeed: **${ftMoney(price)}**\nYou have: **${ftMoney(buyerTokens)}**`);
+  }
+
+  const newBuyerTokens = buyerTokens - price;
+  const newSellerTokens = sellerTokens + price;
+
+  const buyerUpdated = await ftSetTokens(trade.buyerId, newBuyerTokens);
+  if (!buyerUpdated) return i.editReply('Trade failed: could not remove Tokens from buyer.');
+
+  const sellerUpdated = await ftSetTokens(trade.sellerId, newSellerTokens);
+  if (!sellerUpdated) {
+    await ftSetTokens(trade.buyerId, buyerTokens).catch(() => null);
+    return i.editReply('Trade failed: could not add Tokens to seller. Buyer token rollback attempted.');
+  }
+
+  const moved = await prisma.userCard.update({
+    where: { id: trade.cardId },
+    data: { userId: String(trade.buyerId) }
+  }).catch(() => null);
+
+  if (!moved) {
+    await ftSetTokens(trade.buyerId, buyerTokens).catch(() => null);
+    await ftSetTokens(trade.sellerId, sellerTokens).catch(() => null);
+    return i.editReply('Trade failed: could not move character. Token rollback attempted.');
+  }
+
+  finalTradeMemory.delete(tradeId);
+
+  const c = card.character || {};
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Completed')
+    .setDescription(
+      `<@${trade.buyerId}> bought from <@${trade.sellerId}>:\n\n` +
+      `${ftCardLine(card)}\n\n` +
+      `Price paid: **${ftMoney(price)} Tokens**\n` +
+      `Buyer Tokens left: **${ftMoney(newBuyerTokens)}**`
+    )
+    .setColor(0x2ecc71);
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed], components: [] }).catch(() => i.editReply({ embeds: [embed] }));
+}
+async function ftAccept(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+  const tradeId = i.options.getString('trade_id', true);
+  return ftCompleteTrade(i, tradeId);
+}
+async function ftDecline(i, tradeIdInput = null) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const tradeId = tradeIdInput || i.options.getString('trade_id', true);
+  const trade = finalTradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (String(i.user.id) !== String(trade.buyerId) && String(i.user.id) !== String(trade.sellerId)) {
+    return i.editReply('Only buyer or seller can cancel this trade.');
+  }
+
+  finalTradeMemory.delete(tradeId);
+  return i.editReply(`Trade \`${tradeId}\` has been cancelled.`);
+}
+async function ftTrades(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const rows = [];
+  for (const [id, trade] of finalTradeMemory.entries()) {
+    if (ftTradeExpired(trade)) {
+      finalTradeMemory.delete(id);
+      continue;
+    }
+    if (String(trade.buyerId) !== String(i.user.id) && String(trade.sellerId) !== String(i.user.id)) continue;
+
+    const card = await prisma.userCard.findUnique({
+      where: { id: trade.cardId },
+      include: { character: true }
+    }).catch(() => null);
+
+    rows.push(
+      `ID: \`${id}\`\n` +
+      `Seller: <@${trade.sellerId}> | Buyer: <@${trade.buyerId}>\n` +
+      `Character: **${card?.character ? ftClean(card.character.name) : 'Unknown'}**\n` +
+      `Price: **${ftMoney(trade.price)} Tokens**\n` +
+      `Expires: <t:${Math.floor(Number(trade.expiresAt) / 1000)}:R>`
+    );
+  }
+
+  if (!rows.length) return i.editReply('You have no pending trades.');
+
+  const embed = new EmbedBuilder()
+    .setTitle('Pending Trades')
+    .setDescription(rows.slice(0, 10).join('\n\n'))
+    .setColor(0x3498db);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function ftButtons(i) {
+  if (!i.isButton()) return false;
+
+  if (i.customId.startsWith('ft_accept_')) {
+    await i.deferReply().catch(() => null);
+    const tradeId = i.customId.replace('ft_accept_', '');
+    return ftCompleteTrade(i, tradeId);
+  }
+
+  if (i.customId.startsWith('ft_decline_')) {
+    await i.deferReply().catch(() => null);
+    const tradeId = i.customId.replace('ft_decline_', '');
+    return ftDecline(i, tradeId);
+  }
+
+  return false;
+}
+async function ftHandler(i, userId, commandName) {
+  if (commandName === 'give-character') return ftGift(i);
+  if (commandName === 'gift-character') return ftGift(i);
+  if (commandName === 'trade-offer') return ftTradeOffer(i);
+  if (commandName === 'trade-accept') return ftAccept(i);
+  if (commandName === 'trade-decline') return ftDecline(i);
+  if (commandName === 'trade-cancel') return ftDecline(i);
+  if (commandName === 'trades') return ftTrades(i);
+  return false;
+}
+// ===== END FINAL GIFT + TRADE COMMANDS FIX =====
+
+
+// ===== TRADE ONLY FINAL SAFE PATCH =====
+// Fixes /trade-offer failed.
+// This version is intentionally simple and safe:
+// - /trade-offer only creates a pending memory offer. No token/user update happens there.
+// - /trade-accept re-checks seller ownership + buyer tokens.
+// - It uses Prisma increment/decrement first, then BigInt absolute fallback.
+// - Trade also has buttons.
+
+const safeTradeMemory = global.safeTradeMemory || new Map();
+global.safeTradeMemory = safeTradeMemory;
+
+function stoClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function stoNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function stoMoney(n) {
+  if (typeof n === 'bigint') return n.toLocaleString('en-US');
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function stoBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined) return 0n;
+  try { return BigInt(String(v)); } catch { return 0n; }
+}
+function stoNumSafe(v) {
+  if (typeof v === 'bigint') {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+    return Number(v);
+  }
+  return Number(v || 0);
+}
+function stoEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function stoLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function stoStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function stoStarsText(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return stars > 0 ? '★'.repeat(stars) : '0';
+}
+function stoRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function stoTradeId() {
+  return `trade_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+async function stoFindOwnedCard(userId, query) {
+  const tokens = stoNorm(query).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take: 100000
+  }).catch(() => []);
+
+  const scored = cards.map(card => {
+    const c = card.character || {};
+    const cleanName = stoNorm(stoClean(c.name || ''));
+    const rawName = stoNorm(c.name || '');
+    const anime = stoNorm(c.anime || '');
+    const full = `${cleanName} ${rawName} ${anime}`;
+
+    let score = 0;
+    for (const t of tokens) {
+      if (cleanName.includes(t)) score += 120;
+      if (rawName.includes(t)) score += 90;
+      if (anime.includes(t)) score += 20;
+      if (full.includes(t)) score += 35;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 220;
+    if (cleanName === stoNorm(query)) score += 500;
+
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
+
+  return scored[0]?.card || null;
+}
+function stoCardLine(card) {
+  const c = card.character || {};
+  return `${stoEmoji(c.rarity)} **${stoClean(c.name)}** • ${c.anime}\n` +
+    `Rarity: **${c.rarity}** | Power: **${stoMoney(card.power || c.basePower || 0)}** | Level: **${stoLevel(card)}/99** | Stars: **${stoStarsText(stoStars(card))}** | Role: **${stoRole(c)}**`;
+}
+function stoExpired(trade) {
+  return !trade || Date.now() > Number(trade.expiresAt || 0);
+}
+async function stoGetUser(userId) {
+  return prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
+}
+async function stoAddTokens(userId, amountBig) {
+  // Try Prisma atomic BigInt/Number increment first.
+  let updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: { increment: amountBig } }
+  }).catch(() => null);
+  if (updated) return updated;
+
+  updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: { increment: stoNumSafe(amountBig) } }
+  }).catch(() => null);
+  if (updated) return updated;
+
+  // Absolute fallback.
+  const user = await stoGetUser(userId);
+  if (!user) return null;
+  const next = stoBig(user.tokens || 0) + amountBig;
+  updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: next }
+  }).catch(() => null);
+  if (updated) return updated;
+
+  return prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: stoNumSafe(next) }
+  }).catch(() => null);
+}
+async function stoRemoveTokens(userId, amountBig) {
+  const user = await stoGetUser(userId);
+  if (!user) return { ok: false, reason: 'profile' };
+
+  const current = stoBig(user.tokens || 0);
+  if (current < amountBig) return { ok: false, reason: 'funds', current };
+
+  // Absolute set is safest for BigInt issues.
+  const next = current - amountBig;
+
+  let updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: next }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.user.update({
+      where: { id: String(userId) },
+      data: { tokens: stoNumSafe(next) }
+    }).catch(() => null);
+  }
+
+  if (!updated) return { ok: false, reason: 'update' };
+  return { ok: true, before: current, after: next };
+}
+async function stoTradeOffer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const buyer = i.options.getUser('user', true);
+  const name = i.options.getString('name', true);
+  const priceNumber = i.options.getInteger('tokens', true);
+
+  if (!buyer || buyer.bot) return i.editReply('You cannot trade with a bot.');
+  if (buyer.id === i.user.id) return i.editReply('You cannot trade with yourself.');
+  if (!priceNumber || priceNumber <= 0) return i.editReply('Token price must be higher than 0.');
+
+  const card = await stoFindOwnedCard(i.user.id, name);
+  if (!card) return i.editReply(`I could not find **${name}** in your inventory.`);
+
+  const tradeId = stoTradeId();
+  const trade = {
+    id: tradeId,
+    sellerId: String(i.user.id),
+    buyerId: String(buyer.id),
+    cardId: String(card.id),
+    price: String(priceNumber),
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+
+  safeTradeMemory.set(tradeId, trade);
+
+  const c = card.character || {};
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Offer')
+    .setDescription(
+      `Seller: ${i.user}\n` +
+      `Buyer: ${buyer}\n\n` +
+      `${stoCardLine(card)}\n\n` +
+      `Price: **${stoMoney(priceNumber)} Tokens**\n` +
+      `Trade ID: \`${tradeId}\`\n` +
+      `Expires: <t:${Math.floor(trade.expiresAt / 1000)}:R>\n\n` +
+      `${buyer} press **Accept Trade** or use:\n` +
+      `\`/trade-accept trade_id:${tradeId}\``
+    )
+    .setColor(0xf1c40f);
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`sto_accept_${tradeId}`).setLabel('Accept Trade').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`sto_decline_${tradeId}`).setLabel('Decline').setStyle(ButtonStyle.Danger)
+  );
+
+  return i.editReply({ embeds: [embed], components: [row] });
+}
+async function stoComplete(i, tradeId) {
+  const trade = safeTradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (stoExpired(trade)) {
+    safeTradeMemory.delete(tradeId);
+    return i.editReply('This trade expired.');
+  }
+  if (String(i.user.id) !== String(trade.buyerId)) {
+    return i.editReply('Only the buyer can accept this trade.');
+  }
+
+  const card = await prisma.userCard.findUnique({
+    where: { id: trade.cardId },
+    include: { character: true }
+  }).catch(() => null);
+
+  if (!card) {
+    safeTradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: the card no longer exists.');
+  }
+  if (String(card.userId) !== String(trade.sellerId)) {
+    safeTradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: seller no longer owns this character.');
+  }
+
+  const seller = await stoGetUser(trade.sellerId);
+  const buyer = await stoGetUser(trade.buyerId);
+  if (!seller) return i.editReply('Trade failed: seller profile not found.');
+  if (!buyer) return i.editReply('Trade failed: buyer profile not found. Buyer should use any bot command once, then try again.');
+
+  const price = stoBig(trade.price);
+
+  const removed = await stoRemoveTokens(trade.buyerId, price);
+  if (!removed.ok) {
+    if (removed.reason === 'funds') return i.editReply(`Buyer does not have enough Tokens. Need **${stoMoney(price)}**, has **${stoMoney(removed.current || 0)}**.`);
+    return i.editReply(`Trade failed: could not remove Tokens from buyer. Reason: **${removed.reason}**`);
+  }
+
+  const added = await stoAddTokens(trade.sellerId, price);
+  if (!added) {
+    await stoAddTokens(trade.buyerId, price).catch(() => null);
+    return i.editReply('Trade failed: could not add Tokens to seller. Buyer refund attempted.');
+  }
+
+  const moved = await prisma.userCard.update({
+    where: { id: trade.cardId },
+    data: { userId: String(trade.buyerId) }
+  }).catch(() => null);
+
+  if (!moved) {
+    await stoAddTokens(trade.buyerId, price).catch(() => null);
+    await stoRemoveTokens(trade.sellerId, price).catch(() => null);
+    return i.editReply('Trade failed: could not move character. Token rollback attempted.');
+  }
+
+  safeTradeMemory.delete(tradeId);
+
+  const c = card.character || {};
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Completed')
+    .setDescription(
+      `<@${trade.buyerId}> bought from <@${trade.sellerId}>:\n\n` +
+      `${stoCardLine(card)}\n\n` +
+      `Price paid: **${stoMoney(price)} Tokens**\n` +
+      `Buyer Tokens left: **${stoMoney(removed.after)}**`
+    )
+    .setColor(0x2ecc71);
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed], components: [] }).catch(() => i.editReply({ embeds: [embed] }));
+}
+async function stoAccept(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+  const tradeId = i.options.getString('trade_id', true);
+  return stoComplete(i, tradeId);
+}
+async function stoCancel(i, tradeIdInput = null) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const tradeId = tradeIdInput || i.options.getString('trade_id', true);
+  const trade = safeTradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (String(i.user.id) !== String(trade.buyerId) && String(i.user.id) !== String(trade.sellerId)) {
+    return i.editReply('Only buyer or seller can cancel this trade.');
+  }
+
+  safeTradeMemory.delete(tradeId);
+  return i.editReply(`Trade \`${tradeId}\` has been cancelled.`);
+}
+async function stoTrades(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const rows = [];
+  for (const [id, trade] of safeTradeMemory.entries()) {
+    if (stoExpired(trade)) {
+      safeTradeMemory.delete(id);
+      continue;
+    }
+    if (String(trade.buyerId) !== String(i.user.id) && String(trade.sellerId) !== String(i.user.id)) continue;
+
+    const card = await prisma.userCard.findUnique({
+      where: { id: trade.cardId },
+      include: { character: true }
+    }).catch(() => null);
+
+    rows.push(
+      `ID: \`${id}\`\n` +
+      `Seller: <@${trade.sellerId}> | Buyer: <@${trade.buyerId}>\n` +
+      `Character: **${card?.character ? stoClean(card.character.name) : 'Unknown'}**\n` +
+      `Price: **${stoMoney(trade.price)} Tokens**\n` +
+      `Expires: <t:${Math.floor(Number(trade.expiresAt) / 1000)}:R>`
+    );
+  }
+
+  if (!rows.length) return i.editReply('You have no pending trades.');
+
+  const embed = new EmbedBuilder()
+    .setTitle('Pending Trades')
+    .setDescription(rows.slice(0, 10).join('\n\n'))
+    .setColor(0x3498db);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function stoButtons(i) {
+  if (!i.isButton()) return false;
+
+  if (i.customId.startsWith('sto_accept_')) {
+    await i.deferReply().catch(() => null);
+    return stoComplete(i, i.customId.replace('sto_accept_', ''));
+  }
+  if (i.customId.startsWith('sto_decline_')) {
+    await i.deferReply().catch(() => null);
+    return stoCancel(i, i.customId.replace('sto_decline_', ''));
+  }
+
+  return false;
+}
+async function stoHandler(i, userId, commandName) {
+  if (commandName === 'trade-offer') return stoTradeOffer(i);
+  if (commandName === 'trade-accept') return stoAccept(i);
+  if (commandName === 'trade-decline') return stoCancel(i);
+  if (commandName === 'trade-cancel') return stoCancel(i);
+  if (commandName === 'trades') return stoTrades(i);
+  return false;
+}
+// ===== END TRADE ONLY FINAL SAFE PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    const stoButtonHandled = await stoButtons(i);
+    if (stoButtonHandled !== false) return stoButtonHandled;
+
+    const ftButtonHandled = await ftButtons(i);
+    if (ftButtonHandled !== false) return ftButtonHandled;
+
     if (i.isAutocomplete()) {
       const nhAuto = await nhAutocomplete(i);
       if (nhAuto) return;
@@ -12803,6 +13541,12 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const stoHandled = await stoHandler(i, userId, commandName);
+    if (stoHandled !== false) return stoHandled;
+
+    const ftHandled = await ftHandler(i, userId, commandName);
+    if (ftHandled !== false) return ftHandled;
 
     const trHandled = await trHandler(i, userId, commandName);
     if (trHandled !== false) return trHandled;
