@@ -11896,6 +11896,126 @@ async function nhHandler(i, userId, commandName) {
 }
 // ===== END FINAL NO-HANG BANNER PATCH =====
 
+
+// ===== FORMATION POWER SYNC WITH INVENTORY PATCH =====
+// Fixes formation showing old power after train/auto-train.
+// Formation now reads real userCard.power from inventory, not character.basePower.
+// Also adds /formation as a clean view command if old formation command is stale.
+
+function fpsMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function fpsClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function fpsEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function fpsRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function fpsElement(c) {
+  if (typeof uxElement === 'function') return uxElement(c);
+  if (typeof viElement === 'function') return viElement(c);
+  if (typeof uiElement === 'function') return uiElement(c);
+  return c?.element || 'Light';
+}
+function fpsPassive(c) {
+  if (typeof uxPassive === 'function') return uxPassive(c);
+  if (typeof viPassive === 'function') return viPassive(c);
+  if (typeof uiPassive === 'function') return uiPassive(c);
+  return 'Battle Rhythm: ATK rises every round and spikes after ultimate.';
+}
+function fpsLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function fpsStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function fpsStarsLine(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return '★'.repeat(stars) + '☆'.repeat(10 - stars);
+}
+function fpsStatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof viStatsText === 'function') return viStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+
+  const p = Number(card.power || c.basePower || 1000);
+  return `Class: **${fpsRole(c)}** | Element: **${fpsElement(c)}**
+ATK **${fpsMoney(Math.floor(p * 1.05))}** • HP **${fpsMoney(Math.floor(p * 7.2))}** • DEF **${fpsMoney(Math.floor(p * .55))}**
+Passive: ${fpsPassive(c)}`;
+}
+async function fpsBestCards(userId, take = 6) {
+  // This is the important part:
+  // use userCard.power and userCard.level/trait exactly like inventory does.
+  return prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take
+  }).catch(() => []);
+}
+async function fpsFormation(i) {
+  const target = i.options.getUser?.('user') || i.user;
+  const cards = await fpsBestCards(target.id, 6);
+
+  if (!cards.length) {
+    return i.reply(`${target.id === i.user.id ? 'You do' : `${target.username} does`} not have any cards yet.`);
+  }
+
+  const totalPower = cards.reduce((sum, card) => sum + Number(card.power || card.character?.basePower || 0), 0);
+
+  const lines = cards.map((card, idx) => {
+    const c = card.character || {};
+    const power = Number(card.power || c.basePower || 0);
+    const level = fpsLevel(card);
+    const stars = fpsStars(card);
+
+    return (
+      `${idx + 1}. ${fpsEmoji(c.rarity)} **${fpsClean(c.name)}** • ${c.anime}\n` +
+      `   Rarity: **${c.rarity}** | Power: **${fpsMoney(power)}** | Level: **${level}/99** | Stars: **${fpsStarsLine(stars)}**`
+    );
+  }).join('\n\n');
+
+  const strongest = cards[0];
+  const sc = strongest.character || {};
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${target.id === i.user.id ? 'Your Formation' : `${target.username}'s Formation`}`)
+    .setDescription(
+      `Formation reads directly from **Inventory / userCard.power**.\n` +
+      `Total Power: **${fpsMoney(totalPower)}**\n\n` +
+      `${lines}\n\n` +
+      `Strongest Character Stats:\n` +
+      `${fpsStatsText(strongest, sc)}`
+    )
+    .setColor(0x5865f2);
+
+  if (sc.imageUrl) embed.setThumbnail(sc.imageUrl);
+
+  return i.reply({ embeds: [embed] });
+}
+async function fpsFormationRefresh(i) {
+  // Shows the same synced formation and makes it clear there is no cached old power.
+  return fpsFormation(i);
+}
+async function fpsHandler(i, userId, commandName) {
+  if (commandName === 'formation') return fpsFormation(i);
+  if (commandName === 'formation-refresh') return fpsFormationRefresh(i);
+  return false;
+}
+// ===== END FORMATION POWER SYNC WITH INVENTORY PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const nhAuto = await nhAutocomplete(i);
@@ -12129,6 +12249,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const fpsHandled = await fpsHandler(i, userId, commandName);
+    if (fpsHandled !== false) return fpsHandled;
 
     const nhHandled = await nhHandler(i, userId, commandName);
     if (nhHandled !== false) return nhHandled;

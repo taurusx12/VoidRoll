@@ -106,6 +106,15 @@ const commands = [
         .setRequired(true)
         .setAutocomplete(true)
     ),
+  new SlashCommandBuilder()
+    .setName('formation')
+    .setDescription('Show synced formation power from inventory')
+    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('formation-refresh')
+    .setDescription('Refresh formation power from inventory')
+    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
