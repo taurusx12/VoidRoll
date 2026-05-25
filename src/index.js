@@ -10324,7 +10324,337 @@ async function bpsHandler(i, userId, commandName) {
 }
 // ===== END BANNER PITY SYNC FIX PATCH =====
 
+
+// ===== BANNER PITY BY NAME HARD FIX =====
+// Fixes mismatch where /pack shows 10/50 but /banner still shows 0/50.
+// Pity is now stored by clean character name + anime, not raw character ID,
+// so Makima stays synced even if multiple DB IDs/variants exist.
+
+function bpnClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function bpnMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function bpnEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function bpnSafeKeyText(v = '') {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+function bpnPityKey(character) {
+  const name = bpnSafeKeyText(bpnClean(character?.name || ''));
+  const anime = bpnSafeKeyText(character?.anime || '');
+  return `PackPityName_${name}_${anime}`;
+}
+function bpnOldIdKey(characterId) {
+  return `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+function bpnTraitGet(trait = '', key = '') {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : 0;
+}
+function bpnTraitSet(trait = '', key = '', value = 0) {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+async function bpnGetPity(userId, character) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const trait = user?.trait || '';
+  const nameKey = bpnPityKey(character);
+  const idKey = bpnOldIdKey(character?.id);
+  const byName = bpnTraitGet(trait, nameKey);
+  const byId = bpnTraitGet(trait, idKey);
+  return Math.max(byName, byId);
+}
+async function bpnSavePity(userId, character, value) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  const v = Math.max(0, Number(value || 0));
+  let trait = user.trait || '';
+  trait = bpnTraitSet(trait, bpnPityKey(character), v);
+  trait = bpnTraitSet(trait, bpnOldIdKey(character?.id), v);
+  await prisma.user.update({ where: { id: userId }, data: { trait } }).catch(() => null);
+}
+function bpnIsExactMakima(c) {
+  const clean = bpnClean(c?.name || '').toLowerCase();
+  return clean === 'makima';
+}
+async function bpnAllSecrets() {
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 800
+  }).catch(() => []);
+
+  const seen = new Set();
+  const unique = [];
+  for (const c of all) {
+    const key = `${bpnClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+async function bpnBannerChars() {
+  if (typeof cm4EndMs !== 'undefined' && Date.now() < cm4EndMs) {
+    const pool = await bpnAllSecrets();
+    if (!pool.length) return [];
+    const makima = pool.find(bpnIsExactMakima);
+    const others = pool.filter(c => !bpnIsExactMakima(c));
+    const picks = [];
+    const seedBase = typeof cm4StartMs !== 'undefined' ? cm4StartMs : Date.now();
+    const seed = Math.floor(seedBase / 86400000);
+    const start = (seed * 47 + 29) % Math.max(1, others.length);
+    const steps = [0, 31, 73, 127, 181, 233];
+
+    for (const step of steps) {
+      if (picks.length >= 3) break;
+      const c = others[(start + step) % Math.max(1, others.length)];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    }
+    let extra = 1;
+    while (picks.length < 3 && others.length) {
+      const c = others[(start + extra * 19) % others.length];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      extra++;
+    }
+    if (makima) picks.push(makima);
+    while (picks.length < Math.min(4, pool.length)) {
+      const c = pool[(start + extra * 17) % pool.length];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      extra++;
+    }
+    return picks.slice(0, 4);
+  }
+
+  if (typeof cm4BannerChars === 'function') return cm4BannerChars();
+  if (typeof mkBannerChars === 'function') return mkBannerChars();
+
+  const pool = await bpnAllSecrets();
+  if (!pool.length) return [];
+  const day = Math.floor(Date.now() / 86400000);
+  const start = (day * 53 + 97) % pool.length;
+  const steps = [0, 37, 79, 131];
+  const picks = [];
+  for (const step of steps) {
+    const c = pool[(start + step) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+  }
+  let extra = 1;
+  while (picks.length < Math.min(4, pool.length)) {
+    const c = pool[(start + extra * 17) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    extra++;
+  }
+  return picks.slice(0, 4);
+}
+function bpnEnds() {
+  if (typeof cm4EndMs !== 'undefined' && Date.now() < cm4EndMs) return Math.floor(cm4EndMs / 1000);
+  if (typeof cm4Ends === 'function') return cm4Ends();
+  if (typeof mkBannerEnds === 'function') return mkBannerEnds();
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
+}
+async function bpnChoices() {
+  const picks = await bpnBannerChars();
+  return picks.map(c => ({
+    name: `Rate Up: ${bpnClean(c.name)}`,
+    value: `bpn:${c.id}`
+  })).slice(0, 25);
+}
+async function bpnAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await bpnChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+async function bpnSelected(value) {
+  const choices = await bpnChoices();
+  let id = null;
+  const v = String(value || '');
+  if (v.startsWith('bpn:')) id = v.replace('bpn:', '');
+  else if (v.startsWith('bps:')) id = v.replace('bps:', '');
+  else if (v.startsWith('cm4:')) id = v.replace('cm4:', '');
+  else if (v.startsWith('featured:')) id = v.replace('featured:', '');
+  else if (v.startsWith('mb:')) id = v.replace('mb:', '');
+  else if (v.startsWith('br:')) id = v.replace('br:', '');
+  else if (v.startsWith('ps:')) id = v.replace('ps:', '');
+  else if (v.startsWith('ul:')) id = v.replace('ul:', '');
+  else id = choices[0]?.value?.replace('bpn:', '');
+
+  if (!id) return null;
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function bpnPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 500 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+function bpnId(prefix = 'pack') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function bpnSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function bpnCreateCard(userId, character) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: bpnId('pack'),
+          serial: bpnSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
+}
+function bpnStatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof viStatsText === 'function') return viStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+  return `Power: **${bpnMoney(card.power || c.basePower || 0)}**`;
+}
+async function bpnBanner(i) {
+  const picks = await bpnBannerChars();
+  const ends = bpnEnds();
+  const lines = [];
+
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await bpnGetPity(i.user.id, c);
+    lines.push(`${idx + 1}. **${bpnClean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function bpnPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await bpnSelected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${bpnMoney(cost)} Tokens** for 10 pulls.\nYou have **${bpnMoney(user?.tokens || 0)} Tokens**.`);
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = await bpnGetPity(i.user.id, selected);
+  const before = pity;
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSelectedSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSelectedSecret = true;
+      pity = 0;
+    } else {
+      character = await bpnPickByRarity(rarities[n]);
+    }
+
+    if (!character) continue;
+    const card = await bpnCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+
+    lines.push(`${n + 1}. ${bpnEmoji(character.rarity)} **${bpnClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${bpnMoney(power)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${bpnEmoji(character.rarity)} ${bpnClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${bpnMoney(power)}**\n` +
+        `${bpnStatsText(card, character)}\n` +
+        `Selected Rate Up: **${bpnClean(selected.name)}**\n` +
+        `This character pity: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  await bpnSavePity(i.user.id, selected, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${bpnClean(selected.name)}**\n` +
+      `Cost: **${bpnMoney(cost)} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSelectedSecret ? `🔥 SECRET pulled! Pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${bpnMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function bpnHandler(i, userId, commandName) {
+  if (commandName === 'banner') return bpnBanner(i);
+  if (commandName === 'pack') return bpnPack(i);
+  return false;
+}
+// ===== END BANNER PITY BY NAME HARD FIX =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const bpnAuto = await bpnAutocomplete(i);
+      if (bpnAuto) return;
+    }
+
     if (i.isAutocomplete()) {
       const bpsAuto = await bpsAutocomplete(i);
       if (bpsAuto) return;
@@ -10532,6 +10862,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const bpnHandled = await bpnHandler(i, userId, commandName);
+    if (bpnHandled !== false) return bpnHandled;
 
     const bpsHandled = await bpsHandler(i, userId, commandName);
     if (bpsHandled !== false) return bpsHandled;
