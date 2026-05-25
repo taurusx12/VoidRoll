@@ -9747,7 +9747,320 @@ async function mkHandler(i, userId, commandName) {
 }
 // ===== END MAKIMA 24H COMPENSATION BANNER PATCH =====
 
+
+// ===== CLEAN MAKIMA 4TH 24H BANNER PATCH =====
+// Clean display: no top compensation text. Makima is listed as the 4th featured character.
+// Exact Makima only, not Misao Makimachi or other names containing makima letters.
+// 24 hours from this update, then daily rotation returns.
+
+const cm4StartMs = 1779681560862;
+const cm4EndMs = 1779767960862;
+
+function cm4Clean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function cm4Money(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function cm4Emoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function cm4IsExactMakima(c) {
+  const raw = String(c?.name || '').toLowerCase().trim();
+  const clean = cm4Clean(c?.name || '').toLowerCase().trim();
+  return raw === 'makima' || clean === 'makima';
+}
+async function cm4AllSecrets() {
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 800
+  }).catch(() => []);
+
+  const seen = new Set();
+  const unique = [];
+  for (const c of all) {
+    const key = `${cm4Clean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+async function cm4BannerChars() {
+  const pool = await cm4AllSecrets();
+  if (!pool.length) return [];
+
+  const now = Date.now();
+
+  if (now < cm4EndMs) {
+    const makima = pool.find(cm4IsExactMakima);
+    const others = pool.filter(c => !cm4IsExactMakima(c));
+
+    const seed = Math.floor(cm4StartMs / 86400000);
+    const start = (seed * 47 + 29) % Math.max(1, others.length);
+    const steps = [0, 31, 73, 127, 181, 233];
+
+    const picks = [];
+    for (const step of steps) {
+      if (picks.length >= 3) break;
+      const c = others[(start + step) % Math.max(1, others.length)];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    }
+
+    let extra = 1;
+    while (picks.length < 3 && others.length) {
+      const c = others[(start + extra * 19) % others.length];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      extra++;
+    }
+
+    // Makima must be the 4th listed character when found.
+    if (makima) picks.push(makima);
+
+    // Fallback fill if Makima is missing in DB.
+    extra = 1;
+    while (picks.length < Math.min(4, pool.length)) {
+      const c = pool[(start + extra * 17) % pool.length];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      extra++;
+    }
+
+    return picks.slice(0, 4);
+  }
+
+  // Normal daily rotation after compensation window.
+  const day = Math.floor(now / 86400000);
+  const start = (day * 53 + 97) % pool.length;
+  const steps = [0, 37, 79, 131];
+  const picks = [];
+  for (const step of steps) {
+    const c = pool[(start + step) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+  }
+  let extra = 1;
+  while (picks.length < Math.min(4, pool.length)) {
+    const c = pool[(start + extra * 17) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    extra++;
+  }
+  return picks.slice(0, 4);
+}
+function cm4Ends() {
+  if (Date.now() < cm4EndMs) return Math.floor(cm4EndMs / 1000);
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
+}
+async function cm4GetPity(userId, characterId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const key = `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const safe = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(user?.trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : 0;
+}
+async function cm4SavePity(userId, characterId, value) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  const key = `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const safe = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(user.trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  const trait = `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+  await prisma.user.update({ where: { id: userId }, data: { trait } }).catch(() => null);
+}
+async function cm4Choices() {
+  const picks = await cm4BannerChars();
+  return picks.map(c => ({
+    name: `Rate Up: ${cm4Clean(c.name)}`,
+    value: `cm4:${c.id}`
+  })).slice(0, 25);
+}
+async function cm4Autocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await cm4Choices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+async function cm4Selected(value) {
+  const choices = await cm4Choices();
+  let id = null;
+  const v = String(value || '');
+  if (v.startsWith('cm4:')) id = v.replace('cm4:', '');
+  else if (v.startsWith('featured:')) id = v.replace('featured:', '');
+  else if (v.startsWith('mb:')) id = v.replace('mb:', '');
+  else if (v.startsWith('br:')) id = v.replace('br:', '');
+  else if (v.startsWith('ps:')) id = v.replace('ps:', '');
+  else if (v.startsWith('ul:')) id = v.replace('ul:', '');
+  else id = choices[0]?.value?.replace('cm4:', '');
+
+  if (!id) return null;
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function cm4PickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 500 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+function cm4Id(prefix = 'pack') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function cm4Serial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function cm4CreateCard(userId, character) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: cm4Id('pack'),
+          serial: cm4Serial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
+}
+function cm4StatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof viStatsText === 'function') return viStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+  return `Power: **${cm4Money(card.power || c.basePower || 0)}**`;
+}
+async function cm4Banner(i) {
+  const picks = await cm4BannerChars();
+  const ends = cm4Ends();
+
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await cm4GetPity(i.user.id, c.id);
+    lines.push(`${idx + 1}. **${cm4Clean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function cm4Pack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await cm4Selected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${cm4Money(cost)} Tokens** for 10 pulls.\nYou have **${cm4Money(user?.tokens || 0)} Tokens**.`);
+  }
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = await cm4GetPity(i.user.id, selected.id);
+  const before = pity;
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSecret = true;
+      pity = 0;
+    } else {
+      character = await cm4PickByRarity(rarities[n]);
+    }
+
+    if (!character) continue;
+    const card = await cm4CreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+
+    lines.push(`${n + 1}. ${cm4Emoji(character.rarity)} **${cm4Clean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${cm4Money(power)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${cm4Emoji(character.rarity)} ${cm4Clean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${cm4Money(power)}**\n` +
+        `${cm4StatsText(card, character)}\n` +
+        `Selected Rate Up: **${cm4Clean(selected.name)}**\n` +
+        `This character pity: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  await cm4SavePity(i.user.id, selected.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${cm4Clean(selected.name)}**\n` +
+      `Cost: **${cm4Money(cost)} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSecret ? `🔥 SECRET pulled! Pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${cm4Money((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function cm4Handler(i, userId, commandName) {
+  if (commandName === 'banner') return cm4Banner(i);
+  if (commandName === 'pack') return cm4Pack(i);
+  return false;
+}
+// ===== END CLEAN MAKIMA 4TH 24H BANNER PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const cm4Auto = await cm4Autocomplete(i);
+      if (cm4Auto) return;
+    }
+
     if (i.isAutocomplete()) {
       const mkAuto = await mkAutocomplete(i);
       if (mkAuto) return;
@@ -9945,6 +10258,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const cm4Handled = await cm4Handler(i, userId, commandName);
+    if (cm4Handled !== false) return cm4Handled;
 
     const mkHandled = await mkHandler(i, userId, commandName);
     if (mkHandled !== false) return mkHandled;

@@ -13,7 +13,7 @@ const commands = [
         .setRequired(true)
         .addChoices({ name: 'YES', value: 'YES' })
     ),
-  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),,
+  new SlashCommandBuilder().setName('rates').setDescription('Show normal roll rates'),
 
   new SlashCommandBuilder()
     .setName('ascend')
@@ -93,6 +93,19 @@ const commands = [
     .setName('train-info')
     .setDescription('Show train cost by character name')
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('banner')
+    .setDescription('Show current 24h SECRET banner'),
+
+  new SlashCommandBuilder()
+    .setName('pack')
+    .setDescription('Open 10-pull rate-up pack using Tokens')
+    .addStringOption(o =>
+      o.setName('banner')
+        .setDescription('Choose exact featured character')
+        .setRequired(true)
+        .setAutocomplete(true)
+    ),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -177,17 +190,7 @@ const commands = [
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
     .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
 
-  new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
-  new SlashCommandBuilder()
-    .setName('pack')
-    .setDescription('Open 10-pull rate-up pack using Tokens')
-    .addStringOption(o =>
-      o.setName('banner')
-        .setDescription('Choose exact featured character')
-        .setRequired(true)
-        .setAutocomplete(true)
-    ),
-  new SlashCommandBuilder().setName('banner').setDescription('Show current 24h SECRET banner'),
+  new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),,
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
   new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
