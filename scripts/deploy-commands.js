@@ -95,7 +95,7 @@ const commands = [
     .addStringOption(o => o.setName('name').setDescription('Owned character name').setRequired(true)),
   new SlashCommandBuilder()
     .setName('banner')
-    .setDescription('Show current 24h SECRET banner'),
+    .setDescription('Show current SECRET banner'),
 
   new SlashCommandBuilder()
     .setName('pack')
@@ -190,7 +190,7 @@ const commands = [
     .addStringOption(o => o.setName('slot5').setDescription('Character 5').setRequired(false))
     .addStringOption(o => o.setName('slot6').setDescription('Character 6').setRequired(false)),
 
-  new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),,
+  new SlashCommandBuilder().setName('equipment').setDescription('Show equipment'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
   new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
