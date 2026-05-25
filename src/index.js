@@ -11526,214 +11526,216 @@ async function fbHandler(i, userId, commandName) {
 // ===== END FINAL BANNER MEMORY PITY FIX =====
 
 
-// ===== TODAY BANNER PACK FIX =====
-// Fixes /pack hanging by using one clean handler for /banner and /pack.
+// ===== FINAL NO-HANG BANNER PATCH =====
+// Clean standalone /banner + /pack. No wrapper. No reassignment. No recursion.
 // Today only: Aizen + Rimuru Tempest + Makima + 1 random SECRET.
-// Tomorrow/next UTC day: normal 4 random daily SECRET banner.
-// Pity is stored in memory immediately and also saved to user.trait.
+// Tomorrow/UTC reset: all 4 rotate normally.
+// Pity/Pulls updates immediately in memory and also saves to user.trait.
 
-const todayBannerMemory = global.todayBannerMemory || new Map();
-global.todayBannerMemory = todayBannerMemory;
-const todayBannerSpecialDay = Math.floor(Date.now() / 86400000);
+const nhBannerMemory = global.nhBannerMemory || new Map();
+global.nhBannerMemory = nhBannerMemory;
+const nhSpecialDay = Math.floor(Date.now() / 86400000);
 
-function tbfClean(name = '') {
+function nhClean(name = '') {
   return String(name || '')
     .replace(/\s*\([^)]*\)\s*/g, ' ')
     .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
-function tbfMoney(n) {
+function nhMoney(n) {
   if (typeof n === 'bigint') return n.toLocaleString('en-US');
   return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
 }
-function tbfBig(v) {
+function nhBig(v) {
   if (typeof v === 'bigint') return v;
   if (v === null || v === undefined) return 0n;
   try { return BigInt(String(v)); } catch { return 0n; }
 }
-function tbfNum(v) {
+function nhNumber(v) {
   if (typeof v === 'bigint') return Number(v);
   return Number(v || 0);
 }
-function tbfEmoji(r) {
+function nhEmoji(r) {
   return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
 }
-function tbfSafe(v = '') {
+function nhSafe(v = '') {
   return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
-function tbfKey(userId, c) {
-  return `${String(userId)}:${tbfSafe(tbfClean(c?.name || ''))}:${tbfSafe(c?.anime || '')}`;
+function nhPityKey(userId, c) {
+  return `${String(userId)}:${nhSafe(nhClean(c?.name || ''))}:${nhSafe(c?.anime || '')}`;
 }
-function tbfTraitKey(c) {
-  return `TodayPity_${tbfSafe(tbfClean(c?.name || ''))}_${tbfSafe(c?.anime || '')}`;
+function nhTraitKey(c) {
+  return `BannerPulls_${nhSafe(nhClean(c?.name || ''))}_${nhSafe(c?.anime || '')}`;
 }
-function tbfTraitGet(trait = '', key = '') {
+function nhTraitGet(trait = '', key = '') {
   const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
   return m ? Number(m[1] || 0) : null;
 }
-function tbfTraitSet(trait = '', key = '', value = 0) {
+function nhTraitSet(trait = '', key = '', value = 0) {
   const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
   return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
 }
-async function tbfGetPity(userId, c) {
-  const key = tbfKey(userId, c);
-  if (todayBannerMemory.has(key)) return todayBannerMemory.get(key) || 0;
+async function nhGetPity(userId, c) {
+  const key = nhPityKey(userId, c);
+  if (nhBannerMemory.has(key)) return nhBannerMemory.get(key) || 0;
 
   const user = await prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
-  const fromTrait = tbfTraitGet(user?.trait, tbfTraitKey(c));
-  if (fromTrait !== null) {
-    todayBannerMemory.set(key, fromTrait);
-    return fromTrait;
+  const v = nhTraitGet(user?.trait, nhTraitKey(c));
+  if (v !== null) {
+    nhBannerMemory.set(key, v);
+    return v;
   }
   return 0;
 }
-async function tbfSavePity(userId, c, value) {
+async function nhSavePity(userId, c, value) {
   const v = Math.max(0, Number(value || 0));
-  const key = tbfKey(userId, c);
-  todayBannerMemory.set(key, v);
+  nhBannerMemory.set(nhPityKey(userId, c), v);
 
   const user = await prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
   if (user) {
     await prisma.user.update({
       where: { id: String(userId) },
-      data: { trait: tbfTraitSet(user.trait, tbfTraitKey(c), v) }
+      data: { trait: nhTraitSet(user.trait, nhTraitKey(c), v) }
     }).catch(() => null);
   }
 }
-function tbfIsAizen(c) {
-  const n = tbfClean(c?.name || '').toLowerCase();
+function nhIsAizen(c) {
+  const n = nhClean(c?.name || '').toLowerCase();
   const a = String(c?.anime || '').toLowerCase();
   return n.includes('aizen') && a.includes('bleach');
 }
-function tbfIsRimuru(c) {
-  const n = tbfClean(c?.name || '').toLowerCase();
+function nhIsRimuru(c) {
+  const n = nhClean(c?.name || '').toLowerCase();
   return n === 'rimuru tempest' || n.includes('rimuru');
 }
-function tbfIsMakima(c) {
-  return tbfClean(c?.name || '').toLowerCase() === 'makima';
+function nhIsMakima(c) {
+  return nhClean(c?.name || '').toLowerCase() === 'makima';
 }
-async function tbfSecrets() {
+function nhIsBadBanner(c) {
+  const n = nhClean(c?.name || '').toLowerCase();
+  return n.includes('fran madaraki') || n.includes('ikkaku madarame') || n === 'fran' || n.includes('ichigo amano');
+}
+async function nhSecrets() {
   const all = await prisma.character.findMany({
     where: { active: true, rarity: 'SECRET' },
     orderBy: { basePower: 'desc' },
-    take: 1200
+    take: 1500
   }).catch(() => []);
   const seen = new Set();
   const unique = [];
   for (const c of all) {
-    const key = `${tbfClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    const key = `${nhClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(c);
   }
   return unique;
 }
-async function tbfBannerChars() {
-  const pool = await tbfSecrets();
+async function nhBannerChars() {
+  const pool = await nhSecrets();
   if (!pool.length) return [];
 
-  const currentDay = Math.floor(Date.now() / 86400000);
+  const day = Math.floor(Date.now() / 86400000);
 
   // Today only special banner.
-  if (currentDay === todayBannerSpecialDay) {
-    const aizen = pool.find(tbfIsAizen);
-    const rimuru = pool.find(tbfIsRimuru);
-    const makima = pool.find(tbfIsMakima);
+  if (day === nhSpecialDay) {
+    const aizen = pool.find(nhIsAizen);
+    const rimuru = pool.find(nhIsRimuru);
+    const makima = pool.find(nhIsMakima);
 
     const picks = [];
     for (const c of [aizen, rimuru, makima]) {
       if (c && !picks.find(x => x.id === c.id)) picks.push(c);
     }
 
-    // Fourth random is fixed for today.
     const others = pool.filter(c =>
-      !tbfIsAizen(c) &&
-      !tbfIsRimuru(c) &&
-      !tbfIsMakima(c) &&
+      !nhIsAizen(c) &&
+      !nhIsRimuru(c) &&
+      !nhIsMakima(c) &&
+      !nhIsBadBanner(c) &&
       !picks.find(x => x.id === c.id)
     );
-    const idx = (currentDay * 97 + 41) % Math.max(1, others.length);
+
+    const idx = (day * 97 + 41) % Math.max(1, others.length);
     if (others[idx]) picks.push(others[idx]);
 
     let extra = 1;
     while (picks.length < Math.min(4, pool.length)) {
       const c = pool[(idx + extra * 19) % pool.length];
-      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      if (c && !nhIsBadBanner(c) && !picks.find(x => x.id === c.id)) picks.push(c);
       extra++;
-      if (extra > 2000) break;
+      if (extra > 2500) break;
     }
-
     return picks.slice(0, 4);
   }
 
-  // Tomorrow and after: normal daily rotation, all 4 can change.
-  const start = (currentDay * 53 + 97) % pool.length;
+  // Tomorrow and after: all 4 rotate normally.
+  const start = (day * 53 + 97) % pool.length;
   const steps = [0, 37, 79, 131];
   const picks = [];
   for (const step of steps) {
     const c = pool[(start + step) % pool.length];
-    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    if (c && !nhIsBadBanner(c) && !picks.find(x => x.id === c.id)) picks.push(c);
   }
 
   let extra = 1;
   while (picks.length < Math.min(4, pool.length)) {
     const c = pool[(start + extra * 17) % pool.length];
-    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    if (c && !nhIsBadBanner(c) && !picks.find(x => x.id === c.id)) picks.push(c);
     extra++;
-    if (extra > 2000) break;
+    if (extra > 2500) break;
   }
-
   return picks.slice(0, 4);
 }
-function tbfEnds() {
-  const currentDay = Math.floor(Date.now() / 86400000);
-  return Math.floor(((currentDay + 1) * 86400000) / 1000);
+function nhEnds() {
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
 }
-async function tbfChoices() {
-  const picks = await tbfBannerChars();
-  return picks.map(c => ({ name: `Rate Up: ${tbfClean(c.name)}`, value: `tbf:${c.id}` })).slice(0, 25);
+async function nhChoices() {
+  const picks = await nhBannerChars();
+  return picks.map(c => ({ name: `Rate Up: ${nhClean(c.name)}`, value: `nh:${c.id}` })).slice(0, 25);
 }
-async function tbfAutocomplete(i) {
+async function nhAutocomplete(i) {
   if (i.commandName !== 'pack') return false;
   const focused = String(i.options.getFocused() || '').toLowerCase();
-  const choices = await tbfChoices();
+  const choices = await nhChoices();
   const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
   await i.respond(filtered.length ? filtered : choices).catch(() => null);
   return true;
 }
-async function tbfSelected(value) {
-  const choices = await tbfChoices();
-  let id = null;
+async function nhSelected(value) {
+  const choices = await nhChoices();
   const v = String(value || '');
-  if (v.startsWith('tbf:')) id = v.replace('tbf:', '');
+  let id = null;
+  if (v.startsWith('nh:')) id = v.replace('nh:', '');
   else if (v.includes(':')) id = v.split(':').slice(1).join(':');
-  else id = choices[0]?.value?.replace('tbf:', '');
+  else id = choices[0]?.value?.replace('nh:', '');
 
   const c = id ? await prisma.character.findUnique({ where: { id } }).catch(() => null) : null;
   if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
   return null;
 }
-async function tbfPickByRarity(rarity) {
-  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 500 }).catch(() => []);
+async function nhPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 600 }).catch(() => []);
   if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
   return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
 }
-function tbfCardId(prefix = 'pack') {
+function nhCardId(prefix = 'pack') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
 }
-function tbfSerial() {
+function nhSerial() {
   return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
 }
-async function tbfCreateCard(userId, character) {
+async function nhCreateCard(userId, character) {
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
       return await prisma.userCard.create({
         data: {
-          id: tbfCardId('pack'),
-          serial: tbfSerial(),
+          id: nhCardId('pack'),
+          serial: nhSerial(),
           userId: String(userId),
           characterId: String(character.id),
           power: Number(character.basePower || 1000)
@@ -11744,24 +11746,24 @@ async function tbfCreateCard(userId, character) {
     }
   }
 }
-function tbfStatsText(card, c) {
+function nhStatsText(card, c) {
   if (typeof uxStatsText === 'function') return uxStatsText(card, c);
   if (typeof viStatsText === 'function') return viStatsText(card, c);
   if (typeof uiStatsText === 'function') return uiStatsText(card, c);
-  return `Power: **${tbfMoney(card.power || c.basePower || 0)}**`;
+  return `Power: **${nhMoney(card.power || c.basePower || 0)}**`;
 }
-async function tbfBanner(i) {
-  const picks = await tbfBannerChars();
-  const ends = tbfEnds();
-  const currentDay = Math.floor(Date.now() / 86400000);
-  const isTodaySpecial = currentDay === todayBannerSpecialDay;
-
+async function nhBanner(i) {
+  const picks = await nhBannerChars();
+  const ends = nhEnds();
   const lines = [];
+
   for (let idx = 0; idx < picks.length; idx++) {
     const c = picks[idx];
-    const pity = await tbfGetPity(i.user.id, c);
-    lines.push(`${idx + 1}. **${tbfClean(c.name)}** • ${c.anime} • SECRET • Pulls **${pity}/50**`);
+    const pity = await nhGetPity(i.user.id, c);
+    lines.push(`${idx + 1}. **${nhClean(c.name)}** • ${c.anime} • SECRET • Pulls **${pity}/50**`);
   }
+
+  const isToday = Math.floor(Date.now() / 86400000) === nhSpecialDay;
 
   const embed = new EmbedBuilder()
     .setTitle('Daily SECRET Banner')
@@ -11771,7 +11773,7 @@ async function tbfBanner(i) {
       `10 pulls: **4,000 Tokens**\n` +
       `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
       `Ends: <t:${ends}:R>\n` +
-      (isTodaySpecial ? `Today banner: **Aizen + Rimuru + Makima + 1 random**. Tomorrow all 4 rotate.\n` : ``) +
+      (isToday ? `Today only: **Aizen + Rimuru + Makima + 1 random**. Tomorrow all 4 rotate.\n` : ``) +
       `\n` +
       (lines.length ? lines.join('\n') : 'No SECRET characters found.')
     )
@@ -11780,21 +11782,19 @@ async function tbfBanner(i) {
   if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
   return i.reply({ embeds: [embed] });
 }
-async function tbfUpdateTokens(userId, currentTokens, cost) {
-  const tokensBig = tbfBig(currentTokens);
-  const costBig = BigInt(cost);
-  const newTokensBig = tokensBig - costBig;
+async function nhUpdateTokens(userId, currentTokens, cost) {
+  const current = nhBig(currentTokens);
+  const newTokens = current - BigInt(cost);
 
-  // Try absolute BigInt then absolute Number then decrement Number.
   let updated = await prisma.user.update({
     where: { id: String(userId) },
-    data: { tokens: newTokensBig }
+    data: { tokens: newTokens }
   }).catch(() => null);
 
   if (!updated) {
     updated = await prisma.user.update({
       where: { id: String(userId) },
-      data: { tokens: tbfNum(newTokensBig) }
+      data: { tokens: nhNumber(newTokens) }
     }).catch(() => null);
   }
 
@@ -11805,28 +11805,26 @@ async function tbfUpdateTokens(userId, currentTokens, cost) {
     }).catch(() => null);
   }
 
-  return { updated, newTokensBig };
+  return { updated, newTokens };
 }
-async function tbfPack(i) {
+async function nhPack(i) {
   if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
 
-  const selected = await tbfSelected(i.options.getString('banner', true));
+  const selected = await nhSelected(i.options.getString('banner', true));
   if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
 
   const user = await prisma.user.findUnique({ where: { id: String(i.user.id) } });
   const cost = 4000;
-  const tokensBig = tbfBig(user?.tokens || 0);
+  const tokens = nhBig(user?.tokens || 0);
 
-  if (tokensBig < BigInt(cost)) {
-    return i.editReply(`You need **${tbfMoney(cost)} Tokens** for 10 pulls.\nYou have **${tbfMoney(tokensBig)} Tokens**.`);
+  if (tokens < BigInt(cost)) {
+    return i.editReply(`You need **${nhMoney(cost)} Tokens** for 10 pulls.\nYou have **${nhMoney(tokens)} Tokens**.`);
   }
 
-  const tokenResult = await tbfUpdateTokens(i.user.id, user?.tokens || 0, cost);
-  if (!tokenResult.updated) {
-    return i.editReply('Pack failed: could not update Tokens.');
-  }
+  const tokenResult = await nhUpdateTokens(i.user.id, user?.tokens || 0, cost);
+  if (!tokenResult.updated) return i.editReply('Pack failed: could not update Tokens.');
 
-  let pity = await tbfGetPity(i.user.id, selected);
+  let pity = await nhGetPity(i.user.id, selected);
   const before = pity;
 
   const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
@@ -11857,24 +11855,24 @@ async function tbfPack(i) {
       gotSelectedSecret = true;
       pity = 0;
     } else {
-      character = await tbfPickByRarity(rarities[n]);
+      character = await nhPickByRarity(rarities[n]);
     }
 
     if (!character) continue;
 
-    const card = await tbfCreateCard(i.user.id, character);
+    const card = await nhCreateCard(i.user.id, character);
     const power = Number(card.power || character.basePower || 0);
 
-    lines.push(`${n + 1}. ${tbfEmoji(character.rarity)} **${tbfClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${tbfMoney(power)}`);
+    lines.push(`${n + 1}. ${nhEmoji(character.rarity)} **${nhClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${nhMoney(power)}`);
 
     const embed = new EmbedBuilder()
-      .setTitle(`${n + 1}. ${tbfEmoji(character.rarity)} ${tbfClean(character.name)}`)
+      .setTitle(`${n + 1}. ${nhEmoji(character.rarity)} ${nhClean(character.name)}`)
       .setDescription(
         `Anime: **${character.anime}**\n` +
         `Rarity: **${character.rarity}**\n` +
-        `Power: **${tbfMoney(power)}**\n` +
-        `${tbfStatsText(card, character)}\n` +
-        `Selected Rate Up: **${tbfClean(selected.name)}**\n` +
+        `Power: **${nhMoney(power)}**\n` +
+        `${nhStatsText(card, character)}\n` +
+        `Selected Rate Up: **${nhClean(selected.name)}**\n` +
         `Banner pulls: **${pity}/50**` +
         (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
       )
@@ -11884,158 +11882,24 @@ async function tbfPack(i) {
     embeds.push(embed);
   }
 
-  await tbfSavePity(i.user.id, selected, pity);
+  await nhSavePity(i.user.id, selected, pity);
 
   return i.editReply({
-    content: (`**PACK x10**\nSelected Rate Up: **${tbfClean(selected.name)}**\nCost: **${tbfMoney(cost)} Tokens**\nBanner pulls: **${before}/50 → ${pity}/50**\n${gotSelectedSecret ? '🔥 SECRET pulled! Pity reset.\n' : ''}\n${lines.join('\n')}\n\nTokens left: **${tbfMoney(tokenResult.newTokensBig)}**`).slice(0, 1900),
+    content: (`**PACK x10**\nSelected Rate Up: **${nhClean(selected.name)}**\nCost: **${nhMoney(cost)} Tokens**\nBanner pulls: **${before}/50 → ${pity}/50**\n${gotSelectedSecret ? '🔥 SECRET pulled! Pity reset.\n' : ''}\n${lines.join('\n')}\n\nTokens left: **${nhMoney(tokenResult.newTokens)}**`).slice(0, 1900),
     embeds: embeds.slice(0, 10)
   });
 }
-async function tbfHandler(i, userId, commandName) {
-  if (commandName === 'banner') return tbfBanner(i);
-  if (commandName === 'pack') return tbfPack(i);
+async function nhHandler(i, userId, commandName) {
+  if (commandName === 'banner') return nhBanner(i);
+  if (commandName === 'pack') return nhPack(i);
   return false;
 }
-// ===== END TODAY BANNER PACK FIX =====
-
-
-// ===== REPLACE FRAN WITH RIMURU IN TODAY BANNER PATCH =====
-// Keeps the working banner/pity system.
-// Today banner becomes: Kurisu/Aizen/Rimuru/Makima or existing 1st/2nd/Rimuru/Makima.
-// Removes Fran Madaraki from the featured list.
-// Tomorrow/UTC reset still rotates normally if the active system supports daily rotation.
-
-function rfrClean(name = '') {
-  return String(name || '')
-    .replace(/\s*\([^)]*\)\s*/g, ' ')
-    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-function rfrIsFran(c) {
-  const n = rfrClean(c?.name || '').toLowerCase();
-  return n === 'fran madaraki' || n.includes('fran madaraki') || n === 'fran';
-}
-function rfrIsRimuru(c) {
-  const n = rfrClean(c?.name || '').toLowerCase();
-  return n === 'rimuru tempest' || n.includes('rimuru');
-}
-async function rfrSecretPool() {
-  const all = await prisma.character.findMany({
-    where: { active: true, rarity: 'SECRET' },
-    orderBy: { basePower: 'desc' },
-    take: 1200
-  }).catch(() => []);
-
-  const seen = new Set();
-  const unique = [];
-  for (const c of all) {
-    const key = `${rfrClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(c);
-  }
-  return unique;
-}
-async function rfrBannerChars() {
-  const pool = await rfrSecretPool();
-  if (!pool.length) return [];
-
-  let base = [];
-
-  // Prefer the currently working today banner function.
-  if (typeof tbfBannerChars === 'function') {
-    base = await tbfBannerChars().catch(() => []);
-  } else if (typeof fbBannerChars === 'function') {
-    base = await fbBannerChars().catch(() => []);
-  } else if (typeof brvBannerChars === 'function') {
-    base = await brvBannerChars().catch(() => []);
-  }
-
-  if (!base.length) {
-    const day = Math.floor(Date.now() / 86400000);
-    const start = (day * 53 + 97) % pool.length;
-    const steps = [0, 37, 79, 131];
-    for (const step of steps) {
-      const c = pool[(start + step) % pool.length];
-      if (c && !base.find(x => x.id === c.id)) base.push(c);
-    }
-  }
-
-  const rimuru = pool.find(rfrIsRimuru);
-  const franIndex = base.findIndex(rfrIsFran);
-
-  let final = base.filter(c => !rfrIsFran(c) && !rfrIsRimuru(c));
-
-  // Put Rimuru exactly where Fran was. If Fran is not found, put Rimuru as the 3rd character.
-  if (rimuru) {
-    const insertAt = franIndex >= 0 ? Math.min(franIndex, final.length) : Math.min(2, final.length);
-    final.splice(insertAt, 0, rimuru);
-  }
-
-  let extra = 1;
-  while (final.length < Math.min(4, pool.length)) {
-    const c = pool[(extra * 31) % pool.length];
-    if (c && !rfrIsFran(c) && !final.find(x => x.id === c.id)) final.push(c);
-    extra++;
-    if (extra > 2000) break;
-  }
-
-  return final.slice(0, 4);
-}
-async function rfrAutocomplete(i) {
-  if (i.commandName !== 'pack') return false;
-
-  const picks = await rfrBannerChars();
-  const focused = String(i.options.getFocused() || '').toLowerCase();
-  const choices = picks.map(c => ({
-    name: `Rate Up: ${rfrClean(c.name)}`,
-    value: `tbf:${c.id}`
-  })).slice(0, 25);
-
-  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused));
-  await i.respond(filtered.length ? filtered : choices).catch(() => null);
-  return true;
-}
-async function rfrHandler(i, userId, commandName) {
-  // Safest method: override the picker used by the currently working system, then call the original handler.
-  if (commandName === 'banner') {
-    if (typeof tbfBannerChars === 'function' && typeof tbfBanner === 'function') {
-      tbfBannerChars = rfrBannerChars;
-      return tbfBanner(i);
-    }
-    if (typeof fbBannerChars === 'function' && typeof fbBanner === 'function') {
-      fbBannerChars = rfrBannerChars;
-      return fbBanner(i);
-    }
-  }
-
-  if (commandName === 'pack') {
-    if (typeof tbfBannerChars === 'function' && typeof tbfPack === 'function') {
-      tbfBannerChars = rfrBannerChars;
-      return tbfPack(i);
-    }
-    if (typeof fbBannerChars === 'function' && typeof fbPack === 'function') {
-      fbBannerChars = rfrBannerChars;
-      return fbPack(i);
-    }
-  }
-
-  return false;
-}
-// ===== END REPLACE FRAN WITH RIMURU IN TODAY BANNER PATCH =====
-
-
+// ===== END FINAL NO-HANG BANNER PATCH =====
 
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
-      const rfrAuto = await rfrAutocomplete(i);
-      if (rfrAuto) return;
-    }
-
-    if (i.isAutocomplete()) {
-      const tbfAuto = await tbfAutocomplete(i);
-      if (tbfAuto) return;
+      const nhAuto = await nhAutocomplete(i);
+      if (nhAuto) return;
     }
 
     if (i.isAutocomplete()) {
@@ -12266,11 +12130,8 @@ client.on('interactionCreate', async (i) => {
     const userId = i.user.id;
     const commandName = i.commandName;
 
-    const rfrHandled = await rfrHandler(i, userId, commandName);
-    if (rfrHandled !== false) return rfrHandled;
-
-    const tbfHandled = await tbfHandler(i, userId, commandName);
-    if (tbfHandled !== false) return tbfHandled;
+    const nhHandled = await nhHandler(i, userId, commandName);
+    if (nhHandled !== false) return nhHandled;
 
     const fbHandled = await fbHandler(i, userId, commandName);
     if (fbHandled !== false) return fbHandled;
