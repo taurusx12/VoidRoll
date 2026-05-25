@@ -12016,6 +12016,102 @@ async function fpsHandler(i, userId, commandName) {
 }
 // ===== END FORMATION POWER SYNC WITH INVENTORY PATCH =====
 
+
+// ===== FORMATIONS PLURAL POWER SYNC PATCH =====
+// Fixes /formations specifically.
+// The old command was showing stale PWR from base character data.
+// This override reads userCard.power directly from inventory for every card.
+// It displays 6 formations max, 6 characters each, strongest to weakest.
+
+function fplMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function fplClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function fplEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function fplRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function fplLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function fplStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function fplStarsShort(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return stars > 0 ? ` • ${'★'.repeat(stars)}` : '';
+}
+async function fplOwnedSorted(userId, take = 36) {
+  // IMPORTANT: source of truth is userCard.power, same as inventory.
+  return prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take
+  }).catch(() => []);
+}
+async function fplFormations(i) {
+  const target = i.options.getUser?.('user') || i.user;
+  const cards = await fplOwnedSorted(target.id, 36);
+
+  if (!cards.length) {
+    return i.reply(`${target.id === i.user.id ? 'You do' : `${target.username} does`} not have any cards yet.`);
+  }
+
+  const chunks = [];
+  for (let x = 0; x < cards.length; x += 6) chunks.push(cards.slice(x, x + 6));
+  const maxFormations = Math.min(6, chunks.length);
+
+  const sections = [];
+  for (let f = 0; f < maxFormations; f++) {
+    const group = chunks[f];
+    const total = group.reduce((s, card) => s + Number(card.power || 0), 0);
+
+    const lines = group.map((card, idx) => {
+      const c = card.character || {};
+      const p = Number(card.power || c.basePower || 0);
+      const lv = fplLevel(card);
+      const st = fplStars(card);
+      return `${idx + 1}. ${fplEmoji(c.rarity)} **${fplClean(c.name)}** • PWR **${fplMoney(p)}** • Lv **${lv}**${fplStarsShort(st)} • ${fplRole(c)}`;
+    }).join('\n');
+
+    sections.push(`**Formation ${f + 1}** — Total PWR **${fplMoney(total)}**\n${lines}`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(target.id === i.user.id ? 'Your Formations' : `${target.username}'s Formations`)
+    .setDescription(
+      `6 formations max • each formation has 6 characters.\n` +
+      `Synced with **Inventory power** / upgraded userCard.power.\n\n` +
+      sections.join('\n\n')
+    )
+    .setColor(0x5865f2);
+
+  const top = cards[0]?.character;
+  if (top?.imageUrl) embed.setThumbnail(top.imageUrl);
+
+  return i.reply({ embeds: [embed] });
+}
+async function fplHandler(i, userId, commandName) {
+  if (commandName === 'formations') return fplFormations(i);
+  if (commandName === 'formation-list') return fplFormations(i);
+  return false;
+}
+// ===== END FORMATIONS PLURAL POWER SYNC PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const nhAuto = await nhAutocomplete(i);
@@ -12249,6 +12345,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const fplHandled = await fplHandler(i, userId, commandName);
+    if (fplHandled !== false) return fplHandled;
 
     const fpsHandled = await fpsHandler(i, userId, commandName);
     if (fpsHandled !== false) return fpsHandled;

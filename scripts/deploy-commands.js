@@ -115,6 +115,15 @@ const commands = [
     .setName('formation-refresh')
     .setDescription('Refresh formation power from inventory')
     .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('formations')
+    .setDescription('Show 6 synced formations from inventory power')
+    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('formation-list')
+    .setDescription('Show synced formation list from inventory power')
+    .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
@@ -182,11 +191,6 @@ const commands = [
     .setName('autoteam')
     .setDescription('Automatically equip strongest formations')
     .addIntegerOption(o => o.setName('formations').setDescription('Formations 1-6').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('formations')
-    .setDescription('Show formations')
-    .addIntegerOption(o => o.setName('count').setDescription('Formations 1-6').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('formation-set')
