@@ -12112,6 +12112,144 @@ async function fplHandler(i, userId, commandName) {
 }
 // ===== END FORMATIONS PLURAL POWER SYNC PATCH =====
 
+
+// ===== GIVE CHARACTER FROM INVENTORY PATCH =====
+// Adds /give-character user:@player name:Character
+// Transfers one owned card from your inventory to another player.
+// No ID needed: it gives your strongest matching copy by name.
+// It does not create/delete cards; it only changes userCard.userId.
+
+function gcClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function gcNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function gcMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function gcEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function gcLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function gcStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function gcStarsText(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return stars > 0 ? '★'.repeat(stars) : '0';
+}
+function gcRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+async function gcFindOwnedCard(userId, query) {
+  const tokens = gcNorm(query).split(/\s+/).filter(Boolean);
+
+  const cards = await prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take: 100000
+  }).catch(() => []);
+
+  const scored = cards.map(card => {
+    const c = card.character || {};
+    const cleanName = gcNorm(gcClean(c.name || ''));
+    const rawName = gcNorm(c.name || '');
+    const anime = gcNorm(c.anime || '');
+    const full = `${cleanName} ${rawName} ${anime}`;
+
+    let score = 0;
+    for (const t of tokens) {
+      if (cleanName.includes(t)) score += 100;
+      if (rawName.includes(t)) score += 80;
+      if (anime.includes(t)) score += 20;
+      if (full.includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 200;
+    if (cleanName === gcNorm(query)) score += 400;
+
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
+
+  return scored[0]?.card || null;
+}
+async function gcGiveCharacter(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const target = i.options.getUser('user', true);
+  const name = i.options.getString('name', true);
+
+  if (!target || target.bot) {
+    return i.editReply('You cannot give characters to a bot.');
+  }
+
+  if (target.id === i.user.id) {
+    return i.editReply('You cannot give a character to yourself.');
+  }
+
+  const card = await gcFindOwnedCard(i.user.id, name);
+
+  if (!card) {
+    return i.editReply(
+      `I could not find **${name}** in your inventory.\n` +
+      `Use \`/inventory\` to check the exact character name.`
+    );
+  }
+
+  const c = card.character || {};
+  const power = Number(card.power || c.basePower || 0);
+  const level = gcLevel(card);
+  const stars = gcStars(card);
+
+  // Transfer ownership only. Keep same id, serial, power, level, trait, stars.
+  const updated = await prisma.userCard.update({
+    where: { id: card.id },
+    data: { userId: String(target.id) }
+  }).catch(() => null);
+
+  if (!updated) {
+    return i.editReply('Transfer failed. Could not update the card owner.');
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Character Gift Complete')
+    .setDescription(
+      `${i.user} gave ${target}:\n\n` +
+      `${gcEmoji(c.rarity)} **${gcClean(c.name)}**\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${gcMoney(power)}**\n` +
+      `Level: **${level}/99**\n` +
+      `Stars: **${gcStarsText(stars)}**\n` +
+      `Role: **${gcRole(c)}**\n\n` +
+      `The card was moved from your inventory to ${target}'s inventory.`
+    )
+    .setColor(0x2ecc71);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function gcHandler(i, userId, commandName) {
+  if (commandName === 'give-character') return gcGiveCharacter(i);
+  if (commandName === 'gift-character') return gcGiveCharacter(i);
+  return false;
+}
+// ===== END GIVE CHARACTER FROM INVENTORY PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const nhAuto = await nhAutocomplete(i);
@@ -12345,6 +12483,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const gcHandled = await gcHandler(i, userId, commandName);
+    if (gcHandled !== false) return gcHandled;
 
     const fplHandled = await fplHandler(i, userId, commandName);
     if (fplHandled !== false) return fplHandled;

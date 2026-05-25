@@ -124,6 +124,17 @@ const commands = [
     .setName('formation-list')
     .setDescription('Show synced formation list from inventory power')
     .addUserOption(o => o.setName('user').setDescription('Optional player').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('give-character')
+    .setDescription('Give one character from your inventory to another player')
+    .addUserOption(o => o.setName('user').setDescription('Player who receives the character').setRequired(true))
+    .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('gift-character')
+    .setDescription('Gift one character from your inventory to another player')
+    .addUserOption(o => o.setName('user').setDescription('Player who receives the character').setRequired(true))
+    .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true)),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),
