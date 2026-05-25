@@ -10055,7 +10055,281 @@ async function cm4Handler(i, userId, commandName) {
 }
 // ===== END CLEAN MAKIMA 4TH 24H BANNER PATCH =====
 
+
+// ===== BANNER PITY SYNC FIX PATCH =====
+// Forces /banner and /pack to use the same per-character pity storage.
+// When player opens /pack, the selected character pity increases by 10,
+// or resets to 0 if the selected SECRET is pulled.
+
+function bpsMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function bpsClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function bpsEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function bpsPityKey(characterId) {
+  return `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+function bpsTraitGet(trait = '', key = '') {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : 0;
+}
+function bpsTraitSet(trait = '', key = '', value = 0) {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+async function bpsGetPity(userId, characterId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  return bpsTraitGet(user?.trait, bpsPityKey(characterId));
+}
+async function bpsSavePity(userId, characterId, value) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  if (!user) return;
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trait: bpsTraitSet(user.trait, bpsPityKey(characterId), value) }
+  }).catch(() => null);
+}
+async function bpsBannerChars() {
+  if (typeof cm4BannerChars === 'function') return cm4BannerChars();
+  if (typeof mkBannerChars === 'function') return mkBannerChars();
+  if (typeof brDailySecrets === 'function') return brDailySecrets();
+  if (typeof psDailySecrets === 'function') return psDailySecrets();
+
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 600
+  }).catch(() => []);
+
+  const seen = new Set();
+  const unique = [];
+  for (const c of all) {
+    const key = `${bpsClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+
+  const day = Math.floor(Date.now() / 86400000);
+  const start = (day * 53 + 97) % Math.max(1, unique.length);
+  const steps = [0, 37, 79, 131];
+  const picks = [];
+  for (const step of steps) {
+    const c = unique[(start + step) % unique.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+  }
+  return picks.slice(0, 4);
+}
+function bpsEnds() {
+  if (typeof cm4Ends === 'function') return cm4Ends();
+  if (typeof mkBannerEnds === 'function') return mkBannerEnds();
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
+}
+async function bpsChoices() {
+  const picks = await bpsBannerChars();
+  return picks.map(c => ({
+    name: `Rate Up: ${bpsClean(c.name)}`,
+    value: `bps:${c.id}`
+  })).slice(0, 25);
+}
+async function bpsAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await bpsChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+async function bpsSelected(value) {
+  const choices = await bpsChoices();
+  let id = null;
+  const v = String(value || '');
+  if (v.startsWith('bps:')) id = v.replace('bps:', '');
+  else if (v.startsWith('cm4:')) id = v.replace('cm4:', '');
+  else if (v.startsWith('featured:')) id = v.replace('featured:', '');
+  else if (v.startsWith('mb:')) id = v.replace('mb:', '');
+  else if (v.startsWith('br:')) id = v.replace('br:', '');
+  else if (v.startsWith('ps:')) id = v.replace('ps:', '');
+  else if (v.startsWith('ul:')) id = v.replace('ul:', '');
+  else id = choices[0]?.value?.replace('bps:', '');
+  if (!id) return null;
+  const c = await prisma.character.findUnique({ where: { id } }).catch(() => null);
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function bpsPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 500 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+function bpsId(prefix = 'pack') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function bpsSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function bpsCreateCard(userId, character) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: bpsId('pack'),
+          serial: bpsSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
+}
+function bpsStatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof viStatsText === 'function') return viStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+  return `Power: **${bpsMoney(card.power || c.basePower || 0)}**`;
+}
+async function bpsBanner(i) {
+  const picks = await bpsBannerChars();
+  const ends = bpsEnds();
+
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await bpsGetPity(i.user.id, c.id);
+    lines.push(`${idx + 1}. **${bpsClean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function bpsPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await bpsSelected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+
+  if ((user?.tokens || 0) < cost) {
+    return i.editReply(`You need **${bpsMoney(cost)} Tokens** for 10 pulls.\nYou have **${bpsMoney(user?.tokens || 0)} Tokens**.`);
+  }
+
+  await prisma.user.update({
+    where: { id: i.user.id },
+    data: { tokens: { decrement: cost } }
+  }).catch(() => null);
+
+  let pity = await bpsGetPity(i.user.id, selected.id);
+  const before = pity;
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) {
+      secretIndex = hard ? 9 : idx;
+      break;
+    }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSelectedSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSelectedSecret = true;
+      pity = 0;
+    } else {
+      character = await bpsPickByRarity(rarities[n]);
+    }
+
+    if (!character) continue;
+    const card = await bpsCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+
+    lines.push(`${n + 1}. ${bpsEmoji(character.rarity)} **${bpsClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${bpsMoney(power)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${bpsEmoji(character.rarity)} ${bpsClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${bpsMoney(power)}**\n` +
+        `${bpsStatsText(card, character)}\n` +
+        `Selected Rate Up: **${bpsClean(selected.name)}**\n` +
+        `This character pity: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  // This is the important sync: save immediately after opening the banner pack.
+  await bpsSavePity(i.user.id, selected.id, pity);
+
+  return i.editReply({
+    content:
+      (`**PACK x10**\n` +
+      `Selected Rate Up: **${bpsClean(selected.name)}**\n` +
+      `Cost: **${bpsMoney(cost)} Tokens**\n` +
+      `This character pity: **${before}/50 → ${pity}/50**\n` +
+      (gotSelectedSecret ? `🔥 SECRET pulled! Pity reset.\n` : ``) +
+      `\n${lines.join('\n')}\n\n` +
+      `Tokens left: **${bpsMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function bpsHandler(i, userId, commandName) {
+  if (commandName === 'banner') return bpsBanner(i);
+  if (commandName === 'pack') return bpsPack(i);
+  return false;
+}
+// ===== END BANNER PITY SYNC FIX PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const bpsAuto = await bpsAutocomplete(i);
+      if (bpsAuto) return;
+    }
+
     if (i.isAutocomplete()) {
       const cm4Auto = await cm4Autocomplete(i);
       if (cm4Auto) return;
@@ -10258,6 +10532,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const bpsHandled = await bpsHandler(i, userId, commandName);
+    if (bpsHandled !== false) return bpsHandled;
 
     const cm4Handled = await cm4Handler(i, userId, commandName);
     if (cm4Handled !== false) return cm4Handled;
