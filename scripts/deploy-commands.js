@@ -135,6 +135,31 @@ const commands = [
     .setDescription('Gift one character from your inventory to another player')
     .addUserOption(o => o.setName('user').setDescription('Player who receives the character').setRequired(true))
     .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('trade-offer')
+    .setDescription('Offer a character to another player for Tokens')
+    .addUserOption(o => o.setName('user').setDescription('Buyer').setRequired(true))
+    .addStringOption(o => o.setName('name').setDescription('Character name from your inventory').setRequired(true))
+    .addIntegerOption(o => o.setName('tokens').setDescription('Token price').setRequired(true).setMinValue(1)),
+
+  new SlashCommandBuilder()
+    .setName('trade-accept')
+    .setDescription('Accept a pending trade')
+    .addStringOption(o => o.setName('trade_id').setDescription('Trade ID').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('trade-decline')
+    .setDescription('Decline a pending trade')
+    .addStringOption(o => o.setName('trade_id').setDescription('Trade ID').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('trade-cancel')
+    .setDescription('Cancel a pending trade')
+    .addStringOption(o => o.setName('trade_id').setDescription('Trade ID').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('trades')
+    .setDescription('Show your pending trades'),
   new SlashCommandBuilder().setName('characters-count').setDescription('Show active character count'),
   new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
   new SlashCommandBuilder().setName('level').setDescription('Show your level and XP'),

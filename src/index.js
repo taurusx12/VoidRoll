@@ -12250,6 +12250,326 @@ async function gcHandler(i, userId, commandName) {
 }
 // ===== END GIVE CHARACTER FROM INVENTORY PATCH =====
 
+
+// ===== TRADE CHARACTER FOR TOKENS PATCH =====
+// Adds safe two-party trade:
+// /trade-offer user:@buyer name:Gojo tokens:5000
+// Buyer must accept with /trade-accept trade_id:...
+// Buyer can decline with /trade-decline trade_id:...
+// Seller gives one owned card, buyer pays Tokens.
+// Transfer is atomic-ish: checks ownership and tokens again at accept time.
+// No ID needed for character names.
+
+const tradeMemory = global.tradeMemory || new Map();
+global.tradeMemory = tradeMemory;
+
+function trClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function trNorm(v = '') {
+  return String(v || '').toLowerCase().replace(/[().\-_:\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function trMoney(n) {
+  if (typeof n === 'bigint') return n.toLocaleString('en-US');
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function trBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined) return 0n;
+  try { return BigInt(String(v)); } catch { return 0n; }
+}
+function trNum(v) {
+  if (typeof v === 'bigint') return Number(v);
+  return Number(v || 0);
+}
+function trEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function trLevel(card) {
+  const m = String(card?.trait || '').match(/Level:(\d+)/i);
+  return Math.max(1, Math.min(99, Number(card?.level || (m ? m[1] : 1) || 1)));
+}
+function trStars(card) {
+  const m = String(card?.trait || '').match(/Stars:(\d+)/i);
+  return Math.max(0, Math.min(10, Number(m ? m[1] : 0)));
+}
+function trStarsText(stars) {
+  stars = Math.max(0, Math.min(10, Number(stars || 0)));
+  return stars > 0 ? '★'.repeat(stars) : '0';
+}
+function trRole(c) {
+  if (typeof uxRole === 'function') return uxRole(c);
+  if (typeof viRole === 'function') return viRole(c);
+  if (typeof uiRole === 'function') return uiRole(c);
+  return 'DPS';
+}
+function trId() {
+  return `trade_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+async function trFindOwnedCard(userId, query) {
+  const tokens = trNorm(query).split(/\s+/).filter(Boolean);
+  const cards = await prisma.userCard.findMany({
+    where: { userId: String(userId) },
+    include: { character: true },
+    orderBy: [{ power: 'desc' }, { id: 'desc' }],
+    take: 100000
+  }).catch(() => []);
+
+  const scored = cards.map(card => {
+    const c = card.character || {};
+    const cleanName = trNorm(trClean(c.name || ''));
+    const rawName = trNorm(c.name || '');
+    const anime = trNorm(c.anime || '');
+    const full = `${cleanName} ${rawName} ${anime}`;
+
+    let score = 0;
+    for (const t of tokens) {
+      if (cleanName.includes(t)) score += 100;
+      if (rawName.includes(t)) score += 80;
+      if (anime.includes(t)) score += 20;
+      if (full.includes(t)) score += 30;
+    }
+    if (tokens.length && tokens.every(t => full.includes(t))) score += 200;
+    if (cleanName === trNorm(query)) score += 400;
+
+    return { card, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0));
+
+  return scored[0]?.card || null;
+}
+function trExpired(trade) {
+  return !trade || Date.now() > Number(trade.expiresAt || 0);
+}
+async function trUpdateTokensAbsolute(userId, newTokensBig) {
+  let updated = await prisma.user.update({
+    where: { id: String(userId) },
+    data: { tokens: newTokensBig }
+  }).catch(() => null);
+
+  if (!updated) {
+    updated = await prisma.user.update({
+      where: { id: String(userId) },
+      data: { tokens: trNum(newTokensBig) }
+    }).catch(() => null);
+  }
+
+  return updated;
+}
+async function trOffer(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const buyer = i.options.getUser('user', true);
+  const name = i.options.getString('name', true);
+  const tokensPrice = i.options.getInteger('tokens', true);
+
+  if (!buyer || buyer.bot) return i.editReply('You cannot trade with a bot.');
+  if (buyer.id === i.user.id) return i.editReply('You cannot trade with yourself.');
+  if (tokensPrice <= 0) return i.editReply('Token amount must be higher than 0.');
+
+  const card = await trFindOwnedCard(i.user.id, name);
+  if (!card) {
+    return i.editReply(`I could not find **${name}** in your inventory.`);
+  }
+
+  const c = card.character || {};
+  const power = Number(card.power || c.basePower || 0);
+  const tradeId = trId();
+
+  const trade = {
+    id: tradeId,
+    sellerId: String(i.user.id),
+    buyerId: String(buyer.id),
+    cardId: String(card.id),
+    characterId: String(card.characterId),
+    price: String(tokensPrice),
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+
+  tradeMemory.set(tradeId, trade);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Offer Created')
+    .setDescription(
+      `${i.user} wants to sell this character to ${buyer}:\n\n` +
+      `${trEmoji(c.rarity)} **${trClean(c.name)}**\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${trMoney(power)}**\n` +
+      `Level: **${trLevel(card)}/99**\n` +
+      `Stars: **${trStarsText(trStars(card))}**\n` +
+      `Role: **${trRole(c)}**\n\n` +
+      `Price: **${trMoney(tokensPrice)} Tokens**\n` +
+      `Trade ID: \`${tradeId}\`\n` +
+      `Expires: <t:${Math.floor(trade.expiresAt / 1000)}:R>\n\n` +
+      `${buyer}, accept with:\n` +
+      `\`/trade-accept trade_id:${tradeId}\`\n\n` +
+      `Or decline with:\n` +
+      `\`/trade-decline trade_id:${tradeId}\``
+    )
+    .setColor(0xf1c40f);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function trAccept(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const tradeId = i.options.getString('trade_id', true);
+  const trade = tradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (trExpired(trade)) {
+    tradeMemory.delete(tradeId);
+    return i.editReply('This trade expired.');
+  }
+  if (String(i.user.id) !== String(trade.buyerId)) {
+    return i.editReply('Only the buyer can accept this trade.');
+  }
+
+  const card = await prisma.userCard.findUnique({
+    where: { id: trade.cardId },
+    include: { character: true }
+  }).catch(() => null);
+
+  if (!card) {
+    tradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: the character card no longer exists.');
+  }
+
+  if (String(card.userId) !== String(trade.sellerId)) {
+    tradeMemory.delete(tradeId);
+    return i.editReply('Trade failed: seller no longer owns this character.');
+  }
+
+  const buyer = await prisma.user.findUnique({ where: { id: String(trade.buyerId) } }).catch(() => null);
+  const seller = await prisma.user.findUnique({ where: { id: String(trade.sellerId) } }).catch(() => null);
+
+  const price = trBig(trade.price);
+  const buyerTokens = trBig(buyer?.tokens || 0);
+  const sellerTokens = trBig(seller?.tokens || 0);
+
+  if (buyerTokens < price) {
+    return i.editReply(`You do not have enough Tokens. Need **${trMoney(price)}**, you have **${trMoney(buyerTokens)}**.`);
+  }
+
+  const newBuyerTokens = buyerTokens - price;
+  const newSellerTokens = sellerTokens + price;
+
+  const buyerUpdated = await trUpdateTokensAbsolute(trade.buyerId, newBuyerTokens);
+  if (!buyerUpdated) return i.editReply('Trade failed: could not remove Tokens from buyer.');
+
+  const sellerUpdated = await trUpdateTokensAbsolute(trade.sellerId, newSellerTokens);
+  if (!sellerUpdated) {
+    // Attempt rollback buyer tokens if seller update failed.
+    await trUpdateTokensAbsolute(trade.buyerId, buyerTokens).catch(() => null);
+    return i.editReply('Trade failed: could not add Tokens to seller. Buyer Tokens rollback attempted.');
+  }
+
+  const cardMoved = await prisma.userCard.update({
+    where: { id: trade.cardId },
+    data: { userId: String(trade.buyerId) }
+  }).catch(() => null);
+
+  if (!cardMoved) {
+    // Attempt rollback tokens if card move failed.
+    await trUpdateTokensAbsolute(trade.buyerId, buyerTokens).catch(() => null);
+    await trUpdateTokensAbsolute(trade.sellerId, sellerTokens).catch(() => null);
+    return i.editReply('Trade failed: could not move character. Token rollback attempted.');
+  }
+
+  tradeMemory.delete(tradeId);
+
+  const c = card.character || {};
+  const power = Number(card.power || c.basePower || 0);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Trade Completed')
+    .setDescription(
+      `<@${trade.buyerId}> bought from <@${trade.sellerId}>:\n\n` +
+      `${trEmoji(c.rarity)} **${trClean(c.name)}**\n` +
+      `Anime: **${c.anime}**\n` +
+      `Rarity: **${c.rarity}**\n` +
+      `Power: **${trMoney(power)}**\n` +
+      `Level: **${trLevel(card)}/99**\n` +
+      `Stars: **${trStarsText(trStars(card))}**\n\n` +
+      `Price paid: **${trMoney(price)} Tokens**\n` +
+      `Buyer Tokens left: **${trMoney(newBuyerTokens)}**`
+    )
+    .setColor(0x2ecc71);
+
+  if (c.imageUrl) embed.setImage(c.imageUrl);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function trDecline(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const tradeId = i.options.getString('trade_id', true);
+  const trade = tradeMemory.get(tradeId);
+
+  if (!trade) return i.editReply('Trade not found or already completed.');
+  if (String(i.user.id) !== String(trade.buyerId) && String(i.user.id) !== String(trade.sellerId)) {
+    return i.editReply('Only the buyer or seller can decline/cancel this trade.');
+  }
+
+  tradeMemory.delete(tradeId);
+
+  return i.editReply(`Trade \`${tradeId}\` has been cancelled.`);
+}
+async function trList(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const now = Date.now();
+  const rows = [];
+
+  for (const [id, trade] of tradeMemory.entries()) {
+    if (now > Number(trade.expiresAt || 0)) {
+      tradeMemory.delete(id);
+      continue;
+    }
+    if (String(trade.buyerId) !== String(i.user.id) && String(trade.sellerId) !== String(i.user.id)) continue;
+
+    const card = await prisma.userCard.findUnique({
+      where: { id: trade.cardId },
+      include: { character: true }
+    }).catch(() => null);
+
+    const name = card?.character ? trClean(card.character.name) : 'Unknown Card';
+    rows.push(
+      `ID: \`${id}\`\n` +
+      `Seller: <@${trade.sellerId}> | Buyer: <@${trade.buyerId}>\n` +
+      `Character: **${name}**\n` +
+      `Price: **${trMoney(trade.price)} Tokens**\n` +
+      `Expires: <t:${Math.floor(Number(trade.expiresAt) / 1000)}:R>`
+    );
+  }
+
+  if (!rows.length) return i.editReply('You have no pending trades.');
+
+  const embed = new EmbedBuilder()
+    .setTitle('Pending Trades')
+    .setDescription(rows.slice(0, 10).join('\n\n'))
+    .setColor(0x3498db);
+
+  return i.editReply({ embeds: [embed] });
+}
+async function trHandler(i, userId, commandName) {
+  if (commandName === 'trade-offer') return trOffer(i);
+  if (commandName === 'trade-accept') return trAccept(i);
+  if (commandName === 'trade-decline') return trDecline(i);
+  if (commandName === 'trade-cancel') return trDecline(i);
+  if (commandName === 'trades') return trList(i);
+  return false;
+}
+// ===== END TRADE CHARACTER FOR TOKENS PATCH =====
+
 client.on('interactionCreate', async (i) => {
     if (i.isAutocomplete()) {
       const nhAuto = await nhAutocomplete(i);
@@ -12483,6 +12803,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const trHandled = await trHandler(i, userId, commandName);
+    if (trHandled !== false) return trHandled;
 
     const gcHandled = await gcHandler(i, userId, commandName);
     if (gcHandled !== false) return gcHandled;
