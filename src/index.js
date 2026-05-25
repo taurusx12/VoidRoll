@@ -11212,7 +11212,325 @@ async function brvHandler(i, userId, commandName) {
 }
 // ===== END BANNER RIMURU + VISIBLE PITY COUNTER PATCH =====
 
+
+// ===== FINAL BANNER MEMORY PITY FIX =====
+// Simple and reliable: /pack writes the pity into a global memory map immediately,
+// /banner reads that same map first. This fixes the instant "pack 10/50 but banner 0/50" problem.
+// It also tries to save to user.trait when available, but memory is the source of truth while bot is live.
+// Ikkaku is removed; Rimuru is forced into the banner.
+
+const finalBannerPityMemory = global.finalBannerPityMemory || new Map();
+global.finalBannerPityMemory = finalBannerPityMemory;
+
+function fbClean(name = '') {
+  return String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function fbMoney(n) {
+  return typeof money === 'function' ? money(n) : Number(n || 0).toLocaleString('en-US');
+}
+function fbEmoji(r) {
+  return typeof rarityEmoji === 'function' ? rarityEmoji(r) : '⭐';
+}
+function fbSafe(v = '') {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+function fbKey(userId, c) {
+  return `${String(userId)}:${fbSafe(fbClean(c?.name || ''))}:${fbSafe(c?.anime || '')}`;
+}
+function fbTraitKey(c) {
+  return `Pity_${fbSafe(fbClean(c?.name || ''))}_${fbSafe(c?.anime || '')}`;
+}
+function fbTraitGet(trait = '', key = '') {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : null;
+}
+function fbTraitSet(trait = '', key = '', value = 0) {
+  const safe = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = String(trait || '').replace(new RegExp(`\\s*\\|?\\s*${safe}:\\d+`, 'ig'), '').trim();
+  return `${clean}${clean ? ' | ' : ''}${key}:${Math.max(0, Number(value || 0))}`;
+}
+async function fbGetPity(userId, c) {
+  const key = fbKey(userId, c);
+  if (finalBannerPityMemory.has(key)) return finalBannerPityMemory.get(key) || 0;
+
+  const user = await prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
+  const fromTrait = fbTraitGet(user?.trait, fbTraitKey(c));
+  if (fromTrait !== null) {
+    finalBannerPityMemory.set(key, fromTrait);
+    return fromTrait;
+  }
+
+  return 0;
+}
+async function fbSavePity(userId, c, value) {
+  const v = Math.max(0, Number(value || 0));
+  const key = fbKey(userId, c);
+  finalBannerPityMemory.set(key, v);
+
+  const user = await prisma.user.findUnique({ where: { id: String(userId) } }).catch(() => null);
+  if (user) {
+    await prisma.user.update({
+      where: { id: String(userId) },
+      data: { trait: fbTraitSet(user.trait, fbTraitKey(c), v) }
+    }).catch(() => null);
+  }
+}
+function fbIsIkkaku(c) {
+  const n = fbClean(c?.name || '').toLowerCase();
+  return n === 'ikkaku madarame' || n.includes('ikkaku');
+}
+function fbIsRimuru(c) {
+  const n = fbClean(c?.name || '').toLowerCase();
+  return n === 'rimuru tempest' || n.includes('rimuru');
+}
+function fbIsMakima(c) {
+  return fbClean(c?.name || '').toLowerCase() === 'makima';
+}
+async function fbSecretPool() {
+  const all = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 1000
+  }).catch(() => []);
+  const seen = new Set();
+  const unique = [];
+  for (const c of all) {
+    const key = `${fbClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+async function fbBannerChars() {
+  const pool = await fbSecretPool();
+  if (!pool.length) return [];
+
+  let base = [];
+  if (typeof cm4BannerChars === 'function') base = await cm4BannerChars().catch(() => []);
+  if (!base.length && typeof brvBannerChars === 'function') base = await brvBannerChars().catch(() => []);
+
+  if (!base.length) {
+    const day = Math.floor(Date.now() / 86400000);
+    const start = (day * 53 + 97) % pool.length;
+    const steps = [0, 37, 79, 131];
+    for (const step of steps) {
+      const c = pool[(start + step) % pool.length];
+      if (c && !base.find(x => x.id === c.id)) base.push(c);
+    }
+  }
+
+  const rimuru = pool.find(fbIsRimuru);
+  const makima = pool.find(fbIsMakima);
+  const keepMakima = base.some(fbIsMakima) || (typeof cm4EndMs !== 'undefined' && Date.now() < cm4EndMs);
+
+  let picks = base.filter(c => !fbIsIkkaku(c) && !fbIsRimuru(c) && !fbIsMakima(c));
+
+  const final = [];
+  for (const c of picks) {
+    if (final.length >= 3) break;
+    if (!final.find(x => x.id === c.id)) final.push(c);
+  }
+
+  if (rimuru && !final.find(x => x.id === rimuru.id)) {
+    if (final.length < 3) final.push(rimuru);
+    else final[2] = rimuru;
+  }
+
+  let extra = 1;
+  while (final.length < 3 && pool.length) {
+    const c = pool[(extra * 23) % pool.length];
+    if (c && !fbIsIkkaku(c) && !fbIsRimuru(c) && !fbIsMakima(c) && !final.find(x => x.id === c.id)) final.push(c);
+    extra++;
+    if (extra > 2000) break;
+  }
+
+  if (keepMakima && makima) final.push(makima);
+
+  while (final.length < Math.min(4, pool.length)) {
+    const c = pool[(extra * 31) % pool.length];
+    if (c && !fbIsIkkaku(c) && !final.find(x => x.id === c.id)) final.push(c);
+    extra++;
+    if (extra > 2000) break;
+  }
+
+  return final.slice(0, 4);
+}
+function fbEnds() {
+  if (typeof cm4EndMs !== 'undefined' && Date.now() < cm4EndMs) return Math.floor(cm4EndMs / 1000);
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
+}
+async function fbChoices() {
+  const picks = await fbBannerChars();
+  return picks.map(c => ({ name: `Rate Up: ${fbClean(c.name)}`, value: `fb:${c.id}` })).slice(0, 25);
+}
+async function fbAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const choices = await fbChoices();
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+async function fbSelected(value) {
+  const choices = await fbChoices();
+  let id = null;
+  const v = String(value || '');
+  if (v.startsWith('fb:')) id = v.replace('fb:', '');
+  else if (v.includes(':')) id = v.split(':').slice(1).join(':');
+  else id = choices[0]?.value?.replace('fb:', '');
+  const c = id ? await prisma.character.findUnique({ where: { id } }).catch(() => null) : null;
+  if (c && c.active && String(c.rarity || '').toUpperCase() === 'SECRET') return c;
+  return null;
+}
+async function fbPickByRarity(rarity) {
+  const chars = await prisma.character.findMany({ where: { active: true, rarity }, take: 500 }).catch(() => []);
+  if (chars.length) return chars[Math.floor(Math.random() * chars.length)];
+  return prisma.character.findFirst({ where: { active: true }, orderBy: { basePower: 'desc' } }).catch(() => null);
+}
+function fbCardId(prefix = 'pack') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+function fbSerial() {
+  return Math.floor((Date.now() + Math.floor(Math.random() * 1000000)) % 2000000000);
+}
+async function fbCreateCard(userId, character) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await prisma.userCard.create({
+        data: {
+          id: fbCardId('pack'),
+          serial: fbSerial(),
+          userId: String(userId),
+          characterId: String(character.id),
+          power: Number(character.basePower || 1000)
+        }
+      });
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
+}
+function fbStatsText(card, c) {
+  if (typeof uxStatsText === 'function') return uxStatsText(card, c);
+  if (typeof viStatsText === 'function') return viStatsText(card, c);
+  if (typeof uiStatsText === 'function') return uiStatsText(card, c);
+  return `Power: **${fbMoney(card.power || c.basePower || 0)}**`;
+}
+async function fbBanner(i) {
+  const picks = await fbBannerChars();
+  const ends = fbEnds();
+  const lines = [];
+
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await fbGetPity(i.user.id, c);
+    lines.push(`${idx + 1}. **${fbClean(c.name)}** • ${c.anime} • SECRET • Pulls **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Daily SECRET Banner')
+    .setDescription(
+      `Choose one exact Rate Up in **/pack banner**.\n` +
+      `Each character has its own pity.\n` +
+      `10 pulls: **4,000 Tokens**\n` +
+      `Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n` +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+async function fbPack(i) {
+  if (!i.deferred && !i.replied) await i.deferReply().catch(() => null);
+
+  const selected = await fbSelected(i.options.getString('banner', true));
+  if (!selected) return i.editReply('Select a valid Rate Up character from /pack banner.');
+
+  const user = await prisma.user.findUnique({ where: { id: i.user.id } });
+  const cost = 4000;
+  if ((user?.tokens || 0) < cost) return i.editReply(`You need **${fbMoney(cost)} Tokens** for 10 pulls.\nYou have **${fbMoney(user?.tokens || 0)} Tokens**.`);
+
+  await prisma.user.update({ where: { id: i.user.id }, data: { tokens: { decrement: cost } } }).catch(() => null);
+
+  let pity = await fbGetPity(i.user.id, selected);
+  const before = pity;
+  const rarities = ['RARE', 'RARE', 'RARE', 'EPIC', 'EPIC', 'EPIC', 'LEGENDARY', 'LEGENDARY', 'MYTHIC', 'DIVINE'];
+
+  let secretIndex = -1;
+  for (let idx = 0; idx < 10; idx++) {
+    const next = pity + idx + 1;
+    const soft = next >= 35 ? Math.min(0.20, (next - 34) * 0.01) : 0;
+    const lucky = Math.random() < (0.01 + soft);
+    const hard = next >= 50;
+    if (hard || lucky) { secretIndex = hard ? 9 : idx; break; }
+  }
+  if (secretIndex >= 0) rarities[secretIndex] = 'SECRET';
+
+  const lines = [];
+  const embeds = [];
+  let gotSelectedSecret = false;
+
+  for (let n = 0; n < 10; n++) {
+    pity += 1;
+    let character;
+    if (rarities[n] === 'SECRET') {
+      character = selected;
+      gotSelectedSecret = true;
+      pity = 0;
+    } else {
+      character = await fbPickByRarity(rarities[n]);
+    }
+    if (!character) continue;
+
+    const card = await fbCreateCard(i.user.id, character);
+    const power = Number(card.power || character.basePower || 0);
+    lines.push(`${n + 1}. ${fbEmoji(character.rarity)} **${fbClean(character.name)}** • ${character.anime} • ${character.rarity} • PWR ${fbMoney(power)}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${n + 1}. ${fbEmoji(character.rarity)} ${fbClean(character.name)}`)
+      .setDescription(
+        `Anime: **${character.anime}**\n` +
+        `Rarity: **${character.rarity}**\n` +
+        `Power: **${fbMoney(power)}**\n` +
+        `${fbStatsText(card, character)}\n` +
+        `Selected Rate Up: **${fbClean(selected.name)}**\n` +
+        `Banner pulls: **${pity}/50**` +
+        (String(character.rarity).toUpperCase() === 'SECRET' ? `\n🔥 SECRET obtained. Pity reset.` : ``)
+      )
+      .setColor(String(character.rarity).toUpperCase() === 'SECRET' ? 0xe74c3c : 0x9b59b6);
+    if (character.imageUrl) embed.setImage(character.imageUrl);
+    embeds.push(embed);
+  }
+
+  await fbSavePity(i.user.id, selected, pity);
+
+  return i.editReply({
+    content: (`**PACK x10**\nSelected Rate Up: **${fbClean(selected.name)}**\nCost: **${fbMoney(cost)} Tokens**\nBanner pulls: **${before}/50 → ${pity}/50**\n${gotSelectedSecret ? '🔥 SECRET pulled! Pity reset.\n' : ''}\n${lines.join('\n')}\n\nTokens left: **${fbMoney((user?.tokens || 0) - cost)}**`).slice(0, 1900),
+    embeds: embeds.slice(0, 10)
+  });
+}
+async function fbHandler(i, userId, commandName) {
+  if (commandName === 'banner') return fbBanner(i);
+  if (commandName === 'pack') return fbPack(i);
+  return false;
+}
+// ===== END FINAL BANNER MEMORY PITY FIX =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const fbAuto = await fbAutocomplete(i);
+      if (fbAuto) return;
+    }
+
     if (i.isAutocomplete()) {
       const brvAuto = await brvAutocomplete(i);
       if (brvAuto) return;
@@ -11435,6 +11753,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const fbHandled = await fbHandler(i, userId, commandName);
+    if (fbHandled !== false) return fbHandled;
 
     const brvHandled = await brvHandler(i, userId, commandName);
     if (brvHandled !== false) return brvHandled;
