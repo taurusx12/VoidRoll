@@ -9593,7 +9593,166 @@ async function atHandler(i, userId, commandName) {
 }
 // ===== END AUTO TRAIN BY NAME PATCH =====
 
+
+// ===== MAKIMA 24H COMPENSATION BANNER PATCH =====
+// Makima + 3 other SECRET characters for 24 hours from this update.
+// After 24h, normal daily rotation returns. Makima is not permanent.
+
+const makimaBannerStartMs = 1779681297725;
+const makimaBannerEndMs = 1779767697725;
+
+function mkClean(name = '') {
+  return String(name || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function mkIsMakima(c) {
+  return String(c?.name || '').toLowerCase().includes('makima');
+}
+
+async function mkAllSecretCharacters() {
+  const chars = await prisma.character.findMany({
+    where: { active: true, rarity: 'SECRET' },
+    orderBy: { basePower: 'desc' },
+    take: 600
+  }).catch(() => []);
+
+  const seen = new Set();
+  const unique = [];
+  for (const c of chars) {
+    const key = `${mkClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+  return unique;
+}
+
+async function mkBannerChars() {
+  const pool = await mkAllSecretCharacters();
+  if (!pool.length) return [];
+
+  const now = Date.now();
+
+  if (now < makimaBannerEndMs) {
+    const makima = pool.find(mkIsMakima);
+    const others = pool.filter(c => !mkIsMakima(c));
+    const picks = [];
+
+    if (makima) picks.push(makima);
+
+    const seed = Math.floor(makimaBannerStartMs / 86400000);
+    const start = (seed * 41 + 19) % Math.max(1, others.length);
+    const steps = [0, 23, 57, 91, 131, 173];
+
+    for (const step of steps) {
+      if (picks.length >= 4) break;
+      const c = others[(start + step) % Math.max(1, others.length)];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    }
+
+    let extra = 1;
+    while (picks.length < Math.min(4, pool.length)) {
+      const c = pool[(start + extra * 17) % pool.length];
+      if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+      extra++;
+    }
+
+    return picks.slice(0, 4);
+  }
+
+  const day = Math.floor(now / 86400000);
+  const start = (day * 53 + 97) % pool.length;
+  const steps = [0, 37, 79, 131];
+  const picks = [];
+
+  for (const step of steps) {
+    const c = pool[(start + step) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+  }
+
+  let extra = 1;
+  while (picks.length < Math.min(4, pool.length)) {
+    const c = pool[(start + extra * 17) % pool.length];
+    if (c && !picks.find(x => x.id === c.id)) picks.push(c);
+    extra++;
+  }
+
+  return picks.slice(0, 4);
+}
+
+function mkBannerEnds() {
+  if (Date.now() < makimaBannerEndMs) return Math.floor(makimaBannerEndMs / 1000);
+  const day = Math.floor(Date.now() / 86400000);
+  return Math.floor(((day + 1) * 86400000) / 1000);
+}
+
+async function mkGetPity(userId, characterId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+  const key = `PackPity_${String(characterId || 'x').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const safe = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(user?.trait || '').match(new RegExp(`${safe}:(\\d+)`, 'i'));
+  return m ? Number(m[1] || 0) : 0;
+}
+
+async function mkBanner(i) {
+  const picks = await mkBannerChars();
+  const ends = mkBannerEnds();
+  const isComp = Date.now() < makimaBannerEndMs;
+
+  const lines = [];
+  for (let idx = 0; idx < picks.length; idx++) {
+    const c = picks[idx];
+    const pity = await mkGetPity(i.user.id, c.id);
+    lines.push(`${idx + 1}. **${mkClean(c.name)}** • ${c.anime} • SECRET • Pity **${pity}/50**`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(isComp ? 'Daily SECRET Banner — Makima Compensation' : 'Daily SECRET Banner')
+    .setDescription(
+      (isComp
+        ? '✅ Makima is back in the banner for a full **24 hours** from this update.\nMakima is **not permanent** after this compensation window.\n'
+        : '✅ Banner rotates every 24 hours at UTC reset.\n') +
+      'Choose one exact Rate Up in **/pack banner**.\n' +
+      'Each character has its own pity.\n' +
+      '10 pulls: **4,000 Tokens**\n' +
+      'Guaranteed selected SECRET: **50 pulls / 20,000 Tokens**\n' +
+      `Ends: <t:${ends}:R>\n\n` +
+      (lines.length ? lines.join('\n') : 'No SECRET characters found.')
+    )
+    .setColor(0xe74c3c);
+
+  if (picks[0]?.imageUrl) embed.setThumbnail(picks[0].imageUrl);
+  return i.reply({ embeds: [embed] });
+}
+
+async function mkAutocomplete(i) {
+  if (i.commandName !== 'pack') return false;
+
+  const focused = String(i.options.getFocused() || '').toLowerCase();
+  const picks = await mkBannerChars();
+
+  const choices = picks.map(c => ({
+    name: `Rate Up: ${mkClean(c.name)}`,
+    value: `featured:${c.id}`
+  })).slice(0, 25);
+
+  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused));
+  await i.respond(filtered.length ? filtered : choices).catch(() => null);
+  return true;
+}
+
+async function mkHandler(i, userId, commandName) {
+  if (commandName === 'banner') return mkBanner(i);
+  return false;
+}
+// ===== END MAKIMA 24H COMPENSATION BANNER PATCH =====
+
 client.on('interactionCreate', async (i) => {
+    if (i.isAutocomplete()) {
+      const mkAuto = await mkAutocomplete(i);
+      if (mkAuto) return;
+    }
+
     const tacButtonHandled = await tacButtons(i);
     if (tacButtonHandled !== false) return tacButtonHandled;
 
@@ -9786,6 +9945,9 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
+
+    const mkHandled = await mkHandler(i, userId, commandName);
+    if (mkHandled !== false) return mkHandled;
 
     const atHandled = await atHandler(i, userId, commandName);
     if (atHandled !== false) return atHandled;

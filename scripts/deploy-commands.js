@@ -187,7 +187,7 @@ const commands = [
         .setRequired(true)
         .setAutocomplete(true)
     ),
-  new SlashCommandBuilder().setName('banner').setDescription('Show daily rotating SECRET banner with pity info'),
+  new SlashCommandBuilder().setName('banner').setDescription('Show current 24h SECRET banner'),
 
   new SlashCommandBuilder().setName('story').setDescription('Play story battle'),
   new SlashCommandBuilder().setName('tower').setDescription('Play tower battle'),
