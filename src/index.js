@@ -11526,131 +11526,101 @@ async function fbHandler(i, userId, commandName) {
 // ===== END FINAL BANNER MEMORY PITY FIX =====
 
 
-// ===== BANNER AIZEN REPLACE ICHIGO AMANO PATCH =====
-// Removes Ichigo Amano • Yume-iro Pâtissière from the banner.
-// Adds Bleach Aizen instead.
-// Keeps the same working memory pity system from the last fix.
+// ===== SAFE AIZEN BANNER REPLACE PATCH =====
+// Safe patch: no function reassignment, no wrapper recursion.
+// Keeps the working /banner + /pack memory pity system.
+// Removes Ichigo Amano • Yume-iro Pâtissière and puts Bleach Aizen instead.
 
-function baizClean(name = '') {
+function safeAizenClean(name = '') {
   return String(name || '')
     .replace(/\s*\([^)]*\)\s*/g, ' ')
     .replace(/\b(true power|base|elite|prime|final arc|mythic form|awakened|battle ready|divine form|support|training|limit break|domain form|early arc|transcendent|ultimate|form|mode|arc|version)\b/ig, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
-function baizIsIchigoAmano(c) {
-  const n = baizClean(c?.name || '').toLowerCase();
+
+function safeAizenIsIchigoAmano(c) {
+  const n = safeAizenClean(c?.name || '').toLowerCase();
   const a = String(c?.anime || '').toLowerCase();
   return n === 'ichigo amano' || (n.includes('ichigo amano') && (a.includes('yume') || a.includes('pâtissière') || a.includes('patissiere')));
 }
-function baizIsAizenBleach(c) {
-  const n = baizClean(c?.name || '').toLowerCase();
+
+function safeAizenIsAizen(c) {
+  const n = safeAizenClean(c?.name || '').toLowerCase();
   const a = String(c?.anime || '').toLowerCase();
-  return (n === 'sousuke aizen' || n.includes('aizen')) && a.includes('bleach');
+  return n.includes('aizen') && a.includes('bleach');
 }
-async function baizSecrets() {
+
+async function safeAizenSecretPool() {
   const all = await prisma.character.findMany({
     where: { active: true, rarity: 'SECRET' },
     orderBy: { basePower: 'desc' },
     take: 1200
   }).catch(() => []);
+
   const seen = new Set();
   const unique = [];
+
   for (const c of all) {
-    const key = `${baizClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
+    const key = `${safeAizenClean(c.name).toLowerCase()}::${String(c.anime || '').toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(c);
   }
+
   return unique;
 }
-async function baizBannerChars() {
-  const pool = await baizSecrets();
+
+// Override only the banner character picker used by the working memory pity system.
+fbBannerChars = async function() {
+  const pool = await safeAizenSecretPool();
   if (!pool.length) return [];
 
   let base = [];
-  if (typeof fbBannerChars === 'function') base = await fbBannerChars().catch(() => []);
-  if (!base.length && typeof brvBannerChars === 'function') base = await brvBannerChars().catch(() => []);
-  if (!base.length && typeof cm4BannerChars === 'function') base = await cm4BannerChars().catch(() => []);
+
+  // Keep current 24h Makima/Rimuru banner if available.
+  if (typeof cm4BannerChars === 'function') {
+    base = await cm4BannerChars().catch(() => []);
+  }
 
   if (!base.length) {
     const day = Math.floor(Date.now() / 86400000);
     const start = (day * 53 + 97) % pool.length;
     const steps = [0, 37, 79, 131];
+
     for (const step of steps) {
       const c = pool[(start + step) % pool.length];
       if (c && !base.find(x => x.id === c.id)) base.push(c);
     }
   }
 
-  const aizen = pool.find(baizIsAizenBleach);
-  let final = base.filter(c => !baizIsIchigoAmano(c) && !baizIsAizenBleach(c));
+  const aizen = pool.find(safeAizenIsAizen);
+  const hadIchigoAmanoIndex = base.findIndex(safeAizenIsIchigoAmano);
 
-  // Put Aizen into the removed character's slot if possible.
-  if (aizen && !final.find(x => x.id === aizen.id)) {
-    const removedIndex = base.findIndex(baizIsIchigoAmano);
-    if (removedIndex >= 0 && removedIndex < 4) {
-      final.splice(Math.min(removedIndex, final.length), 0, aizen);
-    } else {
-      final.splice(Math.min(1, final.length), 0, aizen);
-    }
+  let final = base.filter(c => !safeAizenIsIchigoAmano(c) && !safeAizenIsAizen(c));
+
+  if (aizen) {
+    const insertAt = hadIchigoAmanoIndex >= 0 ? Math.min(hadIchigoAmanoIndex, final.length) : Math.min(1, final.length);
+    final.splice(insertAt, 0, aizen);
   }
 
   let extra = 1;
   while (final.length < Math.min(4, pool.length)) {
     const c = pool[(extra * 31) % pool.length];
-    if (c && !baizIsIchigoAmano(c) && !final.find(x => x.id === c.id)) final.push(c);
+    if (c && !safeAizenIsIchigoAmano(c) && !final.find(x => x.id === c.id)) {
+      final.push(c);
+    }
     extra++;
     if (extra > 2000) break;
   }
 
   return final.slice(0, 4);
-}
-async function baizChoices() {
-  const picks = await baizBannerChars();
-  return picks.map(c => ({ name: `Rate Up: ${baizClean(c.name)}`, value: `fb:${c.id}` })).slice(0, 25);
-}
-async function baizAutocomplete(i) {
-  if (i.commandName !== 'pack') return false;
-  const focused = String(i.options.getFocused() || '').toLowerCase();
-  const choices = await baizChoices();
-  const filtered = choices.filter(c => c.name.toLowerCase().includes(focused)).slice(0, 25);
-  await i.respond(filtered.length ? filtered : choices).catch(() => null);
-  return true;
-}
-async function baizBanner(i) {
-  const oldFbBannerChars = typeof fbBannerChars === 'function' ? fbBannerChars : null;
-  // Use the existing working fbBanner display/pity if available, but force its banner list through our wrapper.
-  if (typeof fbBanner === 'function') {
-    const original = global.__fbBannerCharsOriginal || oldFbBannerChars;
-    global.__fbBannerCharsOriginal = original;
-    fbBannerChars = baizBannerChars;
-    return fbBanner(i);
-  }
+};
+// ===== END SAFE AIZEN BANNER REPLACE PATCH =====
 
-  return i.reply('Banner system not found.');
-}
-async function baizPack(i) {
-  if (typeof fbPack === 'function') {
-    fbBannerChars = baizBannerChars;
-    fbChoices = baizChoices;
-    return fbPack(i);
-  }
-  return i.reply('Pack system not found.');
-}
-async function baizHandler(i, userId, commandName) {
-  if (commandName === 'banner') return baizBanner(i);
-  if (commandName === 'pack') return baizPack(i);
-  return false;
-}
-// ===== END BANNER AIZEN REPLACE ICHIGO AMANO PATCH =====
+
 
 client.on('interactionCreate', async (i) => {
-    if (i.isAutocomplete()) {
-      const baizAuto = await baizAutocomplete(i);
-      if (baizAuto) return;
-    }
-
     if (i.isAutocomplete()) {
       const fbAuto = await fbAutocomplete(i);
       if (fbAuto) return;
@@ -11878,9 +11848,6 @@ client.on('interactionCreate', async (i) => {
 
     const userId = i.user.id;
     const commandName = i.commandName;
-
-    const baizHandled = await baizHandler(i, userId, commandName);
-    if (baizHandled !== false) return baizHandled;
 
     const fbHandled = await fbHandler(i, userId, commandName);
     if (fbHandled !== false) return fbHandled;
