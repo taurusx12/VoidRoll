@@ -1,0 +1,31 @@
+{
+  "identity": "VoidRoll Reborn",
+  "currencies": {
+    "gold": {
+      "displayName": "Gold",
+      "purpose": ["Train", "Upgrade", "Travel", "Daily shops"],
+      "sources": ["Daily", "Story", "Dungeon", "Market rewards"]
+    },
+    "tokens": {
+      "displayName": "Tokens",
+      "purpose": ["Trading", "Banner pulls", "Market purchases"],
+      "sources": ["Daily", "Achievements", "PvP", "Events"]
+    },
+    "essence": {
+      "displayName": "Essence",
+      "purpose": ["Ascend", "Traits", "Evolutions"],
+      "sources": ["Bosses", "Raids", "PvP"]
+    },
+    "voidCrystals": {
+      "displayName": "Void Crystals",
+      "purpose": ["Limited banners", "Secret frames", "Exclusive content"],
+      "sources": ["Limited events", "Void Market", "High-end achievements"]
+    }
+  },
+  "rarityOrder": ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC", "DIVINE", "VOIDBORN", "SECRET"],
+  "revealPriority": {
+    "DIVINE": "premium_static",
+    "VOIDBORN": "void_rise",
+    "SECRET": "bottom_up_cinematic"
+  }
+}

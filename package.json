@@ -1,7 +1,7 @@
 {
-  "name": "anime-card-bot-global",
+  "name": "voidroll-reborn",
   "version": "1.0.0",
-  "description": "Production-ready Discord anime card economy bot scaffold: gacha, inventory, AFK farming, equipment, market, auctions, raids, seasons.",
+  "description": "VoidRoll Reborn Discord anime MMO RPG gacha economy bot.",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
@@ -13,7 +13,8 @@
     "db:push": "prisma db push",
     "seed": "node scripts/seed.js",
     "import:anime": "node scripts/import-anime.js",
-    "health": "node scripts/healthcheck.js"
+    "health": "node scripts/healthcheck.js",
+    "audit:famous": "node scripts/audit-famous-characters.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -1,0 +1,14 @@
+{
+  "core": ["help", "profile", "wallet", "daily"],
+  "collection": ["inventory", "view-card", "character", "characters", "top-characters", "anime", "collection", "who-has"],
+  "gacha": ["roll", "r", "banner", "pack", "pity", "rates"],
+  "progress": ["train", "auto-train", "formations", "autoteam", "story", "tower", "dungeon", "boss-rush", "pvp"],
+  "marketTrading": ["market", "market-buy", "gift-character", "trade-offer", "trade-accept", "trade-decline", "trade-cancel", "trades"],
+  "admin": ["admin-reset-all", "admin-give-gold", "admin-give-tokens", "admin-give-rolls", "admin-give-resource"],
+  "removed": ["Anime Weather System", "Anime Betrayal System", "Real-Time Server Events"],
+  "notes": [
+    "Legacy duplicates stay disabled unless implemented cleanly.",
+    "Player-facing commands should use names/autocomplete instead of raw IDs when possible.",
+    "Admin commands remain protected by Discord permissions / deployment scope."
+  ]
+}

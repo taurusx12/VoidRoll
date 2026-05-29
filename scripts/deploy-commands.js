@@ -19,14 +19,15 @@ const elementChoices = [
 
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show VoidRoll 2.0 help'),
-  new SlashCommandBuilder().setName('profile').setDescription('Show your profile'),
+  new SlashCommandBuilder().setName('profile').setDescription('Show your VoidRoll profile'),
+  new SlashCommandBuilder().setName('wallet').setDescription('Show your Gold, Tokens, Essence and Void Crystals'),
   new SlashCommandBuilder().setName('daily').setDescription('Claim daily rewards'),
 
   new SlashCommandBuilder().setName('roll').setDescription('Normal roll').addIntegerOption(o=>o.setName('amount').setDescription('1-10').setRequired(false).setMinValue(1).setMaxValue(10)),
   new SlashCommandBuilder().setName('r').setDescription('Quick normal roll').addIntegerOption(o=>o.setName('amount').setDescription('1-10').setRequired(false).setMinValue(1).setMaxValue(10)),
   new SlashCommandBuilder().setName('rates').setDescription('Show roll rates'),
   new SlashCommandBuilder().setName('rarity').setDescription('Show roll rates'),
-  new SlashCommandBuilder().setName('banner').setDescription('Show daily SECRET banner'),
+  new SlashCommandBuilder().setName('banner').setDescription('Show active VOIDBORN / SECRET banners'),
   new SlashCommandBuilder().setName('pack').setDescription('Open 10-pull banner pack').addStringOption(o=>o.setName('banner').setDescription('Choose featured character').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('pity').setDescription('Show banner pity'),
 
@@ -74,6 +75,10 @@ const commands = [
   new SlashCommandBuilder().setName('admin-give-gold').setDescription('Admin: give Gold').addUserOption(o=>o.setName('user').setDescription('Player').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true)),
   new SlashCommandBuilder().setName('admin-give-tokens').setDescription('Admin: give Tokens').addUserOption(o=>o.setName('user').setDescription('Player').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true)),
   new SlashCommandBuilder().setName('admin-give-rolls').setDescription('Admin: give Rolls').addUserOption(o=>o.setName('user').setDescription('Player').setRequired(true)).addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true)),
+  new SlashCommandBuilder().setName('admin-give-resource').setDescription('Admin: give Essence or Void Crystals')
+    .addUserOption(o=>o.setName('user').setDescription('Player').setRequired(true))
+    .addStringOption(o=>o.setName('resource').setDescription('Resource').setRequired(true).addChoices({name:'Essence',value:'essence'},{name:'Void Crystals',value:'void_crystals'}))
+    .addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true)),
   new SlashCommandBuilder().setName('admin-dedupe-characters').setDescription('Admin: legacy dedupe placeholder').addStringOption(o=>o.setName('confirm').setDescription('Type YES').setRequired(true))
 ];
 

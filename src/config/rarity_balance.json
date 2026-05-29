@@ -6,7 +6,8 @@
     "LEGENDARY": 99,
     "MYTHIC": 99,
     "DIVINE": 99,
-    "SECRET": 99
+    "SECRET": 99,
+    "VOIDBORN": 99
   },
   "level99PowerRange": {
     "COMMON": [
@@ -34,8 +35,12 @@
       1700000
     ],
     "SECRET": [
-      2000000,
-      5500000
+      3000000,
+      6500000
+    ],
+    "VOIDBORN": [
+      1750000,
+      3000000
     ]
   },
   "importantFixes": {

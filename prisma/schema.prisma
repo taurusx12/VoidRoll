@@ -44,6 +44,8 @@ model User {
   gold               BigInt            @default(1000)
   gems               Int               @default(0)
   tokens             Int               @default(0)
+  essence            Int               @default(0)
+  voidCrystals       Int               @default(0)
   rolls              Int               @default(15)
   lastRollRefillAt   DateTime          @default(now())
   lastPassiveClaimAt DateTime?
