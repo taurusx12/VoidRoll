@@ -194,28 +194,100 @@ async function pityGet(userId, charId) { const m=await getUserMeta(userId); retu
 async function pitySet(userId, charId, val) { const m=await getUserMeta(userId); m.pity = m.pity || {}; m.pity[charId]=Number(val||0); await setUserMeta(userId,m); }
 
 async function autocomplete(i) {
-  const focused = i.options.getFocused(true); const name = focused.name; const q = norm(focused.value);
-  if (['card','name'].includes(name) && ['gift-character','trade-offer','train','auto-train','view-card'].includes(i.commandName)) {
-    const cards = await prisma.userCard.findMany({ where:{ userId:String(i.user.id) }, include:{ character:true }, orderBy:{ power:'desc' }, take:200 }).catch(()=>[]);
-    const out = cards.filter(c=>!q || `${norm(c.character.name)} ${norm(c.character.anime)} ${shortId(c.id).toLowerCase()}`.includes(q)).slice(0,25).map(c=>({ name:`${clean(c.character.name)} • Lv${c.level} • PWR ${money(c.power)} • ${shortId(c.id)}`, value:c.id }));
-    return i.respond(out.length?out:[{name:'No owned cards found', value:'none'}]).catch(()=>{});
-  }
-  if (['character','name'].includes(name) && ['character','who-has','characters','wishlist-add'].includes(i.commandName)) {
-    const chars = await prisma.character.findMany({ where:{ active:true }, orderBy:{ basePower:'desc' }, take:1000 }).catch(()=>[]);
-    const out = chars.filter(c=>!q || `${norm(c.name)} ${norm(c.anime)}`.includes(q)).slice(0,25).map(c=>({ name:`${clean(c.name)} • ${c.anime} • ${c.rarity}`, value:c.name }));
-    return i.respond(out.length?out:[{name:'No characters found', value:'none'}]).catch(()=>{});
-  }
-  if (name === 'anime') {
-    const rows = await prisma.character.groupBy({ by:['anime'], where:{ active:true }, _count:{ anime:true }, orderBy:{ anime:'asc' } }).catch(()=>[]);
-    const out = rows.filter(r=>!q || norm(r.anime).includes(q)).slice(0,25).map(r=>({ name:`${r.anime} • ${r._count.anime} chars`, value:r.anime }));
-    return i.respond(out.length?out:[{name:'No anime found', value:'none'}]).catch(()=>{});
-  }
-  if (name === 'banner') {
-    const picks = await bannerCharacters();
-    return i.respond(picks.map(c=>({ name:`Rate Up: ${clean(c.name)} • Pity`, value:c.id }))).catch(()=>{});
-  }
-  if (name === 'item_id') {
-    return i.respond(dailyMarket().items.map(x=>({ name:`${x.name} • ${money(x.costGold)} Gold`, value:x.id }))).catch(()=>{});
+  try {
+    const focused = i.options.getFocused(true);
+    const name = focused?.name;
+    const q = norm(focused?.value || '');
+    const cmd = i.commandName;
+    const choice = (name, value) => ({
+      name: String(name || 'Unknown').slice(0, 100),
+      value: String(value || 'none').slice(0, 100)
+    });
+    const empty = (text='No results found') => i.respond([choice(text, 'none')]).catch(()=>{});
+
+    // Owned card autocomplete: gift, trade, train, view-card.
+    // This shows duplicates separately so the player can choose Lv100 or Lv1 safely.
+    if (['card','name'].includes(name) && ['gift-character','trade-offer','train','auto-train','view-card'].includes(cmd)) {
+      const cards = await prisma.userCard.findMany({
+        where:{ userId:String(i.user.id) },
+        include:{ character:true },
+        orderBy:[{ power:'desc' }, { id:'desc' }],
+        take:500
+      }).catch(()=>[]);
+
+      const out = cards
+        .filter(card => card?.character && (!q || `${norm(card.character.name)} ${norm(card.character.anime)} ${shortId(card.id).toLowerCase()}`.includes(q)))
+        .slice(0,25)
+        .map(card => choice(`${clean(card.character.name)} • Lv${card.level||1} • PWR ${money(card.power||0)} • ${shortId(card.id)}`, card.id));
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No owned cards found');
+    }
+
+    // Inventory character filter: use owned characters first, not the full database.
+    // This fixes Loading options failed from huge lists / long choice names.
+    if (name === 'character' && cmd === 'inventory') {
+      const cards = await prisma.userCard.findMany({
+        where:{ userId:String(i.user.id) },
+        include:{ character:true },
+        orderBy:[{ power:'desc' }, { id:'desc' }],
+        take:800
+      }).catch(()=>[]);
+      const seen = new Set();
+      const out = [];
+      for (const card of cards) {
+        const c = card?.character;
+        if (!c) continue;
+        const key = `${clean(c.name)}|${c.anime}`;
+        if (seen.has(key)) continue;
+        if (q && !`${norm(c.name)} ${norm(c.anime)}`.includes(q)) continue;
+        seen.add(key);
+        out.push(choice(`${clean(c.name)} • ${c.anime} • Best PWR ${money(card.power||0)}`, clean(c.name)));
+        if (out.length >= 25) break;
+      }
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No owned characters found');
+    }
+
+    // Global character database search.
+    if (['character','name'].includes(name) && ['character','who-has','characters','wishlist-add'].includes(cmd)) {
+      const chars = await prisma.character.findMany({ where:{ active:true }, orderBy:{ basePower:'desc' }, take:1500 }).catch(()=>[]);
+      const out = chars
+        .filter(c=>!q || `${norm(c.name)} ${norm(c.anime)}`.includes(q))
+        .slice(0,25)
+        .map(c=>choice(`${clean(c.name)} • ${c.anime} • ${c.rarity}`, clean(c.name)));
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No characters found');
+    }
+
+    // Anime autocomplete.
+    if (name === 'anime') {
+      const rows = await prisma.character.groupBy({
+        by:['anime'],
+        where:{ active:true },
+        _count:{ anime:true },
+        orderBy:{ anime:'asc' }
+      }).catch(()=>[]);
+      const out = rows
+        .filter(r=>!q || norm(r.anime).includes(q))
+        .slice(0,25)
+        .map(r=>choice(`${r.anime} • ${r._count.anime} chars`, r.anime));
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No anime found');
+    }
+
+    // Banner autocomplete.
+    if (name === 'banner') {
+      const picks = await bannerCharacters().catch(()=>[]);
+      const out = picks.map(c=>choice(`Rate Up: ${clean(c.name)} • ${c.anime}`, c.id)).slice(0,25);
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No banner found');
+    }
+
+    // Market item autocomplete.
+    if (name === 'item_id') {
+      const out = dailyMarket().items.map(x=>choice(`${x.name} • ${money(x.costGold)} Gold`, x.id)).slice(0,25);
+      return out.length ? i.respond(out).catch(()=>{}) : empty('No market items found');
+    }
+
+    return empty('No options available');
+  } catch (err) {
+    console.error('Autocomplete failed:', err);
+    return i.respond([{ name:'Search failed - type manually', value:'none' }]).catch(()=>{});
   }
 }
 
