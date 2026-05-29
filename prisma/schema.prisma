@@ -14,6 +14,7 @@ enum Rarity {
   LEGENDARY
   MYTHIC
   DIVINE
+  VOIDBORN
   SECRET
 }
 
@@ -50,6 +51,7 @@ model User {
   level              Int               @default(1)
   dailyStreak        Int               @default(0)
   lastDailyAt         DateTime?
+  meta               Json?             @default("{}")
 
   // Compatibility fields used by your bot commands
   storyChapter       Int               @default(1)
