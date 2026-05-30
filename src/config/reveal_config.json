@@ -1,0 +1,235 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 11 - Secret / Voidborn Card Reveal",
+  "rules": {
+    "secretReveal": true,
+    "voidbornReveal": true,
+    "bottomUpReveal": true,
+    "quoteBeforeImage": true,
+    "audioDisabled": true,
+    "noItemRolls": true,
+    "noFusion": true,
+    "noStars": true
+  },
+  "rarityRevealTypes": {
+    "COMMON": "NORMAL",
+    "RARE": "NORMAL",
+    "EPIC": "NORMAL",
+    "LEGENDARY": "RARE_FLASH",
+    "MYTHIC": "MYTHIC_FLASH",
+    "DIVINE": "DIVINE_REVEAL",
+    "VOIDBORN": "VOIDBORN_BOTTOM_UP",
+    "SECRET": "SECRET_BOTTOM_UP"
+  },
+  "revealSteps": {
+    "SECRET_BOTTOM_UP": [
+      {
+        "step": 1,
+        "key": "VOID_SPARK",
+        "title": "Void Spark",
+        "description": "A void sigil glows at the bottom of the card."
+      },
+      {
+        "step": 2,
+        "key": "BOTTOM_DISTORTION",
+        "title": "Bottom Distortion",
+        "description": "Void energy rises from the bottom upward."
+      },
+      {
+        "step": 3,
+        "key": "QUOTE_ASCENDS",
+        "title": "Quote Ascends",
+        "description": "The character quote appears before the image."
+      },
+      {
+        "step": 4,
+        "key": "SECRET_FLASH",
+        "title": "Secret Flash",
+        "description": "A cinematic SECRET flash covers the card."
+      },
+      {
+        "step": 5,
+        "key": "CHARACTER_REVEAL",
+        "title": "Character Reveal",
+        "description": "The full Secret card appears."
+      }
+    ],
+    "VOIDBORN_BOTTOM_UP": [
+      {
+        "step": 1,
+        "key": "VOID_PULSE",
+        "title": "Void Pulse",
+        "description": "Voidborn aura pulses at the bottom."
+      },
+      {
+        "step": 2,
+        "key": "RISING_AURA",
+        "title": "Rising Aura",
+        "description": "Aura rises from bottom to top."
+      },
+      {
+        "step": 3,
+        "key": "VOIDBORN_FLASH",
+        "title": "Voidborn Flash",
+        "description": "VOIDBORN rarity appears."
+      },
+      {
+        "step": 4,
+        "key": "CHARACTER_REVEAL",
+        "title": "Character Reveal",
+        "description": "The full Voidborn card appears."
+      }
+    ],
+    "DIVINE_REVEAL": [
+      {
+        "step": 1,
+        "key": "DIVINE_GLOW",
+        "title": "Divine Glow",
+        "description": "Divine light reveals the card."
+      },
+      {
+        "step": 2,
+        "key": "CHARACTER_REVEAL",
+        "title": "Character Reveal",
+        "description": "The full Divine card appears."
+      }
+    ]
+  },
+  "variants": {
+    "Base": {
+      "prefix": "",
+      "theme": "normal"
+    },
+    "Corrupted": {
+      "prefix": "Corrupted",
+      "theme": "dark_void"
+    },
+    "Awakened": {
+      "prefix": "Awakened",
+      "theme": "divine_power"
+    },
+    "Fallen": {
+      "prefix": "Fallen",
+      "theme": "broken_light"
+    },
+    "Eclipse": {
+      "prefix": "Eclipse",
+      "theme": "sun_moon_shadow"
+    },
+    "Voidborn": {
+      "prefix": "Voidborn",
+      "theme": "void_cosmic"
+    },
+    "True Form": {
+      "prefix": "True Form",
+      "theme": "final_form"
+    },
+    "Absolute": {
+      "prefix": "Absolute",
+      "theme": "supreme"
+    },
+    "Cursed": {
+      "prefix": "Cursed",
+      "theme": "curse_energy"
+    },
+    "Celestial": {
+      "prefix": "Celestial",
+      "theme": "star_divine"
+    },
+    "Abyssal": {
+      "prefix": "Abyssal",
+      "theme": "abyss"
+    }
+  },
+  "defaultQuotes": {
+    "Madara": "Wake up to reality.",
+    "Aizen": "Since when were you under the impression?",
+    "Lelouch": "Obey me, world.",
+    "Gojo": "Throughout heaven and earth...",
+    "Sukuna": "Know your place.",
+    "Rimuru": "I will devour everything.",
+    "Makima": "You are mine now.",
+    "Corrupted Makima": "You are mine now.",
+    "Corrupted Aizen": "Your senses belong to the Void.",
+    "Corrupted Gojo": "Infinity has collapsed into the Void.",
+    "Voidborn": "The Void has chosen.",
+    "Secret": "A forbidden presence awakens."
+  },
+  "frames": {
+    "DIVINE": {
+      "name": "Divine Frame",
+      "color": "#F8FAFC",
+      "accent": "#F472B6",
+      "emoji": "⚪"
+    },
+    "VOIDBORN": {
+      "name": "Voidborn Frame",
+      "color": "#6D28D9",
+      "accent": "#22D3EE",
+      "emoji": "🌌"
+    },
+    "SECRET": {
+      "name": "Secret Frame",
+      "color": "#111827",
+      "accent": "#A855F7",
+      "emoji": "🌠"
+    }
+  },
+  "auraThemes": {
+    "VOID": {
+      "name": "Void Aura",
+      "colors": [
+        "#0B1020",
+        "#6D28D9",
+        "#A855F7"
+      ]
+    },
+    "SHADOW": {
+      "name": "Shadow Aura",
+      "colors": [
+        "#020617",
+        "#334155",
+        "#7C3AED"
+      ]
+    },
+    "LIGHT": {
+      "name": "Divine Aura",
+      "colors": [
+        "#F8FAFC",
+        "#FACC15",
+        "#F472B6"
+      ]
+    },
+    "FIRE": {
+      "name": "Inferno Aura",
+      "colors": [
+        "#7F1D1D",
+        "#EF4444",
+        "#F97316"
+      ]
+    },
+    "ICE": {
+      "name": "Frost Aura",
+      "colors": [
+        "#0F172A",
+        "#38BDF8",
+        "#E0F2FE"
+      ]
+    },
+    "LIGHTNING": {
+      "name": "Storm Aura",
+      "colors": [
+        "#1E1B4B",
+        "#A78BFA",
+        "#FACC15"
+      ]
+    }
+  },
+  "discordBehavior": {
+    "sendQuoteEmbedFirst": true,
+    "delayMsBetweenQuoteAndCard": 1200,
+    "sendFinalCardEmbed": true,
+    "attachGeneratedCardImageIfAvailable": true,
+    "fallbackToImageUrl": true
+  }
+}
