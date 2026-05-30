@@ -1,0 +1,92 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 6 - Anime Search + Character Database",
+  "commands": {
+    "anime": {
+      "description": "Shows anime database summary and collection targets.",
+      "examples": [
+        "/anime Bleach",
+        "/anime Chainsaw Man",
+        "/anime Naruto"
+      ]
+    },
+    "collection": {
+      "description": "Shows user's anime completion percentage.",
+      "examples": [
+        "/collection anime:Bleach",
+        "/collection anime:Chainsaw Man"
+      ]
+    },
+    "character": {
+      "description": "Shows public character database entry.",
+      "examples": [
+        "/character Makima",
+        "/character Corrupted Makima"
+      ]
+    },
+    "whoHas": {
+      "description": "Foundation for searching which players own a character.",
+      "examples": [
+        "/who-has Makima",
+        "/who-has Gojo"
+      ]
+    }
+  },
+  "completionMilestones": [
+    {
+      "percent": 10,
+      "reward": "Small Gold bonus"
+    },
+    {
+      "percent": 25,
+      "reward": "Anime Collector title progress"
+    },
+    {
+      "percent": 50,
+      "reward": "Anime Collection Bonus I"
+    },
+    {
+      "percent": 75,
+      "reward": "Anime Collection Bonus II"
+    },
+    {
+      "percent": 100,
+      "reward": "Anime Master Title + Collection Bonus III"
+    }
+  ],
+  "collectionBonusRules": {
+    "enabled": true,
+    "combatBonusesAreSmall": true,
+    "description": "Anime collection bonuses should be useful but not stronger than formation passives.",
+    "examples": [
+      "+1% Gold from anime-related battles",
+      "+1% Essence from anime-related bosses",
+      "+1% HP for characters from this anime at 50% completion",
+      "+2% role-specific stat at 100% completion"
+    ]
+  },
+  "whoHasRules": {
+    "privacyMode": "server_only",
+    "maxResults": 20,
+    "show": [
+      "username",
+      "characterName",
+      "rarity",
+      "variant",
+      "level",
+      "power"
+    ],
+    "hide": [
+      "private inventory details",
+      "full account resources"
+    ]
+  },
+  "rules": [
+    "Search by anime is supported.",
+    "Completion counts unique characters, not duplicate copies.",
+    "Variants can count as separate collection entries if they exist as separate database characters.",
+    "No stars.",
+    "No fusion.",
+    "No character-specific shards."
+  ]
+}
