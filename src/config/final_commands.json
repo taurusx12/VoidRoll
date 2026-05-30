@@ -1,0 +1,109 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 17 - Integration",
+  "commandGroups": {
+    "core": [
+      "help",
+      "profile",
+      "wallet"
+    ],
+    "collection": [
+      "inventory",
+      "view-card",
+      "character",
+      "characters",
+      "anime",
+      "collection",
+      "who-has"
+    ],
+    "gacha": [
+      "roll",
+      "banner",
+      "pack",
+      "pity",
+      "rates"
+    ],
+    "progression": [
+      "character-tree",
+      "upgrade",
+      "traits",
+      "trait",
+      "trait-unlock",
+      "trait-upgrade"
+    ],
+    "formations": [
+      "formations",
+      "formation-set",
+      "formation-clear",
+      "formation-leader"
+    ],
+    "story": [
+      "story"
+    ],
+    "market": [
+      "market",
+      "market-buy"
+    ],
+    "dungeons": [
+      "dungeon",
+      "dungeon-status",
+      "dungeon-choose",
+      "dungeon-abandon"
+    ],
+    "pvp": [
+      "pvp",
+      "pvp-rank",
+      "pvp-defense",
+      "pvp-defense-set",
+      "pvp-leaderboard",
+      "pvp-rewards"
+    ],
+    "raids": [
+      "world-boss",
+      "raid",
+      "raid-attack",
+      "raid-rank",
+      "raid-rewards"
+    ],
+    "admin": [
+      "admin-reset-all",
+      "admin-give-gold",
+      "admin-give-tokens",
+      "admin-give-rolls",
+      "admin-give-essence",
+      "admin-give-void-crystals",
+      "admin-give-resource",
+      "admin-spawn-boss",
+      "admin-refresh-market"
+    ]
+  },
+  "blockedCommands": [
+    "item-roll",
+    "relic-pull",
+    "aura-pull",
+    "fuse",
+    "fusion",
+    "star-upgrade",
+    "merge",
+    "duplicate-fuse",
+    "character-shards",
+    "shards"
+  ],
+  "integrationOrder": [
+    "launchGuard",
+    "economySystem",
+    "inventorySystem",
+    "animeDatabaseSystem",
+    "marketSystem",
+    "revealSystem",
+    "bannerSystem",
+    "battleEngine",
+    "formationSystem",
+    "storyFormationSystem",
+    "evolutionTreeSystem",
+    "traitSystem",
+    "pvpSystem",
+    "dungeonSystem",
+    "worldBossSystem"
+  ]
+}
