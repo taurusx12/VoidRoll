@@ -1,0 +1,29 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 19 - index.js Real DB Wiring",
+  "purpose": "Connect commandRouter to Prisma data sources safely.",
+  "modelsUsed": [
+    "User",
+    "Character",
+    "Card/UserCard/OwnedCard",
+    "UserResource",
+    "Formation",
+    "FormationSlot",
+    "Pity",
+    "DungeonRun",
+    "RaidBoss",
+    "RaidDamageLog"
+  ],
+  "important": [
+    "This patch is adapter-based because existing projects may name owned card model differently.",
+    "Edit CARD_MODEL_NAME in src/systems/dbAdapter.js if your owned card model is not Card.",
+    "Run npm start after copying and adjust model mapping if Prisma model names differ."
+  ],
+  "defaultCardModelName": "card",
+  "fallbackCardModelNames": [
+    "card",
+    "userCard",
+    "ownedCard"
+  ],
+  "next": "Phase 20 Final Test + Launch Zip"
+}
