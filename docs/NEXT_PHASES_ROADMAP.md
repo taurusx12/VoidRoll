@@ -1,38 +1,18 @@
-# VoidRoll Reborn — Build Roadmap From Here
+# VoidRoll Reborn — Updated Roadmap
 
-## Current Phase
-Phase 8 completed:
-- Formations
-- Multi-team story
-- Enemy matching formation count
+## Completed
+Phase 1 — Economy/command direction
+Phase 2 — Progression cleanup
+Phase 3 — Updated resources
+Phase 4 — Daily Market
+Phase 5 — Inventory Rework
+Phase 6 — Anime Database
+Phase 7 — Battle Engine Foundation
+Phase 8 — Formations + Multi-Team Story
+Phase 9 — Character Evolution Tree
 
-## Next Patch
-Phase 9 — Character Evolution Tree Commands
-
-Will add:
-- /character-tree
-- /upgrade
-- Core Tree
-- Skill Tree
-- Gear Tree
-- Trait Tree
-- Bond Tree
-- Transformation Tree
-- Upgrade costs using:
-  - Gold
-  - Essence
-  - Soul Fragments
-  - Role Sigils
-  - Element Cores
-  - Rarity Materials
-  - Gear Materials
-  - Trait Materials
-  - Bond Points
-  - Transformation Cores
-  - Void Crystals
-
-## After Phase 9
-Phase 10 — Traits System
+## Next
+Phase 10 — Trait System
 Phase 11 — Secret / Voidborn Card Reveal
 Phase 12 — Banner Rework
 Phase 13 — PvP Ranked

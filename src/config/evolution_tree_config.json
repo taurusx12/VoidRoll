@@ -1,0 +1,214 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 9 - Character Evolution Tree",
+  "rules": {
+    "noFusion": true,
+    "noStars": true,
+    "noItemRolls": true,
+    "noCharacterSpecificShards": true,
+    "duplicatesAllowedAsCards": true,
+    "passivesUnchanged": true,
+    "builtInGear": true
+  },
+  "branches": {
+    "core": {
+      "displayName": "Core Tree",
+      "emoji": "🌌",
+      "maxTier": 10,
+      "description": "Base character stat growth.",
+      "statsPerTier": {
+        "hpPercent": 3,
+        "atkPercent": 2,
+        "defPercent": 2,
+        "spdFlat": 1
+      }
+    },
+    "skill": {
+      "displayName": "Skill Tree",
+      "emoji": "⚔️",
+      "maxTier": 10,
+      "description": "Improves skills, ultimate, passive strength, and effect chance.",
+      "statsPerTier": {
+        "skillPowerPercent": 3,
+        "effectChancePercent": 1
+      }
+    },
+    "gear": {
+      "displayName": "Built-in Gear Tree",
+      "emoji": "⚒️",
+      "tiers": [
+        "COMMON",
+        "RARE",
+        "EPIC",
+        "LEGENDARY",
+        "MYTHIC",
+        "DIVINE",
+        "VOIDBORN",
+        "SECRET"
+      ],
+      "description": "Gear is built into the character and upgraded directly."
+    },
+    "trait": {
+      "displayName": "Trait Tree",
+      "emoji": "🧬",
+      "maxTier": 5,
+      "description": "Unlocks and upgrades traits."
+    },
+    "bond": {
+      "displayName": "Bond Tree",
+      "emoji": "❤️",
+      "maxTier": 10,
+      "description": "Unlocks quotes, dialogues, team attacks, and team ultimates."
+    },
+    "transformation": {
+      "displayName": "Transformation Tree",
+      "emoji": "🔥",
+      "maxTier": 5,
+      "description": "Unlocks and improves forms such as Bankai, Gear 5, Baryon Mode, Hollow Form, Void Form."
+    },
+    "variant": {
+      "displayName": "Variant Tree",
+      "emoji": "♾️",
+      "maxTier": 5,
+      "description": "Special progression for variants like Corrupted, Awakened, Fallen, Eclipse, Voidborn, True Form."
+    }
+  },
+  "upgradeCosts": {
+    "core": {
+      "formula": {
+        "gold": 12000,
+        "essence": 25,
+        "soulFragments": 8
+      },
+      "tierMultiplier": 1.35
+    },
+    "skill": {
+      "formula": {
+        "gold": 18000,
+        "essence": 40,
+        "soulFragments": 14,
+        "roleSigils": 4
+      },
+      "tierMultiplier": 1.42
+    },
+    "gear": {
+      "RARE": {
+        "gold": 5000,
+        "essence": 10,
+        "soulFragments": 5,
+        "gearMaterial": "Iron Core",
+        "gearMaterialAmount": 1
+      },
+      "EPIC": {
+        "gold": 15000,
+        "essence": 35,
+        "soulFragments": 15,
+        "gearMaterial": "Spirit Alloy",
+        "gearMaterialAmount": 2
+      },
+      "LEGENDARY": {
+        "gold": 50000,
+        "essence": 90,
+        "soulFragments": 35,
+        "roleSigils": 10,
+        "gearMaterial": "Cursed Metal",
+        "gearMaterialAmount": 4
+      },
+      "MYTHIC": {
+        "gold": 125000,
+        "essence": 180,
+        "soulFragments": 70,
+        "roleSigils": 20,
+        "gearMaterial": "Cursed Metal",
+        "gearMaterialAmount": 8
+      },
+      "DIVINE": {
+        "gold": 300000,
+        "essence": 350,
+        "soulFragments": 120,
+        "roleSigils": 35,
+        "rarityMaterial": "Divine Fragment",
+        "rarityMaterialAmount": 2
+      },
+      "VOIDBORN": {
+        "gold": 750000,
+        "essence": 700,
+        "soulFragments": 200,
+        "roleSigils": 60,
+        "elementCores": 45,
+        "voidCrystals": 3,
+        "gearMaterial": "Void Alloy",
+        "gearMaterialAmount": 5
+      },
+      "SECRET": {
+        "gold": 1500000,
+        "essence": 1200,
+        "soulFragments": 350,
+        "roleSigils": 100,
+        "elementCores": 80,
+        "voidCrystals": 8,
+        "gearMaterial": "Secret Core",
+        "gearMaterialAmount": 3
+      }
+    },
+    "trait": {
+      "formula": {
+        "gold": 50000,
+        "essence": 120,
+        "traitDust": 10,
+        "traitCrystals": 1
+      },
+      "tierMultiplier": 1.65
+    },
+    "bond": {
+      "formula": {
+        "gold": 8000,
+        "bondPoints": 30,
+        "essence": 10
+      },
+      "tierMultiplier": 1.25
+    },
+    "transformation": {
+      "formula": {
+        "gold": 250000,
+        "essence": 500,
+        "soulFragments": 150,
+        "transformationCores": 1,
+        "voidCrystals": 1
+      },
+      "tierMultiplier": 1.9
+    },
+    "variant": {
+      "formula": {
+        "gold": 400000,
+        "essence": 700,
+        "soulFragments": 220,
+        "elementCores": 60,
+        "voidCrystals": 2
+      },
+      "tierMultiplier": 2.0
+    }
+  },
+  "unlockRules": {
+    "traitUnlock": {
+      "requiresCoreTier": 3
+    },
+    "bondUnlock": {
+      "requiresLevel": 5
+    },
+    "transformationUnlock": {
+      "requiresCoreTier": 6,
+      "requiresSkillTier": 4
+    },
+    "variantUnlock": {
+      "requiresRarity": [
+        "VOIDBORN",
+        "SECRET"
+      ]
+    }
+  },
+  "commands": {
+    "characterTree": "/character-tree card:<owned card>",
+    "upgrade": "/upgrade card:<owned card> branch:<core|skill|gear|trait|bond|transformation|variant>"
+  }
+}
