@@ -1,0 +1,256 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 14 - Dungeons",
+  "rules": {
+    "usesBattleEngine": true,
+    "usesFormations": true,
+    "powerOnlyDungeon": false,
+    "noItemRolls": true,
+    "noRelicPulls": true,
+    "noAuraPulls": true,
+    "noFusion": true,
+    "noStars": true,
+    "dungeonKeysRequired": true
+  },
+  "resources": {
+    "entryKey": "Dungeon Key",
+    "rareEntryKey": "Abyss Key",
+    "voidEntryKey": "Void Key"
+  },
+  "dungeonTypes": {
+    "normal": {
+      "displayName": "Normal Dungeon",
+      "emoji": "🏰",
+      "entryCost": {
+        "dungeonKeys": 1
+      },
+      "rooms": 6,
+      "requiredFormations": 1,
+      "recommendedChapter": 5
+    },
+    "elite": {
+      "displayName": "Elite Dungeon",
+      "emoji": "🔥",
+      "entryCost": {
+        "dungeonKeys": 2,
+        "essence": 100
+      },
+      "rooms": 8,
+      "requiredFormations": 2,
+      "recommendedChapter": 15
+    },
+    "abyss": {
+      "displayName": "Abyss Dungeon",
+      "emoji": "🕳️",
+      "entryCost": {
+        "abyssKeys": 1,
+        "essence": 250
+      },
+      "rooms": 10,
+      "requiredFormations": 3,
+      "recommendedChapter": 25
+    },
+    "void": {
+      "displayName": "Void Dungeon",
+      "emoji": "🌌",
+      "entryCost": {
+        "voidKeys": 1,
+        "voidCrystals": 1
+      },
+      "rooms": 12,
+      "requiredFormations": 4,
+      "recommendedChapter": 40
+    }
+  },
+  "roomTypes": {
+    "wave": {
+      "emoji": "⚔️",
+      "weight": 38,
+      "description": "Normal enemy wave."
+    },
+    "elite": {
+      "emoji": "💀",
+      "weight": 16,
+      "description": "Stronger enemy wave with better rewards."
+    },
+    "trap": {
+      "emoji": "🪤",
+      "weight": 10,
+      "description": "Risk room. Can damage team or grant a shortcut."
+    },
+    "treasure": {
+      "emoji": "💰",
+      "weight": 12,
+      "description": "Reward room."
+    },
+    "heal": {
+      "emoji": "💚",
+      "weight": 8,
+      "description": "Recover HP or cleanse debuffs."
+    },
+    "choice": {
+      "emoji": "🧭",
+      "weight": 10,
+      "description": "Choose between paths."
+    },
+    "secret": {
+      "emoji": "❔",
+      "weight": 4,
+      "description": "Rare hidden room."
+    },
+    "boss": {
+      "emoji": "👹",
+      "weight": 0,
+      "description": "Final dungeon boss."
+    }
+  },
+  "pathChoices": {
+    "safe": {
+      "displayName": "Safe Path",
+      "risk": "low",
+      "rewardMultiplier": 0.9
+    },
+    "balanced": {
+      "displayName": "Balanced Path",
+      "risk": "medium",
+      "rewardMultiplier": 1.0
+    },
+    "danger": {
+      "displayName": "Danger Path",
+      "risk": "high",
+      "rewardMultiplier": 1.25
+    },
+    "void": {
+      "displayName": "Void Path",
+      "risk": "extreme",
+      "rewardMultiplier": 1.6
+    }
+  },
+  "bossMechanics": {
+    "normal": [
+      "shield_phase"
+    ],
+    "elite": [
+      "shield_phase",
+      "summons"
+    ],
+    "abyss": [
+      "shield_phase",
+      "summons",
+      "rage_mode"
+    ],
+    "void": [
+      "shield_phase",
+      "summons",
+      "rage_mode",
+      "void_bind",
+      "enrage"
+    ]
+  },
+  "rewards": {
+    "wave": {
+      "gold": [
+        8000,
+        18000
+      ],
+      "essence": [
+        10,
+        30
+      ]
+    },
+    "elite": {
+      "gold": [
+        25000,
+        60000
+      ],
+      "essence": [
+        40,
+        100
+      ],
+      "soulFragments": [
+        10,
+        30
+      ]
+    },
+    "trapSuccess": {
+      "gold": [
+        10000,
+        25000
+      ],
+      "essence": [
+        20,
+        50
+      ]
+    },
+    "treasure": {
+      "gold": [
+        40000,
+        100000
+      ],
+      "tokens": [
+        80,
+        250
+      ],
+      "essence": [
+        50,
+        130
+      ]
+    },
+    "secret": {
+      "gold": [
+        100000,
+        250000
+      ],
+      "tokens": [
+        250,
+        800
+      ],
+      "essence": [
+        150,
+        350
+      ],
+      "voidCrystals": [
+        0,
+        1
+      ]
+    },
+    "boss": {
+      "gold": [
+        150000,
+        450000
+      ],
+      "tokens": [
+        300,
+        1200
+      ],
+      "essence": [
+        300,
+        900
+      ],
+      "voidCrystals": [
+        0,
+        2
+      ]
+    },
+    "materials": [
+      "Iron Core",
+      "Spirit Alloy",
+      "Cursed Metal",
+      "Divine Fragment",
+      "Void Alloy",
+      "Secret Core",
+      "Trait Dust",
+      "Trait Crystal",
+      "Guardian Sigil",
+      "Slayer Sigil",
+      "Control Sigil",
+      "Void Core"
+    ]
+  },
+  "commands": {
+    "dungeon": "/dungeon type:<normal|elite|abyss|void>",
+    "dungeonChoose": "/dungeon-choose path:<safe|balanced|danger|void>",
+    "dungeonStatus": "/dungeon-status",
+    "dungeonAbandon": "/dungeon-abandon"
+  }
+}
