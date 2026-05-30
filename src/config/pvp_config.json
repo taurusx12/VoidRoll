@@ -1,0 +1,171 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 13 - PvP Ranked",
+  "rules": {
+    "usesBattleEngine": true,
+    "powerOnlyPvP": false,
+    "usesDefenseFormations": true,
+    "maxAttackFormations": 6,
+    "charactersPerFormation": 6,
+    "sameExactCardInMultipleFormations": false,
+    "duplicateCopiesAcrossFormations": true,
+    "noFusion": true,
+    "noStars": true,
+    "seasonal": true
+  },
+  "ranks": [
+    {
+      "name": "Bronze",
+      "emoji": "🥉",
+      "minRating": 0,
+      "maxRating": 999
+    },
+    {
+      "name": "Silver",
+      "emoji": "🥈",
+      "minRating": 1000,
+      "maxRating": 1499
+    },
+    {
+      "name": "Gold",
+      "emoji": "🥇",
+      "minRating": 1500,
+      "maxRating": 1999
+    },
+    {
+      "name": "Platinum",
+      "emoji": "💠",
+      "minRating": 2000,
+      "maxRating": 2499
+    },
+    {
+      "name": "Diamond",
+      "emoji": "💎",
+      "minRating": 2500,
+      "maxRating": 2999
+    },
+    {
+      "name": "Master",
+      "emoji": "👑",
+      "minRating": 3000,
+      "maxRating": 3499
+    },
+    {
+      "name": "Void",
+      "emoji": "🌌",
+      "minRating": 3500,
+      "maxRating": 999999
+    }
+  ],
+  "rating": {
+    "startingRating": 1000,
+    "winBase": 28,
+    "lossBase": 18,
+    "drawChange": 0,
+    "streakBonusMax": 10,
+    "underdogBonusMax": 16,
+    "ratingDifferenceDivisor": 120
+  },
+  "formationRequirements": {
+    "Bronze": 1,
+    "Silver": 1,
+    "Gold": 2,
+    "Platinum": 3,
+    "Diamond": 4,
+    "Master": 5,
+    "Void": 6
+  },
+  "matchmaking": {
+    "ratingWindow": 350,
+    "maxResults": 10,
+    "preferSameFormationCount": true,
+    "avoidRepeatOpponentHours": 6
+  },
+  "rewards": {
+    "win": {
+      "gold": 25000,
+      "tokens": 120,
+      "essence": 35
+    },
+    "loss": {
+      "gold": 8000,
+      "tokens": 40,
+      "essence": 10
+    },
+    "dailyFirstWin": {
+      "gold": 50000,
+      "tokens": 250,
+      "essence": 80
+    },
+    "rankUp": {
+      "Gold": {
+        "tokens": 500,
+        "essence": 150
+      },
+      "Platinum": {
+        "tokens": 800,
+        "essence": 250
+      },
+      "Diamond": {
+        "tokens": 1200,
+        "essence": 400
+      },
+      "Master": {
+        "tokens": 1800,
+        "essence": 700,
+        "voidCrystals": 1
+      },
+      "Void": {
+        "tokens": 3000,
+        "essence": 1200,
+        "voidCrystals": 3
+      }
+    },
+    "seasonEnd": {
+      "Bronze": {
+        "gold": 100000,
+        "tokens": 500
+      },
+      "Silver": {
+        "gold": 180000,
+        "tokens": 800
+      },
+      "Gold": {
+        "gold": 300000,
+        "tokens": 1200,
+        "essence": 300
+      },
+      "Platinum": {
+        "gold": 500000,
+        "tokens": 1800,
+        "essence": 550
+      },
+      "Diamond": {
+        "gold": 800000,
+        "tokens": 2600,
+        "essence": 900,
+        "voidCrystals": 1
+      },
+      "Master": {
+        "gold": 1200000,
+        "tokens": 4000,
+        "essence": 1500,
+        "voidCrystals": 2
+      },
+      "Void": {
+        "gold": 2000000,
+        "tokens": 7000,
+        "essence": 2500,
+        "voidCrystals": 5
+      }
+    }
+  },
+  "commands": {
+    "pvp": "/pvp opponent:<player>",
+    "pvpRank": "/pvp-rank",
+    "pvpLeaderboard": "/pvp-leaderboard",
+    "pvpDefense": "/pvp-defense",
+    "pvpDefenseSet": "/pvp-defense-set team:<1-6> slot:<1-6> card:<owned card>",
+    "pvpRewards": "/pvp-rewards"
+  }
+}
