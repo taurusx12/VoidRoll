@@ -1,0 +1,251 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 10 - Trait System",
+  "rules": {
+    "noFusion": true,
+    "noStars": true,
+    "noCharacterSpecificShards": true,
+    "traitsUnlockedThroughTree": true,
+    "traitsUpgradeable": true,
+    "traitRerollAllowedLater": true,
+    "maxTraitTier": 5,
+    "passivesUnchanged": true
+  },
+  "traitRarities": {
+    "COMMON": {
+      "weight": 52,
+      "maxTier": 3
+    },
+    "RARE": {
+      "weight": 28,
+      "maxTier": 4
+    },
+    "EPIC": {
+      "weight": 13,
+      "maxTier": 5
+    },
+    "LEGENDARY": {
+      "weight": 5,
+      "maxTier": 5
+    },
+    "MYTHIC": {
+      "weight": 1.5,
+      "maxTier": 5
+    },
+    "VOID": {
+      "weight": 0.4,
+      "maxTier": 5
+    },
+    "SECRET": {
+      "weight": 0.1,
+      "maxTier": 5
+    }
+  },
+  "traits": {
+    "Berserker": {
+      "rarity": "LEGENDARY",
+      "emoji": "🩸",
+      "roles": [
+        "DPS",
+        "TANK"
+      ],
+      "description": "Gains more damage as HP drops.",
+      "effects": {
+        "atkPercentPerTier": 3,
+        "critDamagePercentPerTier": 4,
+        "defPenaltyPercent": 2
+      }
+    },
+    "Monarch": {
+      "rarity": "MYTHIC",
+      "emoji": "👑",
+      "roles": [
+        "SUMMONER",
+        "DPS",
+        "CONTROL"
+      ],
+      "description": "Boosts summons, ultimate gain, and elite presence.",
+      "effects": {
+        "energyGainPercentPerTier": 3,
+        "summonPowerPercentPerTier": 6,
+        "atkPercentPerTier": 2
+      }
+    },
+    "Godspeed": {
+      "rarity": "MYTHIC",
+      "emoji": "⚡",
+      "roles": [
+        "ASSASSIN",
+        "DPS"
+      ],
+      "description": "Huge speed pressure with dodge and first-turn advantage.",
+      "effects": {
+        "spdPercentPerTier": 3,
+        "dodgePercentPerTier": 2,
+        "critRatePercentPerTier": 1
+      }
+    },
+    "Immortal": {
+      "rarity": "MYTHIC",
+      "emoji": "♾️",
+      "roles": [
+        "TANK",
+        "HEALER",
+        "SUPPORT"
+      ],
+      "description": "Survivability trait with healing and death prevention.",
+      "effects": {
+        "hpPercentPerTier": 4,
+        "healingReceivedPercentPerTier": 3,
+        "cheatDeathChanceAtMaxTier": 15
+      }
+    },
+    "Shadowborn": {
+      "rarity": "LEGENDARY",
+      "emoji": "🌑",
+      "roles": [
+        "ASSASSIN",
+        "SUMMONER",
+        "CONTROL"
+      ],
+      "description": "Shadow damage, dodge, and counter pressure.",
+      "effects": {
+        "shadowDamagePercentPerTier": 4,
+        "counterChancePercentPerTier": 2,
+        "dodgePercentPerTier": 1
+      }
+    },
+    "Divine Blood": {
+      "rarity": "LEGENDARY",
+      "emoji": "🪽",
+      "roles": [
+        "SUPPORT",
+        "HEALER",
+        "TANK"
+      ],
+      "description": "Divine defense, healing, and resistance.",
+      "effects": {
+        "effectResistancePercentPerTier": 3,
+        "healingBonusPercentPerTier": 3,
+        "shieldPowerPercentPerTier": 2
+      }
+    },
+    "Void Walker": {
+      "rarity": "VOID",
+      "emoji": "🌌",
+      "roles": [
+        "CONTROL",
+        "ASSASSIN",
+        "DPS"
+      ],
+      "description": "Void trait with ultimate delay and void damage.",
+      "effects": {
+        "voidDamagePercentPerTier": 5,
+        "effectChancePercentPerTier": 3,
+        "enemyEnergyDelayAtMaxTier": 10
+      }
+    },
+    "Cursed Soul": {
+      "rarity": "EPIC",
+      "emoji": "☠️",
+      "roles": [
+        "CONTROL",
+        "DPS"
+      ],
+      "description": "Debuff trait that improves silence, bleed, burn, and curse effects.",
+      "effects": {
+        "effectChancePercentPerTier": 2,
+        "dotDamagePercentPerTier": 4
+      }
+    },
+    "Guardian": {
+      "rarity": "EPIC",
+      "emoji": "🛡️",
+      "roles": [
+        "TANK",
+        "SUPPORT"
+      ],
+      "description": "Improves shields and team protection.",
+      "effects": {
+        "defPercentPerTier": 3,
+        "shieldPowerPercentPerTier": 4
+      }
+    },
+    "Genius": {
+      "rarity": "RARE",
+      "emoji": "🧠",
+      "roles": [
+        "SUPPORT",
+        "CONTROL",
+        "DPS"
+      ],
+      "description": "Improves skill scaling and energy economy.",
+      "effects": {
+        "skillPowerPercentPerTier": 2,
+        "energyGainPercentPerTier": 2
+      }
+    },
+    "Swift": {
+      "rarity": "RARE",
+      "emoji": "💨",
+      "roles": [
+        "ASSASSIN",
+        "SUPPORT",
+        "DPS"
+      ],
+      "description": "Speed and dodge trait.",
+      "effects": {
+        "spdPercentPerTier": 2,
+        "dodgePercentPerTier": 1
+      }
+    },
+    "Iron Will": {
+      "rarity": "COMMON",
+      "emoji": "🪨",
+      "roles": [
+        "TANK",
+        "SUPPORT",
+        "HEALER"
+      ],
+      "description": "Basic resistance and defense trait.",
+      "effects": {
+        "defPercentPerTier": 2,
+        "effectResistancePercentPerTier": 1
+      }
+    }
+  },
+  "upgradeCosts": {
+    "base": {
+      "gold": 50000,
+      "essence": 120,
+      "traitDust": 10,
+      "traitCrystals": 1
+    },
+    "tierMultiplier": 1.65,
+    "rarityMultiplier": {
+      "COMMON": 0.8,
+      "RARE": 1.0,
+      "EPIC": 1.35,
+      "LEGENDARY": 1.85,
+      "MYTHIC": 2.5,
+      "VOID": 3.5,
+      "SECRET": 5.0
+    },
+    "extraCosts": {
+      "VOID": {
+        "voidCrystals": 1,
+        "voidSigils": 1
+      },
+      "SECRET": {
+        "voidCrystals": 3,
+        "secretCores": 1
+      }
+    }
+  },
+  "unlockCosts": {
+    "gold": 100000,
+    "essence": 250,
+    "traitDust": 25,
+    "traitCrystals": 1
+  }
+}

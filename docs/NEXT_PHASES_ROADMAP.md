@@ -10,9 +10,9 @@ Phase 6 — Anime Database
 Phase 7 — Battle Engine Foundation
 Phase 8 — Formations + Multi-Team Story
 Phase 9 — Character Evolution Tree
+Phase 10 — Trait System
 
 ## Next
-Phase 10 — Trait System
 Phase 11 — Secret / Voidborn Card Reveal
 Phase 12 — Banner Rework
 Phase 13 — PvP Ranked
