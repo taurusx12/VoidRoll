@@ -1,10 +1,9 @@
-# VoidRoll Reborn — Remaining Launch Work
+# VoidRoll Reborn — Roadmap Status
 
 ## Completed
-Phase 1-16 feature systems
-Phase 17 Integration Patch
-Phase 18 Prisma Schema Patch
-Phase 19 DB Wiring Patch
+Phase 1-20
 
-## Next
-Phase 20 — Final Test + Launch Zip
+## Remaining
+1. Run final tests.
+2. Fix any errors.
+3. Final Launch Zip.

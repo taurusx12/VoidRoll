@@ -1,0 +1,60 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 20 - Final Test + Launch Checklist",
+  "requiredChecks": [
+    "env",
+    "prisma",
+    "schema",
+    "systems",
+    "commands",
+    "blockedCommands",
+    "dbAdapter",
+    "launchGuard"
+  ],
+  "manualDiscordTests": [
+    "/help",
+    "/wallet",
+    "/inventory",
+    "/anime name:Bleach",
+    "/collection anime:Bleach",
+    "/character name:Makima",
+    "/market type:daily",
+    "/banner",
+    "/rates",
+    "/formations",
+    "/story",
+    "/character-tree",
+    "/upgrade branch:core",
+    "/traits",
+    "/pvp-rank",
+    "/dungeon type:normal",
+    "/world-boss",
+    "/raid-rank"
+  ],
+  "blockedCommandsToConfirm": [
+    "/fuse",
+    "/fusion",
+    "/star-upgrade",
+    "/item-roll",
+    "/relic-pull",
+    "/aura-pull",
+    "/character-shards",
+    "/shards"
+  ],
+  "launchCommands": [
+    "npm install",
+    "npx prisma format",
+    "npx prisma generate",
+    "node scripts/prisma-schema-audit.js",
+    "node scripts/voidroll-final-test.js",
+    "node scripts/deploy-commands-voidroll-reborn.js",
+    "npm start"
+  ],
+  "readyWhen": [
+    "Prisma audit is all green",
+    "Final test passes",
+    "Discord commands deploy",
+    "Bot starts without crash",
+    "Core commands respond in Discord"
+  ]
+}
