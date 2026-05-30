@@ -1,0 +1,329 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 4 - Daily Market",
+  "refreshHours": 24,
+  "marketTypes": {
+    "daily": {
+      "displayName": "Daily Market",
+      "emoji": "🛒",
+      "description": "Normal rotating shop that refreshes every 24 hours.",
+      "currencyPriority": [
+        "gold",
+        "tokens"
+      ],
+      "slots": 8,
+      "stockPerPlayer": true
+    },
+    "black": {
+      "displayName": "Black Market",
+      "emoji": "🕶️",
+      "description": "Rare shop for high-value progression materials.",
+      "currencyPriority": [
+        "tokens",
+        "essence"
+      ],
+      "slots": 6,
+      "stockPerPlayer": true,
+      "unlockHint": "Unlocks after mid-story progression or admin/event toggle."
+    },
+    "void": {
+      "displayName": "Void Market",
+      "emoji": "🌌",
+      "description": "Ultra-rare shop for Voidborn/Secret progression and exclusive content.",
+      "currencyPriority": [
+        "voidCrystals",
+        "essence",
+        "tokens"
+      ],
+      "slots": 4,
+      "stockPerPlayer": true,
+      "unlockHint": "Unlocks after Void Realm / late story progression."
+    },
+    "traveling": {
+      "displayName": "Traveling Merchant",
+      "emoji": "🧳",
+      "description": "Rare temporary merchant that appears sometimes.",
+      "currencyPriority": [
+        "gold",
+        "tokens",
+        "essence",
+        "voidCrystals"
+      ],
+      "slots": 5,
+      "stockPerPlayer": true,
+      "appearanceChance": 0.08,
+      "durationHours": 6
+    }
+  },
+  "itemPools": {
+    "daily": [
+      {
+        "id": "essence_small",
+        "name": "Small Essence Bundle",
+        "type": "resource",
+        "resource": "essence",
+        "amount": 50,
+        "price": {
+          "gold": 25000
+        },
+        "stock": 2
+      },
+      {
+        "id": "soul_fragments_small",
+        "name": "Soul Fragments Bundle",
+        "type": "resource",
+        "resource": "soulFragments",
+        "amount": 40,
+        "price": {
+          "gold": 30000
+        },
+        "stock": 2
+      },
+      {
+        "id": "iron_core_pack",
+        "name": "Iron Core Pack",
+        "type": "material",
+        "resource": "Iron Core",
+        "amount": 3,
+        "price": {
+          "gold": 15000
+        },
+        "stock": 3
+      },
+      {
+        "id": "spirit_alloy_pack",
+        "name": "Spirit Alloy Pack",
+        "type": "material",
+        "resource": "Spirit Alloy",
+        "amount": 2,
+        "price": {
+          "gold": 30000
+        },
+        "stock": 2
+      },
+      {
+        "id": "trait_dust_pack",
+        "name": "Trait Dust Pack",
+        "type": "material",
+        "resource": "Trait Dust",
+        "amount": 5,
+        "price": {
+          "gold": 20000
+        },
+        "stock": 2
+      },
+      {
+        "id": "bond_points_pack",
+        "name": "Bond Points Pack",
+        "type": "resource",
+        "resource": "bondPoints",
+        "amount": 25,
+        "price": {
+          "tokens": 150
+        },
+        "stock": 1
+      }
+    ],
+    "black": [
+      {
+        "id": "essence_large",
+        "name": "Large Essence Bundle",
+        "type": "resource",
+        "resource": "essence",
+        "amount": 250,
+        "price": {
+          "tokens": 1200
+        },
+        "stock": 1
+      },
+      {
+        "id": "cursed_metal_pack",
+        "name": "Cursed Metal Pack",
+        "type": "material",
+        "resource": "Cursed Metal",
+        "amount": 4,
+        "price": {
+          "tokens": 900
+        },
+        "stock": 1
+      },
+      {
+        "id": "control_sigil_pack",
+        "name": "Control Sigil Pack",
+        "type": "material",
+        "resource": "Control Sigil",
+        "amount": 10,
+        "price": {
+          "essence": 180
+        },
+        "stock": 1
+      },
+      {
+        "id": "shadow_sigil_pack",
+        "name": "Shadow Sigil Pack",
+        "type": "material",
+        "resource": "Shadow Sigil",
+        "amount": 10,
+        "price": {
+          "essence": 180
+        },
+        "stock": 1
+      },
+      {
+        "id": "trait_crystal",
+        "name": "Trait Crystal",
+        "type": "material",
+        "resource": "Trait Crystal",
+        "amount": 1,
+        "price": {
+          "tokens": 1500
+        },
+        "stock": 1
+      },
+      {
+        "id": "divine_fragment",
+        "name": "Divine Fragment",
+        "type": "material",
+        "resource": "Divine Fragment",
+        "amount": 1,
+        "price": {
+          "essence": 500
+        },
+        "stock": 1
+      }
+    ],
+    "void": [
+      {
+        "id": "void_alloy",
+        "name": "Void Alloy",
+        "type": "material",
+        "resource": "Void Alloy",
+        "amount": 1,
+        "price": {
+          "voidCrystals": 1,
+          "essence": 250
+        },
+        "stock": 1
+      },
+      {
+        "id": "void_core_pack",
+        "name": "Void Core Pack",
+        "type": "material",
+        "resource": "Void Core",
+        "amount": 5,
+        "price": {
+          "voidCrystals": 1
+        },
+        "stock": 1
+      },
+      {
+        "id": "voidborn_shard",
+        "name": "Voidborn Shard",
+        "type": "material",
+        "resource": "Voidborn Shard",
+        "amount": 1,
+        "price": {
+          "voidCrystals": 2
+        },
+        "stock": 1
+      },
+      {
+        "id": "secret_core",
+        "name": "Secret Core",
+        "type": "material",
+        "resource": "Secret Core",
+        "amount": 1,
+        "price": {
+          "voidCrystals": 5,
+          "essence": 750
+        },
+        "stock": 1
+      },
+      {
+        "id": "secret_frame_token",
+        "name": "Secret Frame Token",
+        "type": "cosmetic_unlock",
+        "resource": "Secret Frame Token",
+        "amount": 1,
+        "price": {
+          "voidCrystals": 8
+        },
+        "stock": 1
+      }
+    ],
+    "traveling": [
+      {
+        "id": "merchant_discount_essence",
+        "name": "Discount Essence Cache",
+        "type": "resource",
+        "resource": "essence",
+        "amount": 180,
+        "price": {
+          "gold": 75000
+        },
+        "stock": 1
+      },
+      {
+        "id": "random_role_sigils",
+        "name": "Random Role Sigils",
+        "type": "material",
+        "resource": "Random Role Sigil",
+        "amount": 15,
+        "price": {
+          "tokens": 900
+        },
+        "stock": 1
+      },
+      {
+        "id": "random_element_cores",
+        "name": "Random Element Cores",
+        "type": "material",
+        "resource": "Random Element Core",
+        "amount": 12,
+        "price": {
+          "tokens": 900
+        },
+        "stock": 1
+      },
+      {
+        "id": "transformation_core_cache",
+        "name": "Transformation Core Cache",
+        "type": "material",
+        "resource": "Random Transformation Core",
+        "amount": 1,
+        "price": {
+          "essence": 550
+        },
+        "stock": 1
+      },
+      {
+        "id": "void_crystal_fragment",
+        "name": "Void Crystal Fragment",
+        "type": "rare_resource",
+        "resource": "Void Crystal Fragment",
+        "amount": 1,
+        "price": {
+          "tokens": 2500
+        },
+        "stock": 1
+      }
+    ]
+  },
+  "dynamicPricing": {
+    "enabled": true,
+    "phase4Mode": "lightweight",
+    "minMultiplier": 0.85,
+    "maxMultiplier": 1.35,
+    "rules": [
+      "Prices can move slightly based on market type and item rarity.",
+      "Full demand-based economy can be added later after player data exists.",
+      "Void Market items should never become cheap."
+    ]
+  },
+  "removed": [
+    "item_rolls_in_market",
+    "relic_pull_in_market",
+    "aura_pull_in_market",
+    "character_specific_shards"
+  ]
+}
