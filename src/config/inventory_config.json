@@ -1,0 +1,100 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 5 - Inventory Rework",
+  "pageSize": 10,
+  "maxPageSize": 25,
+  "filters": {
+    "anime": true,
+    "rarity": true,
+    "element": true,
+    "role": true,
+    "variant": true,
+    "name": true,
+    "sort": [
+      "power",
+      "rarity",
+      "level",
+      "name",
+      "anime",
+      "gear"
+    ]
+  },
+  "displayFields": [
+    "name",
+    "variant",
+    "anime",
+    "rarity",
+    "element",
+    "role",
+    "level",
+    "power",
+    "gearTier",
+    "passive",
+    "leaderPassive",
+    "collectionPassive"
+  ],
+  "rarityOrder": [
+    "COMMON",
+    "RARE",
+    "EPIC",
+    "LEGENDARY",
+    "MYTHIC",
+    "DIVINE",
+    "VOIDBORN",
+    "SECRET"
+  ],
+  "rarityEmoji": {
+    "COMMON": "🟢",
+    "RARE": "🔵",
+    "EPIC": "🟣",
+    "LEGENDARY": "🟡",
+    "MYTHIC": "🔴",
+    "DIVINE": "⚪",
+    "VOIDBORN": "🌌",
+    "SECRET": "🌠"
+  },
+  "elementEmoji": {
+    "FIRE": "🔥",
+    "ICE": "❄️",
+    "WATER": "🌊",
+    "WIND": "💨",
+    "LIGHTNING": "⚡",
+    "SHADOW": "🌑",
+    "LIGHT": "✨",
+    "VOID": "🌌"
+  },
+  "roleEmoji": {
+    "TANK": "🛡️",
+    "DPS": "⚔️",
+    "SUPPORT": "💫",
+    "ASSASSIN": "🗡️",
+    "SUMMONER": "👻",
+    "CONTROL": "⛓️",
+    "HEALER": "💚"
+  },
+  "rules": [
+    "No inventory cap.",
+    "Duplicate cards are allowed.",
+    "The same exact card instance cannot be used in two formations.",
+    "No stars displayed.",
+    "No fusion displayed.",
+    "No character-specific shards displayed.",
+    "Built-in Gear Tier is displayed as part of the character card."
+  ],
+  "commands": {
+    "inventoryExamples": [
+      "/inventory",
+      "/inventory anime:Bleach",
+      "/inventory rarity:SECRET",
+      "/inventory element:VOID",
+      "/inventory role:CONTROL",
+      "/inventory name:Makima"
+    ],
+    "characterDatabaseExamples": [
+      "/character Makima",
+      "/anime Bleach",
+      "/collection anime:Bleach",
+      "/who-has Makima"
+    ]
+  }
+}
