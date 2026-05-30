@@ -1,9 +1,6 @@
-// VoidRoll Reborn - Phase 2 Progression System
-// Decisions:
-// - No Fusion
-// - No Stars
-// - No Item Rolls
-// - Duplicates convert into resources used by Character Evolution Tree
+// VoidRoll Reborn - Updated Progression System
+// No Fusion, No Stars, No Item Rolls, No character-specific shards.
+// Duplicates are allowed as separate cards. Passives are not nerfed or changed.
 
 const progressionRules = require('../config/progression_rules.json');
 
@@ -15,6 +12,14 @@ function normalizeRarity(rarity = 'COMMON') {
   return RARITY_ORDER.includes(value) ? value : 'COMMON';
 }
 
+function normalizeRole(role = 'DPS') {
+  return String(role || 'DPS').toUpperCase();
+}
+
+function normalizeElement(element = 'LIGHT') {
+  return String(element || 'LIGHT').toUpperCase();
+}
+
 function rarityRank(rarity = 'COMMON') {
   return RARITY_ORDER.indexOf(normalizeRarity(rarity));
 }
@@ -23,17 +28,48 @@ function getGearPath() {
   return [...GEAR_PATH];
 }
 
-function getDuplicateRewards(rarity = 'COMMON', multiplier = 1) {
-  const normalized = normalizeRarity(rarity);
-  const base = progressionRules.duplicatePolicy.baseRewards[normalized]
-    || progressionRules.duplicatePolicy.baseRewards.COMMON;
+function getDuplicateBonusRewards(character = {}) {
+  const rarity = normalizeRarity(character.rarity);
+  const role = normalizeRole(character.role || character.type || 'DPS');
+  const element = normalizeElement(character.element || 'LIGHT');
+
+  const base = progressionRules.duplicateRewards.byRarity[rarity]
+    || progressionRules.duplicateRewards.byRarity.COMMON;
+
+  const roleMaterial = progressionRules.duplicateRewards.byRole[role] || null;
+  const elementMaterial = progressionRules.duplicateRewards.byElement[element] || null;
 
   return {
-    shards: Math.floor((base.shards || 0) * multiplier),
-    essence: Math.floor((base.essence || 0) * multiplier),
-    gold: Math.floor((base.gold || 0) * multiplier),
-    voidCrystals: Math.floor((base.voidCrystals || 0) * multiplier)
+    soulFragments: Number(base.soulFragments || 0),
+    essence: Number(base.essence || 0),
+    gold: Number(base.gold || 0),
+    voidCrystals: Number(base.voidCrystals || 0),
+    roleMaterial,
+    roleMaterialAmount: roleMaterial ? Math.max(1, Math.floor((base.soulFragments || 5) / 10)) : 0,
+    elementMaterial,
+    elementMaterialAmount: elementMaterial ? Math.max(1, Math.floor((base.soulFragments || 5) / 12)) : 0,
+    rarityMaterial: base.rarityMaterial || null,
+    rarityMaterialAmount: Number(base.rarityMaterialAmount || 0)
   };
+}
+
+function formatDuplicateBonusRewards(character = {}) {
+  const rewards = getDuplicateBonusRewards(character);
+  const name = character.name || 'Character';
+
+  const lines = [
+    `Duplicate **${name}** bonus rewards:`,
+    `🧩 +${rewards.soulFragments} Soul Fragments`,
+    `🔮 +${rewards.essence} Essence`,
+    `🪙 +${rewards.gold.toLocaleString()} Gold`
+  ];
+
+  if (rewards.roleMaterial) lines.push(`🔱 +${rewards.roleMaterialAmount} ${rewards.roleMaterial}`);
+  if (rewards.elementMaterial) lines.push(`🌌 +${rewards.elementMaterialAmount} ${rewards.elementMaterial}`);
+  if (rewards.rarityMaterial) lines.push(`💠 +${rewards.rarityMaterialAmount} ${rewards.rarityMaterial}`);
+  if (rewards.voidCrystals > 0) lines.push(`💎 +${rewards.voidCrystals} Void Crystals`);
+
+  return lines.join('\n');
 }
 
 function buildEvolutionTreeView(character = {}, card = {}) {
@@ -45,6 +81,8 @@ function buildEvolutionTreeView(character = {}, card = {}) {
     anime: character.anime || 'Unknown Anime',
     rarity,
     variant: character.variant || 'Base',
+    duplicateAllowed: true,
+    passiveUnchanged: true,
     core: {
       level: card.level || 1,
       tier: card.coreTier || 0,
@@ -73,23 +111,15 @@ function buildEvolutionTreeView(character = {}, card = {}) {
   };
 }
 
-function formatDuplicateRewards(characterName, rarity, rewards) {
-  const parts = [
-    `+${rewards.shards} ${characterName} Shards`,
-    `+${rewards.essence} Essence`,
-    `+${rewards.gold.toLocaleString()} Gold`
-  ];
-  if (rewards.voidCrystals > 0) parts.push(`+${rewards.voidCrystals} Void Crystals`);
-  return parts.join('\n');
-}
-
 module.exports = {
   RARITY_ORDER,
   GEAR_PATH,
   normalizeRarity,
+  normalizeRole,
+  normalizeElement,
   rarityRank,
   getGearPath,
-  getDuplicateRewards,
-  buildEvolutionTreeView,
-  formatDuplicateRewards
+  getDuplicateBonusRewards,
+  formatDuplicateBonusRewards,
+  buildEvolutionTreeView
 };

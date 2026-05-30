@@ -1,0 +1,195 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 3 Updated - Economy Rework",
+  "coreCurrencies": {
+    "gold": {
+      "displayName": "Gold",
+      "emoji": "🪙",
+      "description": "Daily currency for normal progression.",
+      "usedFor": [
+        "level_up",
+        "core_upgrades",
+        "early_gear_upgrades",
+        "shops",
+        "travel"
+      ],
+      "mainSources": [
+        "daily_rewards",
+        "story",
+        "dungeons",
+        "market_events"
+      ]
+    },
+    "tokens": {
+      "displayName": "Tokens",
+      "emoji": "🎟️",
+      "description": "Gameplay currency for pulls, market, and trading fees.",
+      "usedFor": [
+        "normal_rolls",
+        "banner_pulls",
+        "trading_fees",
+        "market_items"
+      ],
+      "mainSources": [
+        "daily_rewards",
+        "events",
+        "pvp",
+        "achievements",
+        "admin"
+      ]
+    },
+    "essence": {
+      "displayName": "Essence",
+      "emoji": "🔮",
+      "description": "Main progression resource for Character Evolution Tree.",
+      "usedFor": [
+        "core_tree",
+        "skill_tree",
+        "trait_tree",
+        "ascend",
+        "evolutions"
+      ],
+      "mainSources": [
+        "bosses",
+        "raids",
+        "pvp",
+        "dungeons",
+        "duplicate_bonus_rewards"
+      ]
+    },
+    "voidCrystals": {
+      "displayName": "Void Crystals",
+      "emoji": "💎",
+      "description": "Rarest currency for Voidborn, Secret, and exclusive upgrades.",
+      "usedFor": [
+        "voidborn_gear",
+        "secret_gear",
+        "secret_frames",
+        "limited_banners",
+        "exclusive_content"
+      ],
+      "mainSources": [
+        "world_bosses",
+        "ranked_pvp",
+        "limited_events",
+        "secret_duplicate_bonus_rewards",
+        "admin"
+      ]
+    }
+  },
+  "progressionResources": {
+    "soulFragments": {
+      "emoji": "🧩",
+      "description": "Universal progression fragments. Replaces character-specific shards.",
+      "replaces": [
+        "Makima Shards",
+        "Gojo Shards",
+        "Naruto Shards",
+        "all character-name shards"
+      ],
+      "usedFor": [
+        "core_tree",
+        "skill_tree",
+        "gear_tree",
+        "passive_upgrades"
+      ]
+    },
+    "roleSigils": {
+      "emoji": "🔱",
+      "description": "Role-based materials used for role-specific upgrades.",
+      "types": {
+        "Tank": "Guardian Sigil",
+        "DPS": "Slayer Sigil",
+        "Support": "Harmony Sigil",
+        "Assassin": "Shadow Sigil",
+        "Summoner": "Spirit Sigil",
+        "Control": "Control Sigil",
+        "Healer": "Life Sigil"
+      }
+    },
+    "elementCores": {
+      "emoji": "🌌",
+      "description": "Element-based materials used for element upgrades.",
+      "types": {
+        "Fire": "Flame Core",
+        "Ice": "Frost Core",
+        "Water": "Tide Core",
+        "Wind": "Gale Core",
+        "Lightning": "Storm Core",
+        "Shadow": "Shadow Core",
+        "Light": "Light Core",
+        "Void": "Void Core"
+      }
+    },
+    "rarityMaterials": {
+      "emoji": "💠",
+      "description": "High-tier materials based on rarity.",
+      "types": {
+        "Divine": "Divine Fragment",
+        "Voidborn": "Voidborn Shard",
+        "Secret": "Secret Core"
+      }
+    },
+    "gearMaterials": {
+      "emoji": "⚒️",
+      "tiers": [
+        "Iron Core",
+        "Spirit Alloy",
+        "Cursed Metal",
+        "Divine Fragment",
+        "Void Alloy",
+        "Secret Core"
+      ],
+      "usedFor": [
+        "built_in_gear_upgrades"
+      ]
+    },
+    "traitMaterials": {
+      "emoji": "🧬",
+      "tiers": [
+        "Trait Dust",
+        "Trait Crystal",
+        "Monarch Sigil",
+        "Void Sigil",
+        "Divine Bloodstone"
+      ],
+      "usedFor": [
+        "trait_unlocks",
+        "trait_evolution"
+      ]
+    },
+    "bondPoints": {
+      "emoji": "❤️",
+      "description": "Earned by using a character repeatedly.",
+      "usedFor": [
+        "quotes",
+        "dialogues",
+        "team_attacks",
+        "team_ultimates",
+        "bond_buffs"
+      ]
+    },
+    "transformationCores": {
+      "emoji": "🔥",
+      "examples": [
+        "Bankai Core",
+        "Gear Core",
+        "Hollow Core",
+        "Baryon Core",
+        "Void Form Core"
+      ],
+      "usedFor": [
+        "transformation_unlocks",
+        "transformation_upgrades"
+      ]
+    }
+  },
+  "duplicatePolicy": {
+    "duplicatesAllowed": true,
+    "characterSpecificShards": false,
+    "fusion": false,
+    "stars": false,
+    "passivesUnchanged": true,
+    "description": "Duplicates remain valid cards. Optional duplicate bonus rewards use universal/type materials, not character shards."
+  }
+}

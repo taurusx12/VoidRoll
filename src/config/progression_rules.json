@@ -1,14 +1,22 @@
 {
   "projectName": "VoidRoll Reborn",
-  "phase": "Phase 2 - Progression Cleanup",
+  "phase": "Phase 2/3 Updated - Progression + Resources Cleanup",
   "removedSystems": [
     "item_rolls",
     "relic_pull_as_independent_gacha",
     "aura_pull_as_independent_gacha",
     "fusion",
     "star_upgrades",
-    "duplicate_fusion"
+    "duplicate_fusion",
+    "character_specific_shards"
   ],
+  "allowedDuplicatePolicy": {
+    "enabled": true,
+    "description": "Duplicate character cards are allowed. The same exact card instance cannot be placed in two formations, but duplicate copies can be used in different formations.",
+    "sameCharacterAcrossFormations": true,
+    "sameCardInstanceAcrossFormations": false,
+    "passiveBehavior": "Do not nerf or change passives because of duplicates. Each copy keeps the character passive."
+  },
   "rarityOrder": [
     "COMMON",
     "RARE",
@@ -29,51 +37,76 @@
     "VOIDBORN",
     "SECRET"
   ],
-  "duplicatePolicy": {
-    "description": "Duplicates are converted into progression resources, not fused into stars.",
-    "baseRewards": {
+  "duplicateRewards": {
+    "description": "Duplicates may grant universal/type resources, never Makima Shards or character-name shards.",
+    "byRarity": {
       "COMMON": {
-        "shards": 5,
+        "soulFragments": 5,
         "essence": 1,
         "gold": 250
       },
       "RARE": {
-        "shards": 10,
+        "soulFragments": 10,
         "essence": 3,
         "gold": 750
       },
       "EPIC": {
-        "shards": 20,
+        "soulFragments": 20,
         "essence": 8,
         "gold": 2500
       },
       "LEGENDARY": {
-        "shards": 35,
+        "soulFragments": 35,
         "essence": 20,
         "gold": 10000
       },
       "MYTHIC": {
-        "shards": 55,
+        "soulFragments": 55,
         "essence": 45,
         "gold": 25000
       },
       "DIVINE": {
-        "shards": 80,
+        "soulFragments": 80,
         "essence": 100,
-        "gold": 75000
+        "gold": 75000,
+        "rarityMaterial": "Divine Fragment",
+        "rarityMaterialAmount": 1
       },
       "VOIDBORN": {
-        "shards": 120,
+        "soulFragments": 120,
         "essence": 175,
         "gold": 150000,
-        "voidCrystals": 1
+        "voidCrystals": 1,
+        "rarityMaterial": "Voidborn Shard",
+        "rarityMaterialAmount": 1
       },
       "SECRET": {
-        "shards": 200,
+        "soulFragments": 200,
         "essence": 300,
         "gold": 300000,
-        "voidCrystals": 3
+        "voidCrystals": 3,
+        "rarityMaterial": "Secret Core",
+        "rarityMaterialAmount": 1
       }
+    },
+    "byRole": {
+      "TANK": "Guardian Sigil",
+      "DPS": "Slayer Sigil",
+      "SUPPORT": "Harmony Sigil",
+      "ASSASSIN": "Shadow Sigil",
+      "SUMMONER": "Spirit Sigil",
+      "CONTROL": "Control Sigil",
+      "HEALER": "Life Sigil"
+    },
+    "byElement": {
+      "FIRE": "Flame Core",
+      "ICE": "Frost Core",
+      "WATER": "Tide Core",
+      "WIND": "Gale Core",
+      "LIGHTNING": "Storm Core",
+      "SHADOW": "Shadow Core",
+      "LIGHT": "Light Core",
+      "VOID": "Void Core"
     }
   },
   "characterTree": {
@@ -84,5 +117,18 @@
     "bond": "Usage-based buffs, dialogue, and team attacks.",
     "transformation": "Forms such as Bankai, Gear 5, Baryon Mode, Hollow Form, Void Form.",
     "variant": "Separate character variants such as Corrupted, Awakened, Fallen, Eclipse, Voidborn, True Form."
-  }
+  },
+  "upgradeResources": [
+    "Gold",
+    "Essence",
+    "Soul Fragments",
+    "Role Sigils",
+    "Element Cores",
+    "Rarity Materials",
+    "Gear Materials",
+    "Trait Materials",
+    "Bond Points",
+    "Transformation Cores",
+    "Void Crystals"
+  ]
 }

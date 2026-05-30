@@ -60,11 +60,17 @@
     "/fusion",
     "/star-upgrade",
     "/merge",
-    "/duplicate-fuse"
+    "/duplicate-fuse",
+    "/shards",
+    "/character-shards"
   ],
   "notes": [
     "Relics and Auras stay as character progression unlocks, not separate gacha.",
-    "Duplicates convert into resources for the Character Evolution Tree.",
-    "VOIDBORN stays between DIVINE and SECRET."
+    "No Makima Shards, Gojo Shards, Naruto Shards, or any character-name shard.",
+    "Duplicates are allowed as separate card copies.",
+    "Same exact card instance cannot be used in two formations.",
+    "Duplicate bonus rewards use Soul Fragments, Role Sigils, Element Cores, and Rarity Materials.",
+    "VOIDBORN stays between DIVINE and SECRET.",
+    "Passives remain unchanged."
   ]
 }
