@@ -1,0 +1,88 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 2 - Progression Cleanup",
+  "removedSystems": [
+    "item_rolls",
+    "relic_pull_as_independent_gacha",
+    "aura_pull_as_independent_gacha",
+    "fusion",
+    "star_upgrades",
+    "duplicate_fusion"
+  ],
+  "rarityOrder": [
+    "COMMON",
+    "RARE",
+    "EPIC",
+    "LEGENDARY",
+    "MYTHIC",
+    "DIVINE",
+    "VOIDBORN",
+    "SECRET"
+  ],
+  "gearPath": [
+    "COMMON",
+    "RARE",
+    "EPIC",
+    "LEGENDARY",
+    "MYTHIC",
+    "DIVINE",
+    "VOIDBORN",
+    "SECRET"
+  ],
+  "duplicatePolicy": {
+    "description": "Duplicates are converted into progression resources, not fused into stars.",
+    "baseRewards": {
+      "COMMON": {
+        "shards": 5,
+        "essence": 1,
+        "gold": 250
+      },
+      "RARE": {
+        "shards": 10,
+        "essence": 3,
+        "gold": 750
+      },
+      "EPIC": {
+        "shards": 20,
+        "essence": 8,
+        "gold": 2500
+      },
+      "LEGENDARY": {
+        "shards": 35,
+        "essence": 20,
+        "gold": 10000
+      },
+      "MYTHIC": {
+        "shards": 55,
+        "essence": 45,
+        "gold": 25000
+      },
+      "DIVINE": {
+        "shards": 80,
+        "essence": 100,
+        "gold": 75000
+      },
+      "VOIDBORN": {
+        "shards": 120,
+        "essence": 175,
+        "gold": 150000,
+        "voidCrystals": 1
+      },
+      "SECRET": {
+        "shards": 200,
+        "essence": 300,
+        "gold": 300000,
+        "voidCrystals": 3
+      }
+    }
+  },
+  "characterTree": {
+    "core": "Base stats and power upgrades.",
+    "skills": "Skill and ultimate evolution.",
+    "gear": "Built-in gear upgrades. No item gacha.",
+    "traits": "Trait unlocks and trait evolution.",
+    "bond": "Usage-based buffs, dialogue, and team attacks.",
+    "transformation": "Forms such as Bankai, Gear 5, Baryon Mode, Hollow Form, Void Form.",
+    "variant": "Separate character variants such as Corrupted, Awakened, Fallen, Eclipse, Voidborn, True Form."
+  }
+}

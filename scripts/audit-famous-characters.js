@@ -1,33 +1,55 @@
-require('dotenv').config();
-const { prisma } = require('../src/lib/db');
+// Checks if famous characters exist in the current database.
+// Run after the bot database is connected:
+// node scripts/audit-famous-characters.js
 
-const MUST_HAVE = [
-  ['Aizen', 'Bleach'], ['Ichigo', 'Bleach'], ['Gojo', 'Jujutsu Kaisen'], ['Sukuna', 'Jujutsu Kaisen'],
-  ['Makima', 'Chainsaw Man'], ['Denji', 'Chainsaw Man'], ['Madara', 'Naruto'], ['Naruto', 'Naruto'], ['Sasuke', 'Naruto'],
-  ['Goku', 'Dragon Ball'], ['Vegeta', 'Dragon Ball'], ['Luffy', 'One Piece'], ['Zoro', 'One Piece'], ['Sanji', 'One Piece'],
-  ['Rimuru', 'Tensei shitara Slime'], ['Lelouch', 'Code Geass'], ['Saber', 'Fate'], ['Ainz', 'Overlord'],
-  ['Sung Jin-Woo', 'Solo Leveling'], ['Killua', 'Hunter'], ['Gon', 'Hunter'], ['Kurapika', 'Hunter'],
-  ['Natsu', 'Fairy Tail'], ['Erza', 'Fairy Tail'], ['Itachi', 'Naruto'], ['Levi', 'Attack on Titan'], ['Eren', 'Attack on Titan']
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
+const famousCharacters = [
+  'Gojo', 'Sukuna', 'Makima', 'Aizen', 'Madara', 'Itachi', 'Naruto', 'Sasuke',
+  'Luffy', 'Zoro', 'Sanji', 'Ichigo', 'Rukia', 'Kenpachi', 'Goku', 'Vegeta',
+  'Gohan', 'Killua', 'Gon', 'Kurapika', 'Hisoka', 'Levi', 'Eren', 'Mikasa',
+  'Tanjiro', 'Nezuko', 'Zenitsu', 'Rimuru', 'Ainz', 'Saber', 'Natsu', 'Erza',
+  'Yami', 'Deku', 'Bakugo', 'All Might', 'Denji', 'Power', 'Lelouch',
+  'Sung Jin-Woo', 'Beru', 'Igris'
 ];
 
-const norm = v => String(v || '').toLowerCase().replace(/[().\-_:/'’]/g, ' ').replace(/\s+/g, ' ').trim();
-const hit = (c, name, anime) => norm(c.name).includes(norm(name)) && (!anime || norm(c.anime).includes(norm(anime).split(' ')[0]));
+function norm(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 async function main() {
-  const chars = await prisma.character.findMany({ where: { active: true }, orderBy: { basePower: 'desc' }, take: 10000 });
-  const missing = [];
+  const all = await prisma.character.findMany({
+    select: { id: true, name: true, anime: true, rarity: true }
+  });
+
   const found = [];
-  for (const [name, anime] of MUST_HAVE) {
-    const c = chars.find(x => hit(x, name, anime));
-    if (c) found.push(`${name} -> ${c.name} [${c.anime}] ${c.rarity} PWR ${c.basePower}`);
-    else missing.push(`${name} (${anime})`);
+  const missing = [];
+
+  for (const wanted of famousCharacters) {
+    const wantedNorm = norm(wanted);
+    const matches = all.filter(c => norm(c.name).includes(wantedNorm) || wantedNorm.includes(norm(c.name)));
+    if (matches.length) found.push({ wanted, matches: matches.slice(0, 5) });
+    else missing.push(wanted);
   }
-  console.log('FAMOUS CHARACTER AUDIT');
-  console.log('Total active characters:', chars.length);
-  console.log('\nFOUND');
-  console.log(found.join('\n') || 'None');
-  console.log('\nMISSING');
-  console.log(missing.join('\n') || 'None');
-  if (missing.length) process.exitCode = 2;
+
+  console.log('=== Famous Character Audit ===');
+  console.log(`Total characters in database: ${all.length}`);
+  console.log(`Found: ${found.length}`);
+  console.log(`Missing: ${missing.length}`);
+
+  console.log('\n--- Missing ---');
+  for (const name of missing) console.log(`- ${name}`);
+
+  console.log('\n--- Found sample ---');
+  for (const row of found.slice(0, 20)) {
+    console.log(`- ${row.wanted}: ${row.matches.map(m => `${m.name} (${m.anime || 'Unknown'} / ${m.rarity})`).join(', ')}`);
+  }
 }
-main().finally(() => prisma.$disconnect());
+
+main()
+  .catch(err => {
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(async () => prisma.$disconnect());

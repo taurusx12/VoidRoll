@@ -1,0 +1,70 @@
+{
+  "keep": {
+    "core": [
+      "/help",
+      "/profile",
+      "/wallet",
+      "/inventory",
+      "/view-card"
+    ],
+    "gacha": [
+      "/roll",
+      "/banner",
+      "/pack",
+      "/pity",
+      "/rates"
+    ],
+    "progression": [
+      "/upgrade",
+      "/character-tree",
+      "/train",
+      "/ascend"
+    ],
+    "market": [
+      "/market",
+      "/market-buy",
+      "/daily-market"
+    ],
+    "search": [
+      "/characters",
+      "/character",
+      "/anime",
+      "/collection",
+      "/who-has"
+    ],
+    "social": [
+      "/guild",
+      "/trade-offer",
+      "/trades"
+    ],
+    "combat": [
+      "/story",
+      "/dungeon",
+      "/boss",
+      "/pvp"
+    ],
+    "admin": [
+      "/admin-reset-all",
+      "/admin-give-gold",
+      "/admin-give-tokens",
+      "/admin-give-rolls",
+      "/admin-give-essence",
+      "/admin-give-void-crystals"
+    ]
+  },
+  "removeOrDisable": [
+    "/item-roll",
+    "/relic-pull",
+    "/aura-pull",
+    "/fuse",
+    "/fusion",
+    "/star-upgrade",
+    "/merge",
+    "/duplicate-fuse"
+  ],
+  "notes": [
+    "Relics and Auras stay as character progression unlocks, not separate gacha.",
+    "Duplicates convert into resources for the Character Evolution Tree.",
+    "VOIDBORN stays between DIVINE and SECRET."
+  ]
+}
