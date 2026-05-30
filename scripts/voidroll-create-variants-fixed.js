@@ -1,7 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, Prisma } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 function id(prefix='char') {
@@ -14,7 +14,10 @@ function cleanName(name='') {
   return String(name || '').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim();
 }
 function basePowerForRarity(rarity='COMMON') {
-  return { COMMON:1000, RARE:4500, EPIC:15000, LEGENDARY:60000, MYTHIC:180000, DIVINE:500000, VOIDBORN:950000, SECRET:1500000 }[String(rarity).toUpperCase()] || 1000;
+  return {
+    COMMON:1000, RARE:4500, EPIC:15000, LEGENDARY:60000,
+    MYTHIC:180000, DIVINE:500000, VOIDBORN:950000, SECRET:1500000
+  }[String(rarity).toUpperCase()] || 1000;
 }
 
 const plans = [
@@ -45,42 +48,68 @@ async function findBase(plan) {
     if (name.includes(q) || raw.includes(q)) score += 1000;
     if (animeOk) score += 2000;
     return { c, score };
-  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0))[0]?.c || null;
+  }).filter(x => x.score > 0)
+    .sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0))[0]?.c || null;
+}
+
+function buildData(base, plan) {
+  const model = Prisma.dmmf.datamodel.models.find(m => m.name === 'Character');
+  const data = {};
+  for (const field of model.fields) {
+    if (!(field.kind === 'scalar' || field.kind === 'enum')) continue;
+    if (field.isUpdatedAt || field.isUnique) continue;
+    const k = field.name;
+    if (k === 'id') continue;
+    if (Object.prototype.hasOwnProperty.call(base, k)) data[k] = base[k];
+  }
+
+  data.id = id('char');
+  data.name = `${plan.variant} ${cleanName(base.name)}`;
+  data.anime = base.anime;
+  data.rarity = plan.rarity;
+  data.basePower = Math.max(Number(base.basePower || 0), basePowerForRarity(plan.rarity));
+  data.imageUrl = base.imageUrl || null;
+  data.active = true;
+  data.element = plan.element;
+  data.role = plan.role;
+  data.variant = plan.variant;
+
+  if ('baseFarm' in data) data.baseFarm = Number(data.baseFarm || Math.floor(data.basePower * 0.12));
+  if ('baseLuck' in data) data.baseLuck = Number(data.baseLuck || 1);
+
+  return data;
 }
 
 async function createVariant(plan) {
   const base = await findBase(plan);
   if (!base) return { ok:false, reason:'base_not_found', plan };
-  const displayName = `${plan.variant} ${cleanName(base.name)}`;
-  const exists = await prisma.character.findFirst({ where:{ active:true, name:displayName, anime:base.anime } });
-  if (exists) return { ok:true, reason:'already_exists', id:exists.id, name:exists.name, anime:exists.anime, rarity:exists.rarity };
-  const created = await prisma.character.create({
-    data:{
-      id:id('char'),
-      name:displayName,
-      anime:base.anime,
-      rarity:plan.rarity,
-      basePower:Math.max(Number(base.basePower||0), basePowerForRarity(plan.rarity)),
-      imageUrl:base.imageUrl || null,
-      active:true,
-      element:plan.element,
-      role:plan.role,
-      variant:plan.variant
-    }
+  const name = `${plan.variant} ${cleanName(base.name)}`;
+
+  const exists = await prisma.character.findFirst({
+    where:{ active:true, name, anime:base.anime }
   });
-  return { ok:true, reason:'created', id:created.id, name:created.name, anime:created.anime, rarity:created.rarity, element:created.element, role:created.role, variant:created.variant };
+  if (exists) return { ok:true, reason:'already_exists', name:exists.name, anime:exists.anime, rarity:exists.rarity };
+
+  const created = await prisma.character.create({ data: buildData(base, plan) });
+  return { ok:true, reason:'created', name:created.name, anime:created.anime, rarity:created.rarity, element:created.element, role:created.role, variant:created.variant };
 }
 
 async function main() {
   const reportsDir = path.join(process.cwd(), 'reports');
   if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive:true });
+
   const results = [];
   for (const plan of plans) {
     const result = await createVariant(plan);
     results.push(result);
     console.log(`${result.ok ? '✅' : '❌'} ${plan.variant} ${plan.baseSearch}: ${result.reason}${result.anime ? ` • ${result.anime}` : ''}`);
   }
+
   fs.writeFileSync(path.join(reportsDir, 'characters_VARIANTS_CREATED_FIXED.json'), JSON.stringify(results, null, 2), 'utf8');
   console.log('Done. Report: reports/characters_VARIANTS_CREATED_FIXED.json');
 }
-main().catch(err => { console.error('❌ Variant creation failed:', err); process.exit(1); }).finally(()=>prisma.$disconnect());
+
+main().catch(err => {
+  console.error('❌ Variant creation failed:', err);
+  process.exit(1);
+}).finally(() => prisma.$disconnect());
