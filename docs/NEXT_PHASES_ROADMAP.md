@@ -1,6 +1,6 @@
-# VoidRoll Reborn — Updated Roadmap
+# VoidRoll Reborn — Roadmap Status
 
-## Completed
+## Completed Core Phases
 Phase 1 — Economy/command direction
 Phase 2 — Progression cleanup
 Phase 3 — Updated resources
@@ -16,6 +16,12 @@ Phase 12 — Banner Rework
 Phase 13 — PvP Ranked
 Phase 14 — Dungeons
 Phase 15 — World Bosses / Raids
-
-## Next
 Phase 16 — Launch Cleanup
+
+## Remaining Before Real Launch
+1. Integration Patch
+2. Prisma Schema Patch
+3. deploy-commands.js Patch
+4. index.js Command Handler Patch
+5. Full test
+6. Final launch zip
