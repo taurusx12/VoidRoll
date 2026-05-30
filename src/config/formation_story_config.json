@@ -1,0 +1,86 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 8 - Formations + Multi-Team Story",
+  "formationRules": {
+    "maxFormations": 6,
+    "charactersPerFormation": 6,
+    "playerCanEditFormations": true,
+    "autoFormationOptional": true,
+    "sameExactCardInMultipleFormations": false,
+    "duplicateCopiesAcrossFormations": true,
+    "variantsAreSeparateCharacters": true,
+    "passivesUnchanged": true
+  },
+  "storyFormationUnlocks": [
+    {
+      "fromChapter": 1,
+      "toChapter": 9,
+      "requiredFormations": 1,
+      "enemyFormations": 1
+    },
+    {
+      "fromChapter": 10,
+      "toChapter": 19,
+      "requiredFormations": 2,
+      "enemyFormations": 2
+    },
+    {
+      "fromChapter": 20,
+      "toChapter": 34,
+      "requiredFormations": 3,
+      "enemyFormations": 3
+    },
+    {
+      "fromChapter": 35,
+      "toChapter": 49,
+      "requiredFormations": 4,
+      "enemyFormations": 4
+    },
+    {
+      "fromChapter": 50,
+      "toChapter": 59,
+      "requiredFormations": 5,
+      "enemyFormations": 5
+    },
+    {
+      "fromChapter": 60,
+      "toChapter": 999,
+      "requiredFormations": 6,
+      "enemyFormations": 6
+    }
+  ],
+  "storyRules": {
+    "multiFormationBattle": true,
+    "battleMode": "formation_vs_formation_sequence",
+    "winCondition": "player_must_win_majority_or_all_required_based_on_stage",
+    "defaultWinCondition": "majority",
+    "bossStageWinCondition": "all",
+    "enemyScaling": {
+      "enabled": true,
+      "baseChapterMultiplier": 1.08,
+      "formationCountMultiplier": 1.12,
+      "bossMultiplier": 1.35,
+      "voidRealmMultiplier": 1.55
+    },
+    "enemyGeneration": {
+      "mirrorsRequiredFormationCount": true,
+      "charactersPerEnemyFormation": 6,
+      "enemyUsesRoles": true,
+      "enemyUsesElements": true,
+      "enemyUsesPassivesLater": true
+    }
+  },
+  "commands": {
+    "formations": "/formations",
+    "formationSet": "/formation-set team:<1-6> slot:<1-6> card:<card>",
+    "formationClear": "/formation-clear team:<1-6> slot:<1-6>",
+    "story": "/story chapter:<number> stage:<number>"
+  },
+  "removed": [
+    "single_team_only_story_after_late_game",
+    "power_only_story_checks",
+    "same_card_instance_across_multiple_teams",
+    "stars",
+    "fusion"
+  ]
+}
