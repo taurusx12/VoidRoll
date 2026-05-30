@@ -12,9 +12,9 @@ Phase 8 — Formations + Multi-Team Story
 Phase 9 — Character Evolution Tree
 Phase 10 — Trait System
 Phase 11 — Secret / Voidborn Card Reveal
+Phase 12 — Banner Rework
 
 ## Next
-Phase 12 — Banner Rework
 Phase 13 — PvP Ranked
 Phase 14 — Dungeons
 Phase 15 — World Bosses

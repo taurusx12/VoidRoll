@@ -1,0 +1,163 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 12 - Banner Rework",
+  "rules": {
+    "characterGachaOnly": true,
+    "noItemRolls": true,
+    "noRelicPulls": true,
+    "noAuraPulls": true,
+    "noFusion": true,
+    "noStars": true,
+    "voidbornBetweenDivineAndSecret": true,
+    "secretRevealIntegration": true,
+    "voidbornRevealIntegration": true
+  },
+  "rarityOrder": [
+    "COMMON",
+    "RARE",
+    "EPIC",
+    "LEGENDARY",
+    "MYTHIC",
+    "DIVINE",
+    "VOIDBORN",
+    "SECRET"
+  ],
+  "normalRoll": {
+    "cost": {
+      "tokens": 400
+    },
+    "multiCost": {
+      "tokens": 4000
+    },
+    "multiAmount": 10,
+    "rates": {
+      "COMMON": 58.0,
+      "RARE": 28.0,
+      "EPIC": 10.0,
+      "LEGENDARY": 2.6,
+      "MYTHIC": 1.0,
+      "DIVINE": 0.35,
+      "VOIDBORN": 0.049,
+      "SECRET": 0.001
+    }
+  },
+  "bannerRoll": {
+    "cost": {
+      "tokens": 500
+    },
+    "multiCost": {
+      "tokens": 5000
+    },
+    "multiAmount": 10,
+    "pity": {
+      "enabled": true,
+      "voidbornSoftPity": 60,
+      "voidbornHardPity": 90,
+      "secretSoftPity": 160,
+      "secretHardPity": 220,
+      "featuredGuarantee": true,
+      "featuredGuaranteeAfterMiss": true
+    },
+    "rates": {
+      "COMMON": 48.0,
+      "RARE": 30.0,
+      "EPIC": 14.0,
+      "LEGENDARY": 5.0,
+      "MYTHIC": 2.0,
+      "DIVINE": 0.75,
+      "VOIDBORN": 0.23,
+      "SECRET": 0.02
+    },
+    "featuredWeights": {
+      "featuredSecretIfSecret": 65,
+      "featuredVoidbornIfVoidborn": 70,
+      "bannerPoolSameAnimeBoost": 25
+    }
+  },
+  "limitedBanner": {
+    "cost": {
+      "voidCrystals": 1,
+      "tokens": 1000
+    },
+    "multiCost": {
+      "voidCrystals": 10,
+      "tokens": 10000
+    },
+    "multiAmount": 10,
+    "pity": {
+      "enabled": true,
+      "voidbornSoftPity": 40,
+      "voidbornHardPity": 70,
+      "secretSoftPity": 100,
+      "secretHardPity": 150,
+      "featuredGuarantee": true
+    },
+    "rates": {
+      "EPIC": 62.0,
+      "LEGENDARY": 24.0,
+      "MYTHIC": 9.0,
+      "DIVINE": 3.5,
+      "VOIDBORN": 1.2,
+      "SECRET": 0.3
+    }
+  },
+  "bannerTypes": {
+    "normal": {
+      "displayName": "Normal Roll",
+      "emoji": "🎴"
+    },
+    "featured": {
+      "displayName": "Featured Banner",
+      "emoji": "🌌"
+    },
+    "limited": {
+      "displayName": "Limited Banner",
+      "emoji": "💎"
+    }
+  },
+  "exampleBanners": [
+    {
+      "id": "corrupted-control",
+      "type": "featured",
+      "title": "Chains of the Void",
+      "featuredCharacter": "Corrupted Makima",
+      "featuredRarity": "SECRET",
+      "anime": "Chainsaw Man",
+      "element": "VOID",
+      "role": "CONTROL",
+      "durationHours": 72,
+      "quote": "You are mine now.",
+      "poolTags": [
+        "VOID",
+        "CONTROL",
+        "Chainsaw Man",
+        "Corrupted"
+      ]
+    },
+    {
+      "id": "eclipse-legends",
+      "type": "featured",
+      "title": "Eclipse Legends",
+      "featuredCharacter": "Eclipse Madara",
+      "featuredRarity": "VOIDBORN",
+      "anime": "Naruto",
+      "element": "SHADOW",
+      "role": "DPS",
+      "durationHours": 72,
+      "quote": "Wake up to reality.",
+      "poolTags": [
+        "SHADOW",
+        "DPS",
+        "Naruto",
+        "Eclipse"
+      ]
+    }
+  ],
+  "removedCommands": [
+    "/item-roll",
+    "/relic-pull",
+    "/aura-pull",
+    "/fuse",
+    "/star-upgrade"
+  ]
+}

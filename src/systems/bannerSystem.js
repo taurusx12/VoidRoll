@@ -1,135 +1,325 @@
+// VoidRoll Reborn - Phase 12 Banner Rework
+// Character-only gacha with VOIDBORN/SECRET reveal integration.
+// No item rolls, no relic pulls, no aura pulls, no fusion, no stars.
 
-const BANNER_MULTI_COST = 1000;
-const SECRET_PITY_MULTI = 50;
-const ACTIVE_BANNERS = 4;
-const ROTATION_HOURS = 72;
+const bannerConfig = require('../config/banner_rework_config.json');
 
-const BANNER_ROTATIONS = [
-  [
-    { id: 'gojo_limit', name: 'Gojo Limit Banner', featured: 'Satoru Gojo' },
-    { id: 'lelouch_requiem', name: 'Lelouch Requiem Banner', featured: 'Lelouch Lamperouge' },
-    { id: 'saber_oath', name: 'Saber Oath Banner', featured: 'Saber' },
-    { id: 'shadow_monarch', name: 'Shadow Monarch Banner', featured: 'Sung Jin-Woo' }
-  ],
-  [
-    { id: 'madara_ten_tails', name: 'Madara Ten Tails Banner', featured: 'Madara Uchiha' },
-    { id: 'overlord_throne', name: 'Overlord Throne Banner', featured: 'Ainz Ooal Gown' },
-    { id: 'yhwach_almighty', name: 'Yhwach Almighty Banner', featured: 'Yhwach' },
-    { id: 'rimuru_demon_lord', name: 'Rimuru Demon Lord Banner', featured: 'Rimuru Tempest' }
-  ],
-  [
-    { id: 'luffy_gear5', name: 'Gear 5 Luffy Banner', featured: 'Monkey D. Luffy' },
-    { id: 'ui_goku', name: 'Ultra Instinct Goku Banner', featured: 'Goku' },
-    { id: 'makima_control', name: 'Makima Control Banner', featured: 'Makima' },
-    { id: 'gilgamesh_treasury', name: 'Gilgamesh Treasury Banner', featured: 'Gilgamesh' }
-  ],
-  [
-    { id: 'toji_hunt', name: 'Toji Hunt Banner', featured: 'Toji Fushiguro' },
-    { id: 'kurapika_chain', name: 'Kurapika Chain Banner', featured: 'Kurapika' },
-    { id: 'killua_godspeed', name: 'Killua Godspeed Banner', featured: 'Killua' },
-    { id: 'gon_jajanken', name: 'Gon Jajanken Banner', featured: 'Gon' }
-  ]
-];
-
-function normalize(value = '') {
-  return String(value || '').toLowerCase().replace(/[^\w\s.-]/g, '').replace(/\s+/g, ' ').trim();
+let revealSystem = null;
+try {
+  revealSystem = require('./revealSystem');
+} catch (_) {
+  revealSystem = null;
 }
 
-function getCurrentBanners() {
-  const start = new Date(process.env.BANNER_ROTATION_START || '2026-01-01T00:00:00.000Z').getTime();
-  const now = Date.now();
-  const rotationMs = ROTATION_HOURS * 60 * 60 * 1000;
-  const cycle = Math.floor(Math.max(0, now - start) / rotationMs);
-  const banners = BANNER_ROTATIONS[cycle % BANNER_ROTATIONS.length].slice(0, ACTIVE_BANNERS);
-  const endsAt = new Date(start + (cycle + 1) * rotationMs);
-  return banners.map(b => ({ ...b, endsAt }));
+const RARITY_ORDER = bannerConfig.rarityOrder;
+
+function normalizeUpper(value, fallback = 'COMMON') {
+  const out = String(value || fallback).trim().toUpperCase();
+  return out || fallback;
 }
 
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+function normalizeType(type = 'normal') {
+  const t = String(type || 'normal').trim().toLowerCase();
+  if (t === 'banner') return 'featured';
+  if (bannerConfig.bannerTypes[t]) return t;
+  return 'normal';
 }
 
-async function getBannerPity(prisma, userId, bannerId) {
-  const key = `banner_pity_${bannerId}`;
-  const row = await prisma.cooldown.findUnique({
-    where: { userId_key: { userId, key } }
-  }).catch(() => null);
-  return Number(row?.expiresAt?.getTime?.() || 0);
+function seededRandom(seed) {
+  let h = 2166136261 >>> 0;
+  const str = String(seed || Date.now());
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return function rand() {
+    h += h << 13; h ^= h >>> 7;
+    h += h << 3; h ^= h >>> 17;
+    h += h << 5;
+    return ((h >>> 0) / 4294967296);
+  };
 }
 
-async function setBannerPity(prisma, userId, bannerId, pulls) {
-  const key = `banner_pity_${bannerId}`;
-  const fakeDate = new Date(Math.max(0, pulls));
-  await prisma.cooldown.upsert({
-    where: { userId_key: { userId, key } },
-    update: { expiresAt: fakeDate },
-    create: { userId, key, expiresAt: fakeDate }
-  }).catch(() => {});
+function getRollConfig(type = 'normal') {
+  const t = normalizeType(type);
+  if (t === 'limited') return bannerConfig.limitedBanner;
+  if (t === 'featured') return bannerConfig.bannerRoll;
+  return bannerConfig.normalRoll;
 }
 
-async function rollBannerMulti({ prisma, userId, bannerId, createCardForUser }) {
-  const banners = getCurrentBanners();
-  const banner = banners.find(b => b.id === bannerId);
-  if (!banner) throw new Error('Banner not active.');
+function pickRarityFromRates(rates = {}, rand = Math.random) {
+  const entries = Object.entries(rates);
+  const total = entries.reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  let roll = rand() * total;
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if ((user.tokens || 0) < BANNER_MULTI_COST) {
-    throw new Error(`You need ${BANNER_MULTI_COST} tokens.`);
+  for (const [rarity, rate] of entries) {
+    roll -= Number(rate || 0);
+    if (roll <= 0) return rarity;
   }
 
-  let pity = await getBannerPity(prisma, userId, banner.id);
-  const secretGuaranteed = (pity + 1) >= SECRET_PITY_MULTI;
+  return entries[entries.length - 1]?.[0] || 'COMMON';
+}
 
-  const chars = await prisma.character.findMany({
-    where: { active: true }
-  });
+function applyPity(baseRarity, pity = {}, type = 'featured') {
+  const config = getRollConfig(type);
+  const pityConfig = config.pity;
+  if (!pityConfig || !pityConfig.enabled) return baseRarity;
 
-  const byRarity = (rarity) => chars.filter(c => c.rarity === rarity);
-  const nonCommon = chars.filter(c => c.rarity !== 'COMMON');
+  const secretPity = Number(pity.secret || 0) + 1;
+  const voidbornPity = Number(pity.voidborn || 0) + 1;
 
-  const featured = chars.find(c => normalize(c.name).includes(normalize(banner.featured)));
+  if (secretPity >= pityConfig.secretHardPity) return 'SECRET';
+  if (voidbornPity >= pityConfig.voidbornHardPity) return 'VOIDBORN';
 
-  const results = [];
+  return baseRarity;
+}
 
-  if (secretGuaranteed) {
-    results.push(featured || pickRandom(byRarity('SECRET')) || pickRandom(nonCommon));
-    pity = 0;
-  } else {
-    pity += 1;
-    const plan = [
-      ...Array(5).fill('RARE'),
-      ...Array(3).fill('EPIC'),
-      'MYTHIC',
-      'DIVINE'
-    ];
+function shouldUseFeatured(rarity = 'COMMON', banner = {}, pity = {}, rand = Math.random) {
+  const featuredRarity = normalizeUpper(banner.featuredRarity || 'SECRET');
+  const rolled = normalizeUpper(rarity);
 
-    for (const rarity of plan) {
-      const pool = byRarity(rarity);
-      results.push(pickRandom(pool.length ? pool : nonCommon));
+  if (!banner.featuredCharacter) return false;
+  if (rolled !== featuredRarity) return false;
+
+  const weights = bannerConfig.bannerRoll.featuredWeights;
+  const chance = featuredRarity === 'SECRET'
+    ? Number(weights.featuredSecretIfSecret || 65)
+    : Number(weights.featuredVoidbornIfVoidborn || 70);
+
+  if (pity.featuredGuaranteeNext) return true;
+  return (rand() * 100) < chance;
+}
+
+function updatePityAfterRoll(pity = {}, rarity = 'COMMON', gotFeatured = false) {
+  const r = normalizeUpper(rarity);
+  const out = {
+    secret: Number(pity.secret || 0) + 1,
+    voidborn: Number(pity.voidborn || 0) + 1,
+    featuredGuaranteeNext: Boolean(pity.featuredGuaranteeNext)
+  };
+
+  if (r === 'SECRET') {
+    out.secret = 0;
+    if (gotFeatured) out.featuredGuaranteeNext = false;
+    else out.featuredGuaranteeNext = true;
+  }
+
+  if (r === 'VOIDBORN') {
+    out.voidborn = 0;
+  }
+
+  return out;
+}
+
+function filterPoolByRarity(characters = [], rarity = 'COMMON') {
+  const r = normalizeUpper(rarity);
+  return characters.filter(c => normalizeUpper(c.rarity) === r);
+}
+
+function scoreCharacterForBanner(character = {}, banner = {}) {
+  let score = 1;
+
+  if (banner.anime && String(character.anime || '').toLowerCase() === String(banner.anime).toLowerCase()) score += 25;
+  if (banner.element && normalizeUpper(character.element) === normalizeUpper(banner.element)) score += 10;
+  if (banner.role && normalizeUpper(character.role || character.type) === normalizeUpper(banner.role)) score += 10;
+
+  const tags = (banner.poolTags || []).map(x => String(x).toLowerCase());
+  const hay = [
+    character.name,
+    character.variant,
+    character.anime,
+    character.rarity,
+    character.element,
+    character.role,
+    character.type
+  ].map(x => String(x || '').toLowerCase()).join(' ');
+
+  for (const tag of tags) if (hay.includes(tag)) score += 8;
+
+  return score;
+}
+
+function pickCharacterFromPool(characters = [], rarity = 'COMMON', banner = null, rand = Math.random) {
+  const pool = filterPoolByRarity(characters, rarity);
+  if (!pool.length) return null;
+
+  if (!banner) return pool[Math.floor(rand() * pool.length)];
+
+  const weighted = pool.map(c => ({ character: c, weight: scoreCharacterForBanner(c, banner) }));
+  const total = weighted.reduce((sum, row) => sum + row.weight, 0);
+  let roll = rand() * total;
+
+  for (const row of weighted) {
+    roll -= row.weight;
+    if (roll <= 0) return row.character;
+  }
+
+  return weighted[0].character;
+}
+
+function findFeaturedCharacter(characters = [], banner = {}) {
+  const target = String(banner.featuredCharacter || '').toLowerCase();
+  return characters.find(c => {
+    const display = c.variant && c.variant !== 'Base' ? `${c.variant} ${c.name}` : c.name;
+    return String(display || '').toLowerCase() === target
+      || String(c.name || '').toLowerCase() === target;
+  }) || null;
+}
+
+function rollOne({ type = 'normal', banner = null, characters = [], pity = {}, seed = Date.now() } = {}) {
+  const rand = seededRandom(seed);
+  const rollType = normalizeType(type);
+  const config = getRollConfig(rollType);
+
+  let rarity = pickRarityFromRates(config.rates, rand);
+  rarity = applyPity(rarity, pity, rollType);
+
+  let gotFeatured = false;
+  let character = null;
+
+  if (banner && shouldUseFeatured(rarity, banner, pity, rand)) {
+    const featured = findFeaturedCharacter(characters, banner);
+    if (featured) {
+      character = featured;
+      rarity = normalizeUpper(featured.rarity || rarity);
+      gotFeatured = true;
     }
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { tokens: { decrement: BANNER_MULTI_COST } }
-  });
-
-  await setBannerPity(prisma, userId, banner.id, pity);
-
-  const cards = [];
-  for (const character of results) {
-    const created = await createCardForUser(userId, character);
-    cards.push(created);
+  if (!character) {
+    character = pickCharacterFromPool(characters, rarity, banner, rand);
   }
 
-  return { banner, cards, pity, secretGuaranteed };
+  const nextPity = updatePityAfterRoll(pity, rarity, gotFeatured);
+  const revealPlan = revealSystem && character
+    ? revealSystem.getDiscordRevealPlan(character)
+    : null;
+
+  return {
+    type: rollType,
+    rarity,
+    character,
+    gotFeatured,
+    previousPity: pity,
+    nextPity,
+    revealPlan
+  };
+}
+
+function rollMulti({ type = 'normal', banner = null, characters = [], pity = {}, amount = 10, seed = Date.now() } = {}) {
+  let currentPity = { ...pity };
+  const results = [];
+
+  for (let i = 0; i < amount; i++) {
+    const result = rollOne({
+      type,
+      banner,
+      characters,
+      pity: currentPity,
+      seed: `${seed}:${i}`
+    });
+
+    currentPity = result.nextPity;
+    results.push(result);
+  }
+
+  return {
+    type: normalizeType(type),
+    amount,
+    results,
+    nextPity: currentPity
+  };
+}
+
+function getBannerCost(type = 'normal', amount = 1) {
+  const config = getRollConfig(type);
+  const multiAmount = config.multiAmount || 10;
+
+  if (Number(amount) >= multiAmount && config.multiCost) return config.multiCost;
+  return config.cost || {};
+}
+
+function formatCost(cost = {}) {
+  const labels = {
+    gold: '🪙 Gold',
+    tokens: '🎟️ Tokens',
+    essence: '🔮 Essence',
+    voidCrystals: '💎 Void Crystals'
+  };
+
+  return Object.entries(cost).map(([key, value]) => {
+    return `${Number(value).toLocaleString()} ${labels[key] || key}`;
+  }).join(' + ');
+}
+
+function formatBanner(banner = {}, pity = {}) {
+  const type = normalizeType(banner.type || 'featured');
+  const typeInfo = bannerConfig.bannerTypes[type] || bannerConfig.bannerTypes.featured;
+  const config = getRollConfig(type);
+
+  return [
+    `${typeInfo.emoji} **${banner.title || typeInfo.displayName}**`,
+    `Featured: **${banner.featuredCharacter || 'None'}**`,
+    `Rarity: **${banner.featuredRarity || 'Mixed'}**`,
+    `Anime: **${banner.anime || 'Mixed'}**`,
+    `Element: **${banner.element || 'Mixed'}** | Role: **${banner.role || 'Mixed'}**`,
+    banner.quote ? `Quote: _${banner.quote}_` : '',
+    '',
+    `Single Pull: **${formatCost(config.cost)}**`,
+    `Multi Pull x${config.multiAmount || 10}: **${formatCost(config.multiCost)}**`,
+    '',
+    `Pity — VOIDBORN: **${pity.voidborn || 0}/${config.pity?.voidbornHardPity || '-'}** | SECRET: **${pity.secret || 0}/${config.pity?.secretHardPity || '-'}**`
+  ].filter(Boolean).join('\n');
+}
+
+function formatRollResult(result = {}) {
+  const c = result.character || {};
+  const display = c.variant && c.variant !== 'Base' ? `${c.variant} ${c.name}` : c.name;
+
+  return [
+    `${result.gotFeatured ? '🌟 FEATURED' : '🎴'} **${display || 'Unknown'}**`,
+    `Rarity: **${result.rarity}**`,
+    `Anime: **${c.anime || 'Unknown'}**`,
+    `Element: **${c.element || 'Unknown'}** | Role: **${c.role || c.type || 'Unknown'}**`,
+    `Power: **${Number(c.basePower || c.power || 0).toLocaleString()}**`
+  ].join('\n');
+}
+
+function formatMultiRollSummary(multi = {}) {
+  const lines = (multi.results || []).map((r, idx) => {
+    const c = r.character || {};
+    const display = c.variant && c.variant !== 'Base' ? `${c.variant} ${c.name}` : c.name;
+    const featured = r.gotFeatured ? ' 🌟' : '';
+    return `${idx + 1}. **${display || 'Unknown'}** • ${r.rarity}${featured}`;
+  });
+
+  return [
+    `🎴 **${String(multi.type || 'normal').toUpperCase()} x${multi.amount || 10}**`,
+    ...lines,
+    '',
+    `Next Pity — VOIDBORN: **${multi.nextPity?.voidborn || 0}** | SECRET: **${multi.nextPity?.secret || 0}**`
+  ].join('\n');
 }
 
 module.exports = {
-  BANNER_MULTI_COST,
-  SECRET_PITY_MULTI,
-  ACTIVE_BANNERS,
-  ROTATION_HOURS,
-  getCurrentBanners,
-  rollBannerMulti
+  RARITY_ORDER,
+  normalizeUpper,
+  normalizeType,
+  seededRandom,
+  getRollConfig,
+  pickRarityFromRates,
+  applyPity,
+  shouldUseFeatured,
+  updatePityAfterRoll,
+  filterPoolByRarity,
+  scoreCharacterForBanner,
+  pickCharacterFromPool,
+  findFeaturedCharacter,
+  rollOne,
+  rollMulti,
+  getBannerCost,
+  formatCost,
+  formatBanner,
+  formatRollResult,
+  formatMultiRollSummary
 };
