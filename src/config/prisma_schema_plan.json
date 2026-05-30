@@ -1,0 +1,48 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 18 - Prisma Schema Patch",
+  "safeMode": true,
+  "note": "This patch does not overwrite prisma/schema.prisma. Copy the model fields manually or merge after checking your existing schema.",
+  "userFieldsToAdd": [
+    "essence",
+    "voidCrystals",
+    "soulFragments",
+    "pvpRating",
+    "pvpWins",
+    "pvpLosses",
+    "pvpWinStreak",
+    "chapter",
+    "stage"
+  ],
+  "cardFieldsToAdd": [
+    "gearTier",
+    "coreTier",
+    "skillTier",
+    "traitName",
+    "traitTier",
+    "bondTier",
+    "transformationTier",
+    "variantTier",
+    "element",
+    "role"
+  ],
+  "newModels": [
+    "UserResource",
+    "Formation",
+    "FormationSlot",
+    "Pity",
+    "MarketPurchase",
+    "DungeonRun",
+    "RaidBoss",
+    "RaidDamageLog",
+    "PvpBattleLog"
+  ],
+  "removedSystemsNotInSchema": [
+    "Fusion",
+    "Stars",
+    "Character-specific shards",
+    "Item roll inventory",
+    "Relic pull inventory",
+    "Aura pull inventory"
+  ]
+}

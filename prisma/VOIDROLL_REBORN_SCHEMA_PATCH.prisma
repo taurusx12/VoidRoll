@@ -1,0 +1,188 @@
+// VoidRoll Reborn — Prisma Schema Patch
+// SAFE MODE: Do not paste blindly if your schema already has equivalent fields.
+// Merge these into prisma/schema.prisma after checking existing model names.
+//
+// Expected existing models usually include:
+// model User
+// model Character
+// model Card / UserCard / OwnedCard
+//
+// If your owned card model is not named Card, add these card fields to your actual owned-card model.
+
+// ============================
+// Add to model User
+// ============================
+
+// essence       BigInt   @default(0)
+// voidCrystals  BigInt   @default(0)
+// soulFragments BigInt   @default(0)
+//
+// pvpRating     Int      @default(1000)
+// pvpWins       Int      @default(0)
+// pvpLosses     Int      @default(0)
+// pvpWinStreak  Int      @default(0)
+//
+// chapter       Int      @default(1)
+// stage         Int      @default(1)
+
+// ============================
+// Add to owned card model
+// If your owned card model is Card/UserCard/OwnedCard,
+// add these fields there.
+// ============================
+
+// gearTier            String @default("COMMON")
+// coreTier            Int    @default(0)
+// skillTier           Int    @default(0)
+// traitName           String?
+// traitTier           Int    @default(0)
+// bondTier            Int    @default(0)
+// transformationTier  Int    @default(0)
+// variantTier         Int    @default(0)
+// element             String?
+// role                String?
+
+// ============================
+// New models
+// ============================
+
+model UserResource {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  amount    BigInt   @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Formation {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   @default("story") // story | pvp_defense
+  index     Int
+  leaderSlot Int     @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slots     FormationSlot[]
+
+  @@unique([userId, type, index])
+  @@index([userId, type])
+}
+
+model FormationSlot {
+  id          String   @id @default(cuid())
+  formationId String
+  slot        Int
+  cardId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  formation   Formation @relation(fields: [formationId], references: [id], onDelete: Cascade)
+
+  @@unique([formationId, slot])
+  @@index([cardId])
+}
+
+model Pity {
+  id                    String   @id @default(cuid())
+  userId                String
+  bannerId              String
+  secret                Int      @default(0)
+  voidborn              Int      @default(0)
+  featuredGuaranteeNext Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([userId, bannerId])
+  @@index([userId])
+}
+
+model MarketPurchase {
+  id          String   @id @default(cuid())
+  userId      String
+  marketType  String
+  refreshKey  String
+  itemId      String
+  quantity    Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, marketType, refreshKey, itemId])
+  @@index([userId, marketType])
+}
+
+model DungeonRun {
+  id               String   @id @default(cuid())
+  userId           String
+  type             String
+  currentRoom      Int      @default(1)
+  requiredFormations Int    @default(1)
+  rewardMultiplier Float   @default(1)
+  roomsJson        String
+  completed        Boolean  @default(false)
+  abandoned        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId, completed, abandoned])
+}
+
+model RaidBoss {
+  id            String   @id @default(cuid())
+  serverId      String
+  templateId    String
+  type          String
+  name          String
+  level         Int      @default(1)
+  element       String
+  role          String
+  rarity        String
+  maxHp         BigInt
+  currentHp     BigInt
+  basePower     BigInt
+  phase         Int      @default(1)
+  defeated      Boolean  @default(false)
+  lastHitUserId String?
+  startsAt      DateTime
+  endsAt        DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  damageLogs    RaidDamageLog[]
+
+  @@index([serverId, defeated])
+  @@index([type])
+}
+
+model RaidDamageLog {
+  id        String   @id @default(cuid())
+  raidBossId String
+  userId    String
+  username  String?
+  damage    BigInt   @default(0)
+  createdAt DateTime @default(now())
+
+  raidBoss  RaidBoss @relation(fields: [raidBossId], references: [id], onDelete: Cascade)
+
+  @@index([raidBossId])
+  @@index([userId])
+}
+
+model PvpBattleLog {
+  id             String   @id @default(cuid())
+  attackerId     String
+  defenderId     String
+  result         String
+  ratingBefore   Int
+  ratingAfter    Int
+  ratingChange   Int
+  attackerWins   Int
+  defenderWins   Int
+  createdAt      DateTime @default(now())
+
+  @@index([attackerId])
+  @@index([defenderId])
+}
