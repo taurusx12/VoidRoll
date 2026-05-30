@@ -1,0 +1,177 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 7 - Battle Engine Foundation",
+  "formation": {
+    "maxFormations": 6,
+    "charactersPerFormation": 6,
+    "unlockByStoryProgress": true,
+    "sameExactCardInMultipleFormations": false,
+    "duplicateCopiesAcrossFormations": true
+  },
+  "battleRules": {
+    "powerOnlyBattle": false,
+    "turnOrder": "speed_then_rng_tiebreak",
+    "maxTurns": 30,
+    "enrageTurn": 20,
+    "ultimateBarMax": 100,
+    "startingEnergy": 0,
+    "energyOnAttack": 18,
+    "energyOnHitTaken": 10,
+    "energyOnCrit": 8,
+    "energyOnKill": 25
+  },
+  "baseStats": [
+    "hp",
+    "atk",
+    "def",
+    "spd",
+    "critRate",
+    "critDamage",
+    "effectChance",
+    "effectResistance",
+    "dodgeChance",
+    "counterChance",
+    "healingBonus",
+    "shieldPower",
+    "mana",
+    "energy"
+  ],
+  "statusEffects": {
+    "bleed": {
+      "emoji": "🩸",
+      "description": "Damage over time based on attacker ATK.",
+      "defaultTurns": 3,
+      "stackable": true
+    },
+    "burn": {
+      "emoji": "🔥",
+      "description": "Damage over time and reduces healing received.",
+      "defaultTurns": 3,
+      "stackable": true
+    },
+    "freeze": {
+      "emoji": "❄️",
+      "description": "Chance to skip turn and lowers speed.",
+      "defaultTurns": 1,
+      "stackable": false
+    },
+    "silence": {
+      "emoji": "🔇",
+      "description": "Prevents skill/ultimate usage temporarily.",
+      "defaultTurns": 1,
+      "stackable": false
+    },
+    "stun": {
+      "emoji": "💫",
+      "description": "Skips turn.",
+      "defaultTurns": 1,
+      "stackable": false
+    },
+    "defBreak": {
+      "emoji": "🛡️",
+      "description": "Reduces DEF.",
+      "defaultTurns": 2,
+      "stackable": false
+    },
+    "atkDown": {
+      "emoji": "⬇️",
+      "description": "Reduces ATK.",
+      "defaultTurns": 2,
+      "stackable": false
+    },
+    "voidBind": {
+      "emoji": "🌌",
+      "description": "Void control effect: reduces accuracy/effect resistance and may delay ultimate.",
+      "defaultTurns": 2,
+      "stackable": false
+    }
+  },
+  "roles": {
+    "TANK": {
+      "bonus": {
+        "hp": 0.18,
+        "def": 0.15
+      },
+      "purpose": "Absorb damage and protect formation."
+    },
+    "DPS": {
+      "bonus": {
+        "atk": 0.16,
+        "critDamage": 0.15
+      },
+      "purpose": "Main damage dealer."
+    },
+    "SUPPORT": {
+      "bonus": {
+        "energyGain": 0.08,
+        "effectResistance": 0.08
+      },
+      "purpose": "Buff team and stabilize fights."
+    },
+    "ASSASSIN": {
+      "bonus": {
+        "spd": 0.12,
+        "critRate": 0.08
+      },
+      "purpose": "Fast burst and finish low HP enemies."
+    },
+    "SUMMONER": {
+      "bonus": {
+        "mana": 0.12,
+        "shieldPower": 0.08
+      },
+      "purpose": "Summons and sustain pressure."
+    },
+    "CONTROL": {
+      "bonus": {
+        "effectChance": 0.12
+      },
+      "purpose": "Debuff and disable enemies."
+    },
+    "HEALER": {
+      "bonus": {
+        "healingBonus": 0.18
+      },
+      "purpose": "Healing and cleansing."
+    }
+  },
+  "elementRules": {
+    "enabled": true,
+    "lightweight": true,
+    "advantages": {
+      "FIRE": [
+        "ICE"
+      ],
+      "ICE": [
+        "WIND"
+      ],
+      "WIND": [
+        "LIGHTNING"
+      ],
+      "LIGHTNING": [
+        "WATER"
+      ],
+      "WATER": [
+        "FIRE"
+      ],
+      "LIGHT": [
+        "SHADOW"
+      ],
+      "SHADOW": [
+        "LIGHT"
+      ],
+      "VOID": [
+        "LIGHT",
+        "SHADOW"
+      ]
+    },
+    "advantageDamageBonus": 0.12,
+    "voidDamageBonus": 0.08
+  },
+  "removed": [
+    "power_only_win_logic",
+    "stars",
+    "fusion",
+    "item_rolls"
+  ]
+}
