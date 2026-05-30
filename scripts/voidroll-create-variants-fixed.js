@@ -7,17 +7,35 @@ const prisma = new PrismaClient();
 function id(prefix='char') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
 }
+
 function normalize(v='') {
   return String(v || '').toLowerCase().replace(/[().\-_:/'’"]/g,' ').replace(/\s+/g,' ').trim();
 }
+
 function cleanName(name='') {
   return String(name || '').replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim();
 }
+
 function basePowerForRarity(rarity='COMMON') {
   return {
-    COMMON:1000, RARE:4500, EPIC:15000, LEGENDARY:60000,
-    MYTHIC:180000, DIVINE:500000, VOIDBORN:950000, SECRET:1500000
+    COMMON:1000,
+    RARE:4500,
+    EPIC:15000,
+    LEGENDARY:60000,
+    MYTHIC:180000,
+    DIVINE:500000,
+    VOIDBORN:950000,
+    SECRET:1500000
   }[String(rarity).toUpperCase()] || 1000;
+}
+
+function getCharacterFields() {
+  const model = Prisma.dmmf.datamodel.models.find(m => m.name === 'Character');
+  return new Set(model.fields.filter(f => f.kind === 'scalar' || f.kind === 'enum').map(f => f.name));
+}
+
+function setIfField(data, fields, key, value) {
+  if (fields.has(key)) data[key] = value;
 }
 
 const plans = [
@@ -37,61 +55,86 @@ async function findBase(plan) {
   const chars = await prisma.character.findMany({ where:{ active:true }, take:30000 });
   const q = normalize(plan.baseSearch);
   const animeKeys = plan.animeIncludes.map(normalize);
+
   return chars.map(c => {
     const name = normalize(cleanName(c.name));
     const raw = normalize(c.name);
     const anime = normalize(c.anime);
     const animeOk = animeKeys.some(k => anime.includes(k));
+
     let score = 0;
     if (!animeOk) score -= 5000;
     if (name === q || raw === q) score += 2500;
     if (name.includes(q) || raw.includes(q)) score += 1000;
     if (animeOk) score += 2000;
+
     return { c, score };
-  }).filter(x => x.score > 0)
-    .sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0))[0]?.c || null;
+  })
+  .filter(x => x.score > 0)
+  .sort((a,b) => b.score - a.score || Number(b.c.basePower||0)-Number(a.c.basePower||0))[0]?.c || null;
 }
 
 function buildData(base, plan) {
-  const model = Prisma.dmmf.datamodel.models.find(m => m.name === 'Character');
+  const fields = getCharacterFields();
   const data = {};
-  for (const field of model.fields) {
-    if (!(field.kind === 'scalar' || field.kind === 'enum')) continue;
-    if (field.isUpdatedAt || field.isUnique) continue;
-    const k = field.name;
-    if (k === 'id') continue;
-    if (Object.prototype.hasOwnProperty.call(base, k)) data[k] = base[k];
+
+  for (const key of fields) {
+    if (key === 'id') continue;
+    if (Object.prototype.hasOwnProperty.call(base, key)) data[key] = base[key];
   }
 
-  data.id = id('char');
-  data.name = `${plan.variant} ${cleanName(base.name)}`;
-  data.anime = base.anime;
-  data.rarity = plan.rarity;
-  data.basePower = Math.max(Number(base.basePower || 0), basePowerForRarity(plan.rarity));
-  data.imageUrl = base.imageUrl || null;
-  data.active = true;
-  data.element = plan.element;
-  data.role = plan.role;
-  data.variant = plan.variant;
+  setIfField(data, fields, 'id', id('char'));
+  setIfField(data, fields, 'name', `${plan.variant} ${cleanName(base.name)}`);
+  setIfField(data, fields, 'anime', base.anime);
+  setIfField(data, fields, 'rarity', plan.rarity);
+  setIfField(data, fields, 'basePower', Math.max(Number(base.basePower || 0), basePowerForRarity(plan.rarity)));
+  setIfField(data, fields, 'imageUrl', base.imageUrl || null);
+  setIfField(data, fields, 'active', true);
+  setIfField(data, fields, 'element', plan.element);
 
-  if ('baseFarm' in data) data.baseFarm = Number(data.baseFarm || Math.floor(data.basePower * 0.12));
-  if ('baseLuck' in data) data.baseLuck = Number(data.baseLuck || 1);
+  // These may not exist in your current Character model, so only set if supported.
+  setIfField(data, fields, 'role', plan.role);
+  setIfField(data, fields, 'type', plan.role);
+  setIfField(data, fields, 'variant', plan.variant);
+
+  if (fields.has('baseFarm')) data.baseFarm = Number(data.baseFarm || Math.floor((data.basePower || 1000) * 0.12));
+  if (fields.has('baseLuck')) data.baseLuck = Number(data.baseLuck || 1);
+
+  // Avoid copying old timestamps when Prisma doesn't need them.
+  if (fields.has('createdAt') && !data.createdAt) data.createdAt = new Date();
 
   return data;
 }
 
 async function createVariant(plan) {
   const base = await findBase(plan);
-  if (!base) return { ok:false, reason:'base_not_found', plan };
+
+  if (!base) {
+    return { ok:false, reason:'base_not_found', baseSearch:plan.baseSearch, animeIncludes:plan.animeIncludes };
+  }
+
   const name = `${plan.variant} ${cleanName(base.name)}`;
 
   const exists = await prisma.character.findFirst({
     where:{ active:true, name, anime:base.anime }
   });
-  if (exists) return { ok:true, reason:'already_exists', name:exists.name, anime:exists.anime, rarity:exists.rarity };
+
+  if (exists) {
+    return { ok:true, reason:'already_exists', name:exists.name, anime:exists.anime, rarity:exists.rarity };
+  }
 
   const created = await prisma.character.create({ data: buildData(base, plan) });
-  return { ok:true, reason:'created', name:created.name, anime:created.anime, rarity:created.rarity, element:created.element, role:created.role, variant:created.variant };
+
+  return {
+    ok:true,
+    reason:'created',
+    name:created.name,
+    anime:created.anime,
+    rarity:created.rarity,
+    element:created.element || plan.element,
+    role:created.role || created.type || plan.role,
+    variant:created.variant || plan.variant
+  };
 }
 
 async function main() {
@@ -99,13 +142,19 @@ async function main() {
   if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive:true });
 
   const results = [];
+
   for (const plan of plans) {
     const result = await createVariant(plan);
     results.push(result);
     console.log(`${result.ok ? '✅' : '❌'} ${plan.variant} ${plan.baseSearch}: ${result.reason}${result.anime ? ` • ${result.anime}` : ''}`);
   }
 
-  fs.writeFileSync(path.join(reportsDir, 'characters_VARIANTS_CREATED_FIXED.json'), JSON.stringify(results, null, 2), 'utf8');
+  fs.writeFileSync(
+    path.join(reportsDir, 'characters_VARIANTS_CREATED_FIXED.json'),
+    JSON.stringify(results, null, 2),
+    'utf8'
+  );
+
   console.log('Done. Report: reports/characters_VARIANTS_CREATED_FIXED.json');
 }
 
