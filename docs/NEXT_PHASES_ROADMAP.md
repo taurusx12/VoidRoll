@@ -15,7 +15,7 @@ Phase 11 — Secret / Voidborn Card Reveal
 Phase 12 — Banner Rework
 Phase 13 — PvP Ranked
 Phase 14 — Dungeons
+Phase 15 — World Bosses / Raids
 
 ## Next
-Phase 15 — World Bosses / Raids
 Phase 16 — Launch Cleanup

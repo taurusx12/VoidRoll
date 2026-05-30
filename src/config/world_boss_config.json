@@ -1,0 +1,193 @@
+{
+  "projectName": "VoidRoll Reborn",
+  "phase": "Phase 15 - World Bosses / Raids",
+  "rules": {
+    "usesBattleEngine": true,
+    "usesFormations": true,
+    "powerOnlyRaid": false,
+    "serverWideBoss": true,
+    "damageRanking": true,
+    "lastHitReward": true,
+    "participationReward": true,
+    "noItemRolls": true,
+    "noRelicPulls": true,
+    "noAuraPulls": true,
+    "noFusion": true,
+    "noStars": true
+  },
+  "raidTypes": {
+    "world": {
+      "displayName": "World Boss",
+      "emoji": "🌍",
+      "durationHours": 24,
+      "attemptsPerDay": 5,
+      "requiredFormations": 3
+    },
+    "void": {
+      "displayName": "Void Raid",
+      "emoji": "🌌",
+      "durationHours": 12,
+      "attemptsPerDay": 3,
+      "requiredFormations": 4
+    },
+    "guild": {
+      "displayName": "Guild Raid",
+      "emoji": "👑",
+      "durationHours": 24,
+      "attemptsPerDay": 4,
+      "requiredFormations": 3
+    },
+    "limited": {
+      "displayName": "Limited Raid",
+      "emoji": "💎",
+      "durationHours": 48,
+      "attemptsPerDay": 3,
+      "requiredFormations": 5
+    }
+  },
+  "bossPhases": [
+    {
+      "phase": 1,
+      "hpPercentFrom": 100,
+      "hpPercentTo": 75,
+      "mechanics": [
+        "basic_attacks",
+        "shield_phase"
+      ]
+    },
+    {
+      "phase": 2,
+      "hpPercentFrom": 75,
+      "hpPercentTo": 50,
+      "mechanics": [
+        "summons",
+        "aoe_damage"
+      ]
+    },
+    {
+      "phase": 3,
+      "hpPercentFrom": 50,
+      "hpPercentTo": 25,
+      "mechanics": [
+        "rage_mode",
+        "debuffs"
+      ]
+    },
+    {
+      "phase": 4,
+      "hpPercentFrom": 25,
+      "hpPercentTo": 0,
+      "mechanics": [
+        "enrage",
+        "void_bind",
+        "ultimate_burst"
+      ]
+    }
+  ],
+  "bossTemplates": [
+    {
+      "id": "void-leviathan",
+      "name": "Void Leviathan",
+      "type": "void",
+      "element": "VOID",
+      "role": "TANK",
+      "rarity": "SECRET",
+      "baseHp": 250000000,
+      "basePower": 1800000,
+      "quote": "The abyss opens its eyes.",
+      "mechanics": [
+        "shield_phase",
+        "void_bind",
+        "enrage"
+      ]
+    },
+    {
+      "id": "eclipse-dragon",
+      "name": "Eclipse Dragon",
+      "type": "world",
+      "element": "SHADOW",
+      "role": "DPS",
+      "rarity": "VOIDBORN",
+      "baseHp": 120000000,
+      "basePower": 1200000,
+      "quote": "The sky has gone dark.",
+      "mechanics": [
+        "burn",
+        "rage_mode",
+        "aoe_damage"
+      ]
+    },
+    {
+      "id": "cursed-king",
+      "name": "Cursed King",
+      "type": "limited",
+      "element": "SHADOW",
+      "role": "CONTROL",
+      "rarity": "SECRET",
+      "baseHp": 300000000,
+      "basePower": 2000000,
+      "quote": "Kneel before the curse.",
+      "mechanics": [
+        "silence",
+        "summons",
+        "ultimate_burst"
+      ]
+    }
+  ],
+  "rankingRewards": {
+    "top1": {
+      "gold": 3000000,
+      "tokens": 6000,
+      "essence": 3000,
+      "voidCrystals": 5
+    },
+    "top3": {
+      "gold": 2000000,
+      "tokens": 4000,
+      "essence": 2200,
+      "voidCrystals": 3
+    },
+    "top10": {
+      "gold": 1200000,
+      "tokens": 2500,
+      "essence": 1400,
+      "voidCrystals": 2
+    },
+    "top25": {
+      "gold": 800000,
+      "tokens": 1600,
+      "essence": 900,
+      "voidCrystals": 1
+    },
+    "participation": {
+      "gold": 150000,
+      "tokens": 300,
+      "essence": 250
+    }
+  },
+  "specialRewards": {
+    "lastHit": {
+      "gold": 500000,
+      "tokens": 1000,
+      "essence": 500,
+      "voidCrystals": 1
+    },
+    "phaseBreak": {
+      "gold": 200000,
+      "tokens": 400,
+      "essence": 250
+    },
+    "serverKill": {
+      "gold": 250000,
+      "tokens": 500,
+      "essence": 350
+    }
+  },
+  "commands": {
+    "raid": "/raid",
+    "raidAttack": "/raid-attack boss:<boss>",
+    "raidRank": "/raid-rank",
+    "raidRewards": "/raid-rewards",
+    "worldBoss": "/world-boss"
+  }
+}
