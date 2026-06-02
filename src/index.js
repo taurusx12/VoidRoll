@@ -1,5 +1,5 @@
 require('dotenv').config();
-// VOIDROLL_CLEAN_INDEX_VERSION: legacy progressBattle route removed.
+// VOIDROLL_CLEAN_INDEX_VERSION_V2: legacy progressBattle route removed, help syntax fixed.
 
 const express = require('express');
 const {
@@ -357,14 +357,16 @@ async function command(i) {
   }
 
   await ensureUser(i.user);
-  if (commandName === 'help') return i.reply('**🌌 VoidRoll Reborn**
-Economy: /profile /wallet /daily /market /market-buy
-Collection: /inventory /view-card /characters /character /anime /collection /who-has
-Gacha: /roll /banner /pack /pity /rates
-Battle: /story /dungeon /pvp /world-boss /raid /raid-attack /raid-rank
-Progress: /train /formations
-Trading: /gift-character /trade-offer /trade-accept /trade-decline /trade-cancel /trades
-Admin: /admin-reset-all /admin-give-gold /admin-give-tokens /admin-give-rolls /admin-give-resource');
+  if (commandName === 'help') return i.reply([
+    '**🌌 VoidRoll Reborn**',
+    'Economy: /profile /wallet /daily /market /market-buy',
+    'Collection: /inventory /view-card /characters /character /anime /collection /who-has',
+    'Gacha: /roll /banner /pack /pity /rates',
+    'Battle: /story /dungeon /pvp /world-boss /raid /raid-attack /raid-rank',
+    'Progress: /train /formations',
+    'Trading: /gift-character /trade-offer /trade-accept /trade-decline /trade-cancel /trades',
+    'Admin: /admin-reset-all /admin-give-gold /admin-give-tokens /admin-give-rolls /admin-give-resource'
+  ].join('\n'));
   if (commandName === 'profile' || commandName === 'wallet') { const u=await ensureUser(i.user); const count=await prisma.userCard.count({where:{userId}}); return i.reply({embeds:[new EmbedBuilder().setTitle(`🌌 ${i.user.username} — VoidRoll Reborn`).setDescription(`Gold: **${money(u.gold)}**\nTokens: **${money(u.tokens)}**\nEssence: **${money(u.essence || 0)}**\nVoid Crystals: **${money(u.voidCrystals || 0)}**\nRolls: **${money(u.rolls)}**\nCards: **${count}**\nStory: **${u.storyChapter}-${u.storyStage}**`).setColor(0x7c3aed)]}); }
   if (commandName === 'daily') { const u=await ensureUser(i.user); const now=Date.now(); if(u.lastDailyAt && now - new Date(u.lastDailyAt).getTime() < 20*3600000) return i.reply('Daily already claimed.'); await prisma.user.update({where:{id:userId},data:{lastDailyAt:new Date(),dailyStreak:{increment:1},gold:{increment:50000},tokens:{increment:100},essence:{increment:25},rolls:{increment:5}}}); return i.reply('Daily claimed: **50,000 Gold**, **100 Tokens**, **25 Essence**, **5 Rolls**.'); }
   if (commandName === 'rates' || commandName === 'rarity') return i.reply('**Normal Roll Rates**\nCommon 72%\nRare 22%\nEpic 5.65%\nLegendary 1%\nMythic 0.75%\nDivine 0.1%\nVoidborn 0.00999%\nSecret 0.00001%');
