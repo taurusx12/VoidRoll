@@ -1,4 +1,5 @@
 // VoidRoll Reborn - Phase 24 Battle Polish System V2
+// VOIDROLL_LIVE_BATTLE_V4_ENERGY_REWARDS
 
 const { EmbedBuilder } = require('discord.js');
 const { prisma } = require('../lib/db');
@@ -84,6 +85,14 @@ function enemyUnit(name,power,role='DPS',element='DARK',rarity='EPIC'){ return u
 function alive(team){ return team.filter(u=>u.hp>0); }
 function pickTarget(team){ const a=alive(team); if(!a.length)return null; const tanks=a.filter(u=>u.role==='TANK'); const pool=tanks.length&&Math.random()<.65?tanks:a; return pool[Math.floor(Math.random()*pool.length)]; }
 function statusLine(u){ const s=[]; for(const k of ['burn','bleed','freeze','silence','stun']) if(u.status[k]) s.push(k); return s.length?` [${s.join(', ')}]`:''; }
+function energyText(u){
+  const en = Math.max(0, Math.min(100, Math.floor(Number(u.energy || 0))));
+  return en >= 100 ? `EN **${en}/100** 🌌 **ULT READY**` : `EN **${en}/100**`;
+}
+function hpText(u){
+  const hpPct = Math.max(0, Math.floor(u.hp / Math.max(1, u.maxHp) * 100));
+  return `HP **${hpPct}%**`;
+}
 function applyStatusDamage(u,logs){ if(u.hp<=0)return; let dot=0; if(u.status.burn)dot+=Math.floor(u.maxHp*.025); if(u.status.bleed)dot+=Math.floor(u.maxHp*.02); if(dot){ u.hp=Math.max(0,u.hp-dot); logs.push(`🔥🩸 ${u.name} takes **${money(dot)}** status damage.`); } for(const k of Object.keys(u.status)){ u.status[k]-=1; if(u.status[k]<=0)delete u.status[k]; } }
 function attack(attacker, defenders, logs, mode='story'){
   if(attacker.hp<=0)return; applyStatusDamage(attacker,logs); if(attacker.hp<=0)return;
@@ -105,7 +114,7 @@ function attack(attacker, defenders, logs, mode='story'){
   if(target.hp>0 && Math.random()*100<target.counter){ const cd=Math.floor(target.atk*.55); attacker.hp=Math.max(0,attacker.hp-cd); logs.push(`↩️ ${target.name} counters ${attacker.name} for **${money(cd)}**.`); }
   if(attacker.energy>=100 && !attacker.status.silence){ attacker.energy=0; const targets=alive(defenders).slice(0,3); if(targets.length){ logs.push(`🌌 **${attacker.name} uses ULTIMATE: ${attacker.passiveName}!**`); for(const t of targets){ const ud=Math.floor(attacker.atk*1.65); t.hp=Math.max(0,t.hp-ud); logs.push(`✨ Ultimate hits ${t.name} for **${money(ud)}**.${t.hp<=0?' ☠️':''}`); } } }
 }
-function teamSummary(team){ return team.map((u,i)=>`${i+1}. ${emoji(u.rarity)} **${u.name}** • ${u.role}/${u.element} • HP ${Math.max(0,Math.floor(u.hp/Math.max(1,u.maxHp)*100))}%${statusLine(u)}`).join('\n'); }
+function teamSummary(team){ return team.map((u,i)=>`${i+1}. ${emoji(u.rarity)} **${u.name}** • ${u.role}/${u.element} • ${hpText(u)} • ${energyText(u)}${statusLine(u)}`).join('\n'); }
 function runBattle(playerUnits,enemyUnits,opt={}){ const logs=[]; const mode=opt.mode||'story'; const maxTurns=opt.maxTurns||8; for(const u of playerUnits){ if(u.passive.teamDmg){ for(const a of playerUnits)a.atk=Math.floor(a.atk*(1+u.passive.teamDmg/100)); logs.push(`✨ ${u.name}'s **${u.passiveName}** empowers the team.`); } if(u.passive.enemyAtk){ for(const e of enemyUnits)e.atk=Math.floor(e.atk*(1+u.passive.enemyAtk/100)); logs.push(`🕳️ ${u.name}'s **${u.passiveName}** weakens enemies.`); } } for(let t=1;t<=maxTurns;t++){ if(!alive(playerUnits).length||!alive(enemyUnits).length)break; logs.push(`\n**Turn ${t}**`); const order=[...alive(playerUnits),...alive(enemyUnits)].sort((a,b)=>b.spd-a.spd); for(const u of order){ if(!alive(playerUnits).length||!alive(enemyUnits).length)break; attack(u, playerUnits.includes(u)?enemyUnits:playerUnits, logs, mode); } } const pHp=playerUnits.reduce((s,u)=>s+Math.max(0,u.hp),0), eHp=enemyUnits.reduce((s,u)=>s+Math.max(0,u.hp),0); return { winner:pHp>=eHp?'player':'enemy', playerHp:pHp, enemyHp:eHp, logs:logs.slice(0,36), playerUnits, enemyUnits }; }
 async function getBestCards(userId,take=6){ return prisma.userCard.findMany({ where:{ userId:String(userId) }, include:{ character:true }, orderBy:{ power:'desc' }, take }).catch(()=>[]); }
 function buildStoryEnemies(chapter,stage){ const base=1800+((chapter-1)*30+stage)*550; return [enemyUnit('Void Scout',base,'ASSASSIN','VOID','EPIC'),enemyUnit('Abyss Guard',Math.floor(base*1.15),'TANK','SHADOW','EPIC'),enemyUnit('Cursed Mage',Math.floor(base*1.25),'CONTROL','CURSED','LEGENDARY'),enemyUnit('Void Beast',Math.floor(base*1.3),'DPS','VOID','LEGENDARY'),enemyUnit('Dark Healer',Math.floor(base*.95),'SUPPORT','DARK','EPIC'),enemyUnit('Stage Boss',Math.floor(base*1.8),'DPS','VOID','MYTHIC')]; }
@@ -296,7 +305,8 @@ async function handleStoryBattle(i){
           where:{id:String(i.user.id)},
           data:{chapter:nc,stage:ns,gold:{increment:BigInt(75000+stage*3500)},essence:{increment:25},rolls:{increment:1}}
         }).catch(()=>{});
-        return 'Rewards: **Gold + Essence + 1 Roll**';
+        const goldReward = 75000 + stage * 3500;
+        return `Rewards: **${money(goldReward)} Gold + 25 Essence / Ascension + 1 Roll**`;
       }
       return 'Tip: upgrade tree, traits, and use Tank/Support/Control.';
     }
@@ -366,7 +376,7 @@ async function handleDungeonBattle(i){
           where:{id:String(i.user.id)},
           data:{gold:{increment:BigInt(r.gold)},essence:{increment:r.essence},tokens:{increment:r.tokens},voidCrystals:r.voidCrystals?{increment:r.voidCrystals}:undefined}
         }).catch(()=>{});
-        return `Rewards: **${money(r.gold)} Gold + ${r.essence} Essence + ${r.tokens} Tokens**`;
+        return `Rewards: **${money(r.gold)} Gold + ${r.essence} Essence / Ascension + ${r.tokens} Tokens**`;
       }
       return 'Try upgrading before entering again.';
     }
@@ -415,7 +425,8 @@ async function handleRaidAttack(i){
         data:{gold:{increment:BigInt(Math.floor(damage*.03))},essence:{increment:75},tokens:{increment:50}}
       }).catch(()=>{});
 
-      return `Damage: **${money(damage)}**\nBoss HP: **${money(newHp)} / ${money(b.maxHp)}**\nRewards: **Gold + 75 Essence + 50 Tokens**${defeated?'\\n🏆 Last Hit Reward unlocked.':''}`;
+      const goldReward = Math.floor(damage * .03);
+      return `Damage: **${money(damage)}**\nBoss HP: **${money(newHp)} / ${money(b.maxHp)}**\nRewards: **${money(goldReward)} Gold + 75 Essence / Ascension + 50 Tokens**${defeated?'\\n🏆 Last Hit Reward unlocked.':''}`;
     }
   });
 }
