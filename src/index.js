@@ -1,4 +1,5 @@
 require('dotenv').config();
+// VOIDROLL_CLEAN_INDEX_VERSION: legacy progressBattle route removed.
 
 const express = require('express');
 const {
@@ -11,8 +12,27 @@ const {
 } = require('discord.js');
 const config = require('./lib/config');
 const { prisma } = require('./lib/db');
+const { handleBattlePolishCommand } = require('./systems/battlePolishSystem');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+// VOIDROLL_SAFE_ERROR_GUARD
+client.on('error', err => {
+  if (err?.code === 10062) {
+    console.warn('Ignored expired Discord interaction.');
+    return;
+  }
+  console.error('Discord client error:', err);
+});
+
+process.on('unhandledRejection', err => {
+  if (err?.code === 10062) {
+    console.warn('Ignored expired Discord interaction.');
+    return;
+  }
+  console.error('Unhandled rejection:', err);
+});
+
 const pendingTrades = global.pendingTrades || new Map();
 global.pendingTrades = pendingTrades;
 
@@ -323,19 +343,28 @@ async function battleScore(cards, mode='story') {
 async function bestTeam(userId, take=6) { return prisma.userCard.findMany({ where:{ userId:String(userId) }, include:{ character:true }, orderBy:{ power:'desc' }, take }).catch(()=>[]); }
 async function getProgress(userId){ return prisma.storyProgress.upsert({ where:{ userId:String(userId) }, update:{}, create:{ id:id('progress'), userId:String(userId) } }); }
 async function progressBattle(i, mode) {
-  await i.deferReply(); const userId=i.user.id; const p=await getProgress(userId); const team=await bestTeam(userId, mode==='story'?6:12); if(!team.length) return i.editReply('You need characters first. Use /roll.');
-  const current = mode==='story' ? ((p.chapter-1)*30+p.stage) : mode==='tower' ? p.towerFloor : p.dungeonFloor;
-  const required = mode==='story' ? 2500 + current*850 : mode==='tower' ? 4500 + current*1200 : 3500 + current*1000;
-  const b = await battleScore(team, mode==='tower'?'boss':mode);
-  const won = b.score >= required || Math.random() < Math.min(.20, b.score/Math.max(1,required)/5);
-  if(won){ const data={}; if(mode==='story'){ let st=p.stage+1, ch=p.chapter; if(st>30){ch++;st=1;} data.chapter=ch; data.stage=st; } if(mode==='tower') data.towerFloor=p.towerFloor+1; if(mode==='dungeon') data.dungeonFloor=p.dungeonFloor+1; await prisma.storyProgress.update({ where:{ userId:String(userId) }, data }); await addWallet(userId,{ gold:BigInt(Math.floor(required*.8)), tokens: current%5===0?5:0, rolls:1 }); }
-  const embed=new EmbedBuilder().setTitle(`${mode.toUpperCase()} ${won?'VICTORY':'DEFEAT'}`).setDescription(`Stage: **${current}**\nTeam Score: **${money(b.score)}**\nRequired: **${money(required)}**\nRoles: **${b.roles.join(', ')}**\n\n${b.logs.slice(0,6).join('\n')}\n\n${won?`Rewards: **${money(Math.floor(required*.8))} Gold**, **1 Roll**`:'Tip: use Tank + Support + Control, not only Power.'}`).setColor(won?0x2ecc71:0xe74c3c);
-  return i.editReply({ embeds:[embed] });
+  // VOIDROLL_PROGRESSBATTLE_REPLACED
+  // Legacy score-only battle screen is permanently disabled.
+  return handleBattlePolishCommand(i);
 }
 
 async function command(i) {
-  const commandName = i.commandName; const userId = i.user.id; await ensureUser(i.user);
-  if (commandName === 'help') return i.reply('**🌌 VoidRoll Reborn**\nEconomy: /profile /wallet /daily /market /market-buy\nCollection: /inventory /view-card /characters /character /anime /collection /who-has\nGacha: /roll /banner /pack /pity /rates\nProgress: /train /auto-train /formations /autoteam /story /tower /dungeon /boss-rush /pvp\nTrading: /gift-character /trade-offer /trade-accept /trade-decline /trade-cancel /trades\nAdmin: /admin-reset-all /admin-give-gold /admin-give-tokens /admin-give-rolls /admin-give-resource');
+  const commandName = i.commandName; const userId = i.user.id;
+
+  // VOIDROLL_BATTLE_FORCE_HOOK
+  if (['story','dungeon','pvp','world-boss','raid','raid-attack','raid-rank'].includes(commandName)) {
+    return handleBattlePolishCommand(i);
+  }
+
+  await ensureUser(i.user);
+  if (commandName === 'help') return i.reply('**🌌 VoidRoll Reborn**
+Economy: /profile /wallet /daily /market /market-buy
+Collection: /inventory /view-card /characters /character /anime /collection /who-has
+Gacha: /roll /banner /pack /pity /rates
+Battle: /story /dungeon /pvp /world-boss /raid /raid-attack /raid-rank
+Progress: /train /formations
+Trading: /gift-character /trade-offer /trade-accept /trade-decline /trade-cancel /trades
+Admin: /admin-reset-all /admin-give-gold /admin-give-tokens /admin-give-rolls /admin-give-resource');
   if (commandName === 'profile' || commandName === 'wallet') { const u=await ensureUser(i.user); const count=await prisma.userCard.count({where:{userId}}); return i.reply({embeds:[new EmbedBuilder().setTitle(`🌌 ${i.user.username} — VoidRoll Reborn`).setDescription(`Gold: **${money(u.gold)}**\nTokens: **${money(u.tokens)}**\nEssence: **${money(u.essence || 0)}**\nVoid Crystals: **${money(u.voidCrystals || 0)}**\nRolls: **${money(u.rolls)}**\nCards: **${count}**\nStory: **${u.storyChapter}-${u.storyStage}**`).setColor(0x7c3aed)]}); }
   if (commandName === 'daily') { const u=await ensureUser(i.user); const now=Date.now(); if(u.lastDailyAt && now - new Date(u.lastDailyAt).getTime() < 20*3600000) return i.reply('Daily already claimed.'); await prisma.user.update({where:{id:userId},data:{lastDailyAt:new Date(),dailyStreak:{increment:1},gold:{increment:50000},tokens:{increment:100},essence:{increment:25},rolls:{increment:5}}}); return i.reply('Daily claimed: **50,000 Gold**, **100 Tokens**, **25 Essence**, **5 Rolls**.'); }
   if (commandName === 'rates' || commandName === 'rarity') return i.reply('**Normal Roll Rates**\nCommon 72%\nRare 22%\nEpic 5.65%\nLegendary 1%\nMythic 0.75%\nDivine 0.1%\nVoidborn 0.00999%\nSecret 0.00001%');
@@ -351,9 +380,9 @@ async function command(i) {
   if (commandName === 'train' || commandName==='auto-train') { await i.deferReply(); const card=await ownedCardByIdOrBest(userId, i.options.getString('card') || i.options.getString('name')); if(!card)return i.editReply('Card not found. Use autocomplete.'); const u=await ensureUser(i.user); let gold=big(u.gold); let level=card.level; let power=card.power; let spent=0n; let gains=0; const maxRuns=commandName==='train'?1:100; for(let k=0;k<maxRuns && level<100;k++){ const cost=BigInt(5000 + level*3500 + Math.floor(power*.03)); if(gold<cost)break; gold-=cost; spent+=cost; level++; power+=Math.floor(card.character.basePower*.045 + level*50); gains++; } if(!gains)return i.editReply('Not enough Gold or already max level.'); await prisma.user.update({where:{id:userId},data:{gold}}); await prisma.userCard.update({where:{id:card.id},data:{level,power}}); return i.editReply(`Trained **${clean(card.character.name)}** +${gains} levels.\nLevel: **${card.level} → ${level}**\nPower: **${money(card.power)} → ${money(power)}**\nSpent: **${money(spent)} Gold**`); }
   if (commandName === 'formations') { const cards=await bestTeam(i.options.getUser('user')?.id||userId,36); const chunks=[]; for(let k=0;k<cards.length;k+=6)chunks.push(cards.slice(k,k+6)); const desc=chunks.slice(0,6).map((g,idx)=>`**Formation ${idx+1}** — PWR **${money(g.reduce((s,c)=>s+c.power,0))}**\n${g.map((card,j)=>`${j+1}. ${emoji(card.character.rarity)} ${clean(card.character.name)} • Lv${card.level} • PWR ${money(card.power)} • ${roleOf(card.character)}`).join('\n')}`).join('\n\n'); return i.reply({embeds:[new EmbedBuilder().setTitle('Formations').setDescription(desc||'No cards.').setColor(0x5865f2)]}); }
   if (commandName === 'autoteam') return i.reply('Auto team now uses your strongest upgraded inventory cards automatically in /formations and battles.');
-  if (['story','tower','dungeon'].includes(commandName)) return progressBattle(i,commandName);
-  if (commandName === 'pvp') { await i.deferReply(); const opp=i.options.getUser('opponent',true); const a=await battleScore(await bestTeam(userId,6),'pvp'); const b=await battleScore(await bestTeam(opp.id,6),'pvp'); const win=a.score>=b.score; return i.editReply(`**PVP ${win?'WIN':'LOSE'}**\nYour Score: **${money(a.score)}**\n${opp}'s Score: **${money(b.score)}**\nRoles matter: Tank/Support/Control give real bonuses.`); }
-  if (commandName === 'boss-rush') { await i.deferReply(); const cards=await bestTeam(userId,6); const b=await battleScore(cards,'boss'); const boss=Math.floor(10000+Math.random()*50000); const dmg=Math.floor(b.score*(.8+Math.random()*.4)); const win=dmg>=boss; const rewardGold=BigInt(Math.floor(dmg*.6)); await addWallet(userId,{gold:rewardGold,tokens:8,rolls:Math.max(1,Math.floor(dmg/50000))}); return i.editReply(`**Boss Rush**\nDamage: **${money(dmg)}**\nBoss HP: **${money(boss)}**\nResult: **${win?'CLEARED':'DAMAGED'}**\nRewards: **${money(rewardGold)} Gold**, **8 Tokens**, Rolls scale with damage.`); }
+  if (commandName === 'tower') return i.reply({ content:'❌ /tower is disabled in VoidRoll Reborn. Use /story or /dungeon.', ephemeral:true });
+  if (commandName === 'pvp') return handleBattlePolishCommand(i);
+  if (commandName === 'boss-rush') return i.reply({ content:'❌ /boss-rush is disabled. Use /world-boss and /raid-attack.', ephemeral:true });
   if (commandName === 'market') { const m=dailyMarket(); const u=await ensureUser(i.user); const lines=[]; for(const item of m.items){ lines.push(`**${item.name}**\nID: \`${item.id}\` • Cost **${money(item.costGold)} Gold** • Stock **${item.stock}**\nReward: ${item.reward.rolls?`Rolls +${item.reward.rolls}`:''} ${item.reward.tokens?`Tokens +${item.reward.tokens}`:''}`); } return i.reply({embeds:[new EmbedBuilder().setTitle('Daily Market').setDescription(`Resets <t:${m.reset}:R>\nYour Gold: **${money(u.gold)}**\n\n${lines.join('\n\n')}`).setColor(0x8e44ad)]}); }
   if (commandName === 'market-buy') { await i.deferReply(); const itemId=i.options.getString('item_id',true); const m=dailyMarket(); const item=m.items.find(x=>x.id===itemId); if(!item)return i.editReply('Item not found.'); const bought=await marketBought(userId,itemId); if(bought>=item.stock)return i.editReply('Daily stock reached for this item.'); const u=await ensureUser(i.user); if(big(u.gold)<item.costGold)return i.editReply(`Need **${money(item.costGold)} Gold**.`); await prisma.user.update({where:{id:userId},data:{gold:big(u.gold)-item.costGold,tokens:Number(u.tokens||0)+(item.reward.tokens||0),rolls:Number(u.rolls||0)+(item.reward.rolls||0)}}); await marketAdd(userId,itemId); return i.editReply(`Bought **${item.name}**.`); }
   if (commandName === 'gift-character') { await i.deferReply(); const target=i.options.getUser('user',true); const card=await ownedCardByIdOrBest(userId,i.options.getString('card',true)); if(!card)return i.editReply('Card not found.'); if(target.bot || target.id===userId)return i.editReply('Invalid target.'); await ensureUser(target); await prisma.userCard.update({where:{id:card.id},data:{userId:target.id}}); return i.editReply(`${i.user} gifted ${target}: ${emoji(card.character.rarity)} **${clean(card.character.name)}** Lv${card.level} PWR ${money(card.power)}.`); }
@@ -385,7 +414,7 @@ client.on('interactionCreate', async i => {
   }
 });
 
-client.once('ready', () => console.log(`Logged in as ${client.user.tag}`));
+client.once('clientReady', () => console.log(`Logged in as ${client.user.tag}`));
 
 const app = express();
 app.get('/', (req,res)=>res.send('VoidRoll 2.0 is alive'));

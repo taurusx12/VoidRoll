@@ -7,14 +7,15 @@
   "scripts": {
     "dev": "node src/index.js",
     "start": "node src/index.js",
-    "commands:deploy": "node scripts/deploy-commands.js",
+    "commands:deploy": "echo skip command deploy",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push",
     "seed": "node scripts/seed.js",
     "import:anime": "node scripts/import-anime.js",
     "health": "node scripts/healthcheck.js",
-    "audit:famous": "node scripts/audit-famous-characters.js"
+    "audit:famous": "node scripts/audit-famous-characters.js",
+    "commands:deploy:guild": "GUILD_ID=1039274134296862801 node scripts/phase27-fast-guild-deploy.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
