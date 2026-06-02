@@ -1,5 +1,5 @@
+// FINAL_VARIANTS_READY
 // VoidRoll Reborn - Phase 27 Fast Guild Deploy
-// PHASE_FINAL_THREE_SEARCH_COMMANDS
 // This avoids the hanging Phase 25 deploy.
 // It deploys essential clean Guild commands only.
 // Run:
@@ -52,6 +52,15 @@ const commands = [
     type:1,
     options:[
       { name:'name', description:'Character name', type:3, required:true, autocomplete:true }
+    ]
+  },
+
+  {
+    name:'variants',
+    description:'Show special variants for a character',
+    type:1,
+    options:[
+      { name:'name', description:'Base character or variant name', type:3, required:false, autocomplete:true }
     ]
   },
 
