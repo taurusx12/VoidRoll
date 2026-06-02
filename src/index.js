@@ -13,6 +13,7 @@ const {
 const config = require('./lib/config');
 const { prisma } = require('./lib/db');
 const { handleBattlePolishCommand } = require('./systems/battlePolishSystem');
+const combatProfiles = require('./systems/characterCombatProfileSystem');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -83,38 +84,40 @@ async function addWallet(userId, { gold=0n, tokens=0, rolls=0, essence=0, voidCr
   return prisma.user.update({ where:{ id:String(userId) }, data });
 }
 
-function roleOf(c) {
-  const n = norm(c?.name);
-  if (['aizen','lelouch','makima','kurapika','shikamaru','light yagami'].some(x=>n.includes(x))) return 'Control';
-  if (['all might','kaido','whitebeard','escanor','reinhard','saber','artoria'].some(x=>n.includes(x))) return 'Tank';
-  if (['rimuru','orihime','tsunade','rem','emilia','kakashi'].some(x=>n.includes(x))) return 'Support';
-  if (['toji','killua','levi','hisoka','zenitsu','yoriichi'].some(x=>n.includes(x))) return 'Assassin';
-  if (['gojo','sukuna','madara','gilgamesh','ainz','megumin'].some(x=>n.includes(x))) return 'Mage';
-  return 'DPS';
-}
-function elementOf(c) {
-  const n = norm(c?.name); const a = norm(c?.anime);
-  if (['aizen','ichigo','yhwach','rukia'].some(x=>n.includes(x)) || a.includes('bleach')) return 'Soul';
-  if (['gojo','sukuna','yuta','toji','geto'].some(x=>n.includes(x)) || a.includes('jujutsu')) return 'Cursed';
-  if (['jin woo','igris','beru','ashborn'].some(x=>n.includes(x))) return 'Shadow';
-  if (['rimuru','aizen','madara','makima','lelouch'].some(x=>n.includes(x))) return 'Void';
-  if (['natsu','ace','rengoku'].some(x=>n.includes(x))) return 'Fire';
-  if (['killua','zenitsu','laxus'].some(x=>n.includes(x))) return 'Lightning';
-  if (['naruto','goku','luffy','saber'].some(x=>n.includes(x))) return 'Light';
-  return c?.element || 'Neutral';
-}
+function roleOf(c) { return combatProfiles.roleOf(c); }
+function elementOf(c) { return combatProfiles.elementOf(c); }
 function passiveOf(c) {
-  const n = norm(c?.name);
-  if (n.includes('aizen')) return { name:'Kyoka Suigetsu', text:'20% enemy miss chance and -10% enemy ATK.', effect:{ miss:20, enemyAtk:-10 } };
-  if (n.includes('gojo')) return { name:'Infinity', text:'Blocks the first heavy hit each battle and +15% dodge.', effect:{ shield:1, dodge:15 } };
-  if (n.includes('makima')) return { name:'Control Devil', text:'Weakens the strongest enemy and gives team +12% damage.', effect:{ teamDmg:12, enemyAtk:-15 } };
-  if (n.includes('rimuru')) return { name:'Predator', text:'Heals after attacking and steals 8% enemy defense.', effect:{ lifesteal:12, pen:8 } };
-  if (n.includes('lelouch')) return { name:'Geass Command', text:'30% chance to stun and reduce enemy damage.', effect:{ stun:30, enemyAtk:-12 } };
-  if (n.includes('sukuna')) return { name:'Malevolent Shrine', text:'+25% boss damage and execute low HP enemies.', effect:{ bossDmg:25, execute:15 } };
-  if (n.includes('madara')) return { name:'Wake Up To Reality', text:'+20% AoE damage and +10% defense.', effect:{ dmg:20, def:10 } };
-  if (n.includes('itachi')) return { name:'Tsukuyomi', text:'High control accuracy and 15% enemy miss chance.', effect:{ miss:15, control:20 } };
-  if (n.includes('saber') || n.includes('artoria')) return { name:'Excalibur', text:'Tank barrier and burst light damage.', effect:{ def:20, dmg:12 } };
-  return { name:`${roleOf(c)} Mastery`, text:`${roleOf(c)} passive affects real battle stats.`, effect:{ dmg:8 } };
+  const p = combatProfiles.passiveOf(c);
+  const effect = p.effect || {};
+  const parts = [];
+
+  if (effect.dmg) parts.push(`+${effect.dmg}% Damage`);
+  if (effect.teamDmg) parts.push(`+${effect.teamDmg}% Team Damage`);
+  if (effect.bossDmg) parts.push(`+${effect.bossDmg}% Boss Damage`);
+  if (effect.crit) parts.push(`+${effect.crit}% Crit`);
+  if (effect.dodge) parts.push(`+${effect.dodge}% Dodge`);
+  if (effect.shield) parts.push('Starts with Shield');
+  if (effect.heal) parts.push(`+${effect.heal}% Healing`);
+  if (effect.lifesteal) parts.push(`+${effect.lifesteal}% Lifesteal`);
+  if (effect.counter) parts.push(`+${effect.counter}% Counter`);
+  if (effect.burn) parts.push(`${effect.burn}% Burn`);
+  if (effect.bleed) parts.push(`${effect.bleed}% Bleed`);
+  if (effect.poison) parts.push(`${effect.poison}% Poison`);
+  if (effect.freeze) parts.push(`${effect.freeze}% Freeze`);
+  if (effect.stun) parts.push(`${effect.stun}% Stun`);
+  if (effect.silence) parts.push(`${effect.silence}% Silence`);
+  if (effect.miss) parts.push(`${effect.miss}% Enemy Miss`);
+  if (effect.enemyAtk) parts.push(`${effect.enemyAtk}% Enemy ATK`);
+  if (effect.energyGain) parts.push(`+${effect.energyGain} Energy Gain`);
+  if (effect.energyDrain) parts.push(`${effect.energyDrain} Energy Drain`);
+  if (effect.execute) parts.push(`${effect.execute}% Execute`);
+  if (effect.summon) parts.push('Summon Assist');
+
+  return {
+    name: p.name || 'Anime Combat Passive',
+    text: parts.length ? parts.join(' • ') : 'Anime-linked passive active in battle.',
+    effect
+  };
 }
 function statsFor(card, c=card?.character) {
   const p = Number(card?.power || c?.basePower || 1000);
@@ -138,7 +141,8 @@ function statsFor(card, c=card?.character) {
   };
 }
 function statBlock(card,c=card.character) {
-  const s = statsFor(card,c); const p = passiveOf(c);
+  const s = statsFor(card,c);
+  const p = passiveOf(c);
   return `Type: **${s.role}** | Element: **${s.element}**\n`+
     `Level: **${s.level}/100** | Power: **${money(s.power)}**\n`+
     `HP **${money(s.hp)}** • ATK **${money(s.atk)}** • DEF **${money(s.def)}** • SPD **${money(s.speed)}**\n`+
@@ -146,29 +150,115 @@ function statBlock(card,c=card.character) {
     `Passive: **${p.name}** — ${p.text}`;
 }
 
-async function findCharacter(query) {
+
+// PHASE_FINAL_THREE_SEARCH_COMMANDS
+function searchTokens(v='') {
+  return norm(v).split(' ').filter(Boolean);
+}
+function isCharacterId(value='') {
+  const v = String(value || '').trim();
+  return v.startsWith('char_') || /^[a-zA-Z0-9_-]{16,}$/.test(v);
+}
+function characterSearchScoreStrict(c, query) {
   const q = norm(query);
+  if (!q) return 0;
+
+  const qTokens = searchTokens(q);
+  const rawName = norm(c.name);
+  const cleanName = norm(clean(c.name));
+  const anime = norm(c.anime);
+  const rawTokens = searchTokens(rawName);
+  const cleanTokens = searchTokens(cleanName);
+
+  let score = 0;
+
+  if (rawName === q) score += 2000000;
+  if (cleanName === q) score += 1900000;
+  if (rawTokens[0] === q) score += 1500000;
+  if (cleanTokens[0] === q) score += 1450000;
+  if (rawName.startsWith(q + ' ')) score += 1200000;
+  if (cleanName.startsWith(q + ' ')) score += 1150000;
+
+  const allTokensInName = qTokens.length && qTokens.every(t => rawTokens.includes(t) || cleanTokens.includes(t));
+  if (allTokensInName) score += 900000 + qTokens.length * 30000;
+
+  let matchedNameTokens = 0;
+  for (const t of qTokens) {
+    if (rawTokens.includes(t)) { score += 70000; matchedNameTokens++; }
+    else if (cleanTokens.includes(t)) { score += 65000; matchedNameTokens++; }
+    else if (rawName.includes(t)) { score += 10000; matchedNameTokens++; }
+    else if (cleanName.includes(t)) { score += 9000; matchedNameTokens++; }
+    else if (anime.includes(t)) score += 500;
+  }
+
+  if (matchedNameTokens === 0 && !rawName.includes(q) && !cleanName.includes(q)) return 0;
+
+  try {
+    const profile = combatProfiles.getCombatProfile(c);
+    if (profile.source === 'exact') score += 3000;
+    if (profile.source === 'anime') score += 1000;
+  } catch {}
+
+  if (String(c.imageUrl || '').includes('cdn.myanimelist')) score += 300;
+  score += Math.min(999, Number(c.basePower || 0) / 10000);
+  return score;
+}
+
+async function findCharacter(query) {
+  const raw = String(query || '').trim();
+  const q = norm(raw);
   if (!q) return null;
-  const chars = await prisma.character.findMany({ where:{ active:true }, take:1000, orderBy:{ basePower:'desc' } }).catch(()=>[]);
-  return chars.map(c=>{
-    const txt = `${norm(clean(c.name))} ${norm(c.name)} ${norm(c.anime)}`;
-    let score = 0; for (const t of q.split(' ').filter(Boolean)) if (txt.includes(t)) score += 100;
-    if (norm(clean(c.name)) === q) score += 500;
-    return { c, score };
-  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || b.c.basePower-a.c.basePower)[0]?.c || null;
+
+  if (isCharacterId(raw)) {
+    const byId = await prisma.character.findFirst({ where:{ id:raw, active:true } }).catch(()=>null);
+    if (byId) return byId;
+  }
+
+  const chars = await prisma.character.findMany({ where:{ active:true }, take:50000, orderBy:{ basePower:'desc' } }).catch(()=>[]);
+  return chars
+    .map(c => ({ c, score: characterSearchScoreStrict(c, raw) }))
+    .filter(x => x.score > 0)
+    .sort((a,b) => b.score - a.score || Number(b.c.basePower || 0) - Number(a.c.basePower || 0))[0]?.c || null;
 }
 async function ownedCardByIdOrBest(userId, value) {
   if (!value) return null;
-  let card = await prisma.userCard.findFirst({ where:{ id:String(value), userId:String(userId) }, include:{ character:true } }).catch(()=>null);
+
+  const raw = String(value || '').trim();
+  const q = norm(raw);
+
+  let card = await prisma.userCard.findFirst({
+    where:{ id:raw, userId:String(userId) },
+    include:{ character:true }
+  }).catch(()=>null);
   if (card) return card;
-  const q = norm(value);
-  const cards = await prisma.userCard.findMany({ where:{ userId:String(userId) }, include:{ character:true }, orderBy:{ power:'desc' }, take:2000 }).catch(()=>[]);
-  return cards.map(card=>{
-    const txt = `${norm(clean(card.character.name))} ${norm(card.character.name)} ${norm(card.character.anime)} ${shortId(card.id).toLowerCase()}`;
-    let score = 0; for (const t of q.split(' ').filter(Boolean)) if (txt.includes(t)) score += 100;
-    if (shortId(card.id).toLowerCase() === q) score += 1000;
-    return { card, score };
-  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || b.card.power-a.card.power)[0]?.card || null;
+
+  if (isCharacterId(raw)) {
+    card = await prisma.userCard.findFirst({
+      where:{ userId:String(userId), characterId:raw },
+      include:{ character:true },
+      orderBy:{ power:'desc' }
+    }).catch(()=>null);
+    if (card) return card;
+  }
+
+  const cards = await prisma.userCard.findMany({
+    where:{ userId:String(userId) },
+    include:{ character:true },
+    orderBy:{ power:'desc' },
+    take:10000
+  }).catch(()=>[]);
+
+  return cards
+    .map(card => {
+      const sid = shortId(card.id).toLowerCase();
+      let score = characterSearchScoreStrict(card.character || {}, raw);
+      if (sid === q) score += 3000000;
+      if (q && sid.includes(q)) score += 100000;
+      score += Math.min(999, Number(card.power || 0) / 10000);
+      return { card, score };
+    })
+    .filter(x => x.score > 0)
+    .sort((a,b) => b.score - a.score || Number(b.card.power || 0) - Number(a.card.power || 0))[0]?.card || null;
 }
 async function ownedCards(userId, { character, anime, rarity, role, element, sort='power', page=1, take=10 }={}) {
   const cards = await prisma.userCard.findMany({ where:{ userId:String(userId) }, include:{ character:true }, take:5000 }).catch(()=>[]);
@@ -229,7 +319,7 @@ async function autocomplete(i) {
 
     // Owned card autocomplete: gift, trade, train, view-card.
     // This shows duplicates separately so the player can choose Lv100 or Lv1 safely.
-    if (['card','name'].includes(name) && ['gift-character','trade-offer','train','auto-train','view-card'].includes(cmd)) {
+    if (['card','name'].includes(name) && ['gift-character','trade-offer','train','auto-train','view-card','my-card'].includes(cmd)) {
       const cards = await prisma.userCard.findMany({
         where:{ userId:String(i.user.id) },
         include:{ character:true },
@@ -274,7 +364,7 @@ async function autocomplete(i) {
       const out = chars
         .filter(c=>!q || `${norm(c.name)} ${norm(c.anime)}`.includes(q))
         .slice(0,25)
-        .map(c=>choice(`${clean(c.name)} • ${c.anime} • ${c.rarity}`, clean(c.name)));
+        .map(c=>choice(`${clean(c.name)} • ${c.anime} • ${c.rarity}`, c.id));
       return out.length ? i.respond(out).catch(()=>{}) : empty('No characters found');
     }
 
@@ -360,7 +450,7 @@ async function command(i) {
   if (commandName === 'help') return i.reply([
     '**🌌 VoidRoll Reborn**',
     'Economy: /profile /wallet /daily /market /market-buy',
-    'Collection: /inventory /view-card /characters /character /anime /collection /who-has',
+    'Collection: /inventory /my-card /character /who-has /characters /anime /collection',
     'Gacha: /roll /banner /pack /pity /rates',
     'Battle: /story /dungeon /pvp /world-boss /raid /raid-attack /raid-rank',
     'Progress: /train /formations',
@@ -375,10 +465,60 @@ async function command(i) {
   if (commandName === 'pack') { await i.deferReply(); const charId=i.options.getString('banner',true); const selected=await prisma.character.findUnique({where:{id:charId}}).catch(()=>null); if(!selected) return i.editReply('Choose a banner character from autocomplete.'); const u=await ensureUser(i.user); if(Number(u.tokens)<4000) return i.editReply(`Need **4,000 Tokens**. You have **${u.tokens}**.`); await prisma.user.update({where:{id:userId},data:{tokens:{decrement:4000}}}); let pity=await pityGet(userId,selected.id); const before=pity; const rarities=['RARE','RARE','RARE','EPIC','EPIC','EPIC','LEGENDARY','LEGENDARY','MYTHIC','DIVINE']; let secretAt=-1; for(let j=0;j<10;j++){ const next=pity+j+1; const soft=next>=35?Math.min(.20,(next-34)*.01):0; if(next>=50 || Math.random()<(.01+soft)){secretAt=j; break;} } if(secretAt>=0) rarities[secretAt]='SECRET'; const lines=[]; for(let j=0;j<10;j++){ pity++; let c; if(rarities[j]==='SECRET'){ c=selected; pity=0; await i.channel?.send({ embeds:[new EmbedBuilder().setTitle('🌠 SECRET REVEAL').setDescription(`**Void Spark → Bottom Distortion → Quote Ascends → Secret Flash → Character Reveal**\n“${revealQuote(c.name)}”`).setColor(0x6d28d9)] }).catch(()=>{}); } else c=await randomCharacterByRarity(rarities[j]); const card=await createCard(userId,c); lines.push(`${j+1}. ${emoji(c.rarity)} **${clean(c.name)}** • ${c.rarity} • PWR **${money(card.power)}**`); } await pitySet(userId,selected.id,pity); return i.editReply(`**PACK x10**\nSelected: **${clean(selected.name)}**\nPity: **${before}/50 → ${pity}/50**\n\n${lines.join('\n')}`); }
   if (commandName === 'pity') { const picks=await bannerCharacters(); const lines=[]; for(const c of picks) lines.push(`**${clean(c.name)}**: ${await pityGet(userId,c.id)}/50`); return i.reply(lines.join('\n')||'No banner.'); }
   if (commandName === 'inventory') { const res=await ownedCards(userId,{ character:i.options.getString('character'), anime:i.options.getString('anime'), rarity:i.options.getString('rarity'), role:i.options.getString('type'), element:i.options.getString('element'), sort:i.options.getString('sort')||'power', page:i.options.getInteger('page')||1 }); const lines=res.items.map((card,idx)=>`${(res.page-1)*10+idx+1}. ${emoji(card.character.rarity)} **${clean(card.character.name)}** • ${card.character.anime}\n   ID **${shortId(card.id)}** • Lv **${card.level}** • PWR **${money(card.power)}** • ${roleOf(card.character)} • ${elementOf(card.character)}`).join('\n'); return i.reply({embeds:[new EmbedBuilder().setTitle('Inventory').setDescription(`Page **${res.page}/${res.pages}** • Total **${res.total}**\n\n${lines||'No cards found.'}`).setColor(0x5865f2)]}); }
-  if (commandName === 'view-card' || commandName==='character') { const val=i.options.getString('card') || i.options.getString('name') || i.options.getString('character'); let card=await ownedCardByIdOrBest(userId,val); if(card){ const e=new EmbedBuilder().setTitle(`${emoji(card.character.rarity)} ${clean(card.character.name)} • ${shortId(card.id)}`).setDescription(`${card.character.anime}\nRarity: **${card.character.rarity}**\n${statBlock(card,card.character)}`).setColor(0x8e44ad); if(card.character.imageUrl)e.setImage(card.character.imageUrl); return i.reply({embeds:[e]}); } const c=await findCharacter(val); if(!c)return i.reply('Character not found.'); const fake={power:c.basePower,level:1}; const e=new EmbedBuilder().setTitle(`${emoji(c.rarity)} ${clean(c.name)}`).setDescription(`${c.anime}\nRarity: **${c.rarity}**\n${statBlock(fake,c)}`).setColor(0x8e44ad); if(c.imageUrl)e.setImage(c.imageUrl); return i.reply({embeds:[e]}); }
+  if (commandName === 'view-card' || commandName === 'my-card') {
+    const val = i.options.getString('card') || i.options.getString('name') || i.options.getString('character');
+    const card = await ownedCardByIdOrBest(userId, val);
+
+    if (!card) return i.reply('Owned card not found. Use /my-card and pick from autocomplete.');
+
+    const e = new EmbedBuilder()
+      .setTitle(`${emoji(card.character.rarity)} ${clean(card.character.name)} • ${shortId(card.id)}`)
+      .setDescription(`${card.character.anime}\nRarity: **${card.character.rarity}**\n${statBlock(card, card.character)}`)
+      .setColor(0x8e44ad);
+
+    if (card.character.imageUrl) e.setImage(card.character.imageUrl);
+    return i.reply({ embeds:[e] });
+  }
+
+  if (commandName === 'character') {
+    const val = i.options.getString('name') || i.options.getString('character') || i.options.getString('card');
+    const c = await findCharacter(val);
+
+    if (!c) return i.reply('Character not found. Pick from autocomplete or type the full name.');
+
+    const fake = { power:c.basePower, level:1, character:c };
+    const e = new EmbedBuilder()
+      .setTitle(`${emoji(c.rarity)} ${clean(c.name)}`)
+      .setDescription(`${c.anime}\nRarity: **${c.rarity}**\n${statBlock(fake, c)}`)
+      .setColor(0x8e44ad);
+
+    if (c.imageUrl) e.setImage(c.imageUrl);
+    return i.reply({ embeds:[e] });
+  }
   if (commandName === 'characters' || commandName==='top-characters') { const anime=i.options.getString('anime'); const rarity=i.options.getString('rarity'); const role=i.options.getString('type'); const page=i.options.getInteger('page')||1; let chars=await prisma.character.findMany({ where:{ active:true }, orderBy:{basePower:'desc'}, take:5000 }).catch(()=>[]); if(anime)chars=chars.filter(c=>norm(c.anime).includes(norm(anime))); if(rarity&&rarity!=='ALL')chars=chars.filter(c=>c.rarity===rarity); if(role&&role!=='ALL')chars=chars.filter(c=>roleOf(c)===role); const pages=Math.max(1,Math.ceil(chars.length/10)); const p=pageBounds(page,pages); const items=chars.slice((p-1)*10,p*10); return i.reply({embeds:[new EmbedBuilder().setTitle('Character Index').setDescription(`Page **${p}/${pages}** • Total **${chars.length}**\n\n${items.map((c,k)=>`${(p-1)*10+k+1}. ${emoji(c.rarity)} **${clean(c.name)}** • ${c.anime} • PWR **${money(c.basePower)}** • ${roleOf(c)}`).join('\n')}`).setColor(0x3498db)]}); }
   if (commandName === 'anime' || commandName==='collection') { const anime=i.options.getString('anime',true); const all=await prisma.character.findMany({where:{active:true},orderBy:{basePower:'desc'},take:6000}).catch(()=>[]); const chars=all.filter(c=>norm(c.anime).includes(norm(anime))); if(!chars.length)return i.reply('Anime not found.'); const owned=await prisma.userCard.findMany({where:{userId},include:{character:true},take:10000}).catch(()=>[]); const ownedNames=new Set(owned.map(x=>norm(clean(x.character.name))+'|'+norm(x.character.anime))); const got=chars.filter(c=>ownedNames.has(norm(clean(c.name))+'|'+norm(c.anime))); const missing=chars.filter(c=>!ownedNames.has(norm(clean(c.name))+'|'+norm(c.anime))).slice(0,15); return i.reply({embeds:[new EmbedBuilder().setTitle(`📚 ${chars[0].anime} Library`).setDescription(`Collected: **${got.length}/${chars.length}** (${Math.floor(got.length/Math.max(1,chars.length)*100)}%)\nStrongest: **${clean(chars[0].name)}**\n\n**Missing preview**\n${missing.map(c=>`${emoji(c.rarity)} ${clean(c.name)} • ${c.rarity}`).join('\n')||'Complete!'}\n\nRewards: 25% / 50% / 75% / 100% collection chests.`).setColor(0x1abc9c)]}); }
-  if (commandName === 'who-has') { const name=i.options.getString('name',true); const c=await findCharacter(name); if(!c)return i.reply('Character not found.'); const cards=await prisma.userCard.findMany({where:{characterId:c.id},include:{user:true,character:true},orderBy:{power:'desc'},take:10}).catch(()=>[]); return i.reply({embeds:[new EmbedBuilder().setTitle(`Who has ${clean(c.name)}?`).setDescription(cards.map((card,idx)=>`${idx+1}. <@${card.userId}> • Lv **${card.level}** • PWR **${money(card.power)}** • ID **${shortId(card.id)}**`).join('\n')||'Nobody owns this character yet.').setColor(0xf39c12)]}); }
+  if (commandName === 'who-has') {
+    const name = i.options.getString('name', true);
+    const c = await findCharacter(name);
+
+    if (!c) return i.reply('Character not found. Pick from autocomplete or type the full name.');
+
+    const cards = await prisma.userCard.findMany({
+      where:{ characterId:c.id },
+      include:{ user:true, character:true },
+      orderBy:{ power:'desc' },
+      take:10
+    }).catch(()=>[]);
+
+    return i.reply({
+      embeds:[
+        new EmbedBuilder()
+          .setTitle(`Who has ${clean(c.name)}?`)
+          .setDescription(cards.map((card,idx)=>`${idx+1}. <@${card.userId}> • Lv **${card.level}** • PWR **${money(card.power)}** • ID **${shortId(card.id)}**`).join('\n') || 'Nobody owns this character yet.')
+          .setColor(0xf39c12)
+      ]
+    });
+  }
   if (commandName === 'train' || commandName==='auto-train') { await i.deferReply(); const card=await ownedCardByIdOrBest(userId, i.options.getString('card') || i.options.getString('name')); if(!card)return i.editReply('Card not found. Use autocomplete.'); const u=await ensureUser(i.user); let gold=big(u.gold); let level=card.level; let power=card.power; let spent=0n; let gains=0; const maxRuns=commandName==='train'?1:100; for(let k=0;k<maxRuns && level<100;k++){ const cost=BigInt(5000 + level*3500 + Math.floor(power*.03)); if(gold<cost)break; gold-=cost; spent+=cost; level++; power+=Math.floor(card.character.basePower*.045 + level*50); gains++; } if(!gains)return i.editReply('Not enough Gold or already max level.'); await prisma.user.update({where:{id:userId},data:{gold}}); await prisma.userCard.update({where:{id:card.id},data:{level,power}}); return i.editReply(`Trained **${clean(card.character.name)}** +${gains} levels.\nLevel: **${card.level} → ${level}**\nPower: **${money(card.power)} → ${money(power)}**\nSpent: **${money(spent)} Gold**`); }
   if (commandName === 'formations') { const cards=await bestTeam(i.options.getUser('user')?.id||userId,36); const chunks=[]; for(let k=0;k<cards.length;k+=6)chunks.push(cards.slice(k,k+6)); const desc=chunks.slice(0,6).map((g,idx)=>`**Formation ${idx+1}** — PWR **${money(g.reduce((s,c)=>s+c.power,0))}**\n${g.map((card,j)=>`${j+1}. ${emoji(card.character.rarity)} ${clean(card.character.name)} • Lv${card.level} • PWR ${money(card.power)} • ${roleOf(card.character)}`).join('\n')}`).join('\n\n'); return i.reply({embeds:[new EmbedBuilder().setTitle('Formations').setDescription(desc||'No cards.').setColor(0x5865f2)]}); }
   if (commandName === 'autoteam') return i.reply('Auto team now uses your strongest upgraded inventory cards automatically in /formations and battles.');

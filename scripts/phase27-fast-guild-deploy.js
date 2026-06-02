@@ -1,4 +1,5 @@
 // VoidRoll Reborn - Phase 27 Fast Guild Deploy
+// PHASE_FINAL_THREE_SEARCH_COMMANDS
 // This avoids the hanging Phase 25 deploy.
 // It deploys essential clean Guild commands only.
 // Run:
@@ -50,7 +51,25 @@ const commands = [
     description:'Search character',
     type:1,
     options:[
-      { name:'name', description:'Character name', type:3, required:true }
+      { name:'name', description:'Character name', type:3, required:true, autocomplete:true }
+    ]
+  },
+
+  {
+    name:'my-card',
+    description:'Search and view one of your owned cards',
+    type:1,
+    options:[
+      { name:'card', description:'Owned card name or ID', type:3, required:true, autocomplete:true }
+    ]
+  },
+
+  {
+    name:'view-card',
+    description:'View one of your owned cards',
+    type:1,
+    options:[
+      { name:'card', description:'Owned card name or ID', type:3, required:true, autocomplete:true }
     ]
   },
 
@@ -68,7 +87,7 @@ const commands = [
     description:'Find owners of a character',
     type:1,
     options:[
-      { name:'name', description:'Character name', type:3, required:true }
+      { name:'name', description:'Character name', type:3, required:true, autocomplete:true }
     ]
   },
 
