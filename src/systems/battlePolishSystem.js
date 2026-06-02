@@ -111,12 +111,314 @@ async function getBestCards(userId,take=6){ return prisma.userCard.findMany({ wh
 function buildStoryEnemies(chapter,stage){ const base=1800+((chapter-1)*30+stage)*550; return [enemyUnit('Void Scout',base,'ASSASSIN','VOID','EPIC'),enemyUnit('Abyss Guard',Math.floor(base*1.15),'TANK','SHADOW','EPIC'),enemyUnit('Cursed Mage',Math.floor(base*1.25),'CONTROL','CURSED','LEGENDARY'),enemyUnit('Void Beast',Math.floor(base*1.3),'DPS','VOID','LEGENDARY'),enemyUnit('Dark Healer',Math.floor(base*.95),'SUPPORT','DARK','EPIC'),enemyUnit('Stage Boss',Math.floor(base*1.8),'DPS','VOID','MYTHIC')]; }
 function buildDungeonEnemies(type='normal'){ const mult={normal:1,elite:1.45,abyss:2,void:2.8}[type]||1; const base=Math.floor(4500*mult); return [enemyUnit(`${type} Warden`,base,'TANK','VOID','LEGENDARY'),enemyUnit(`${type} Assassin`,Math.floor(base*1.1),'ASSASSIN','SHADOW','EPIC'),enemyUnit(`${type} Caster`,Math.floor(base*1.25),'CONTROL','CURSED','LEGENDARY'),enemyUnit(`${type} Beast`,Math.floor(base*1.35),'DPS','FIRE','MYTHIC'),enemyUnit(`${type} Oracle`,Math.floor(base*.9),'SUPPORT','LIGHT','EPIC'),enemyUnit(`${type} Dungeon Boss`,Math.floor(base*2),'DPS','VOID',type==='void'?'SECRET':'MYTHIC')]; }
 
-async function handleStoryBattle(i){ await i.deferReply(); const u=await ensureUser(i.user); const cards=await getBestCards(i.user.id,6); if(!cards.length)return i.editReply('You need characters first. Use /roll.'); const chapter=Number(u.chapter||u.storyChapter||1), stage=Number(u.stage||u.storyStage||1); const result=runBattle(cards.map(unitFromCard),buildStoryEnemies(chapter,stage),{mode:'story',maxTurns:7}); const won=result.winner==='player'; if(won){ let ns=stage+1,nc=chapter; if(ns>30){ns=1;nc++;} await prisma.user.update({where:{id:String(i.user.id)},data:{chapter:nc,stage:ns,gold:{increment:BigInt(75000+stage*3500)},essence:{increment:25},rolls:{increment:1}}}).catch(()=>{}); } return i.editReply({embeds:[new EmbedBuilder().setTitle(`📖 Story Battle — ${won?'Victory':'Defeat'}`).setDescription([`Chapter **${chapter}** • Stage **${stage}**`,'','**Your Team**',teamSummary(result.playerUnits),'','**Enemies**',teamSummary(result.enemyUnits),'','**Battle Log**',result.logs.join('\n').slice(0,1800),'',won?'Rewards: **Gold + Essence + 1 Roll**':'Tip: upgrade tree, traits, and use Tank/Support/Control.'].join('\n')).setColor(won?0x22c55e:0xef4444)]}); }
-async function handlePvpBattle(i){ await i.deferReply(); const opp=i.options.getUser('opponent'); if(!opp)return i.editReply('Choose an opponent.'); await ensureUser(i.user); await ensureUser(opp); const pc=await getBestCards(i.user.id,6), oc=await getBestCards(opp.id,6); if(!pc.length)return i.editReply('You need characters first. Use /roll.'); if(!oc.length)return i.editReply('Opponent has no characters yet.'); const result=runBattle(pc.map(unitFromCard),oc.map(unitFromCard),{mode:'pvp',maxTurns:6}); const won=result.winner==='player'; await prisma.user.update({where:{id:String(i.user.id)},data:{pvpRating:{increment:won?28:-18},pvpWins:won?{increment:1}:undefined,pvpLosses:!won?{increment:1}:undefined,pvpWinStreak:won?{increment:1}:0}}).catch(()=>{}); return i.editReply({embeds:[new EmbedBuilder().setTitle(`⚔️ Ranked PvP — ${won?'Victory':'Defeat'}`).setDescription([`${i.user} vs ${opp}`,'','**Your Team**',teamSummary(result.playerUnits),'','**Opponent Team**',teamSummary(result.enemyUnits),'','**Battle Log**',result.logs.join('\n').slice(0,1800),'',`Rating: **${won?'+28':'-18'} RP**`].join('\n')).setColor(won?0x22c55e:0xef4444)]}); }
-async function handleDungeonBattle(i){ await i.deferReply(); await ensureUser(i.user); const type=i.options.getString('type')||'normal'; const cards=await getBestCards(i.user.id,6); if(!cards.length)return i.editReply('You need characters first. Use /roll.'); const result=runBattle(cards.map(unitFromCard),buildDungeonEnemies(type),{mode:'dungeon',maxTurns:8}); const won=result.winner==='player'; if(won){ const r={normal:{gold:100000,essence:60,tokens:100},elite:{gold:250000,essence:140,tokens:250},abyss:{gold:600000,essence:350,tokens:600},void:{gold:1200000,essence:900,tokens:1200,voidCrystals:1}}[type]||{gold:100000,essence:60,tokens:100}; await prisma.user.update({where:{id:String(i.user.id)},data:{gold:{increment:BigInt(r.gold)},essence:{increment:r.essence},tokens:{increment:r.tokens},voidCrystals:r.voidCrystals?{increment:r.voidCrystals}:undefined}}).catch(()=>{}); } return i.editReply({embeds:[new EmbedBuilder().setTitle(`🏰 ${type.toUpperCase()} Dungeon — ${won?'Cleared':'Failed'}`).setDescription(['**Your Team**',teamSummary(result.playerUnits),'','**Dungeon Enemies**',teamSummary(result.enemyUnits),'','**Battle Log**',result.logs.join('\n').slice(0,1800),'',won?'Rewards delivered to wallet.':'Try upgrading before entering again.'].join('\n')).setColor(won?0x22c55e:0xef4444)]}); }
+
+// VOIDROLL_LIVE_BATTLE_V3
+function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function safeEdit(i, payload) {
+  try {
+    if (i.deferred || i.replied) return await i.editReply(payload);
+    return await i.reply(payload);
+  } catch (err) {
+    if (err?.code === 10062) {
+      console.warn('Ignored expired interaction during live battle.');
+      return null;
+    }
+    console.error('safeEdit failed:', err);
+    return null;
+  }
+}
+
+function makeBattleEmbed({ title, subtitle='', playerUnits=[], enemyUnits=[], logs=[], result=null, rewards='' }) {
+  const won = result ? result.winner === 'player' : null;
+  const colorValue = won === null ? 0x7c3aed : won ? 0x22c55e : 0xef4444;
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setDescription([
+      subtitle,
+      '',
+      '**Your Team**',
+      teamSummary(playerUnits) || 'Loading...',
+      '',
+      '**Enemies**',
+      teamSummary(enemyUnits) || 'Loading...',
+      '',
+      '**Live Battle Log**',
+      (logs.length ? logs.slice(-14).join('\n') : 'Preparing battlefield...').slice(0, 1800),
+      rewards ? `\n${rewards}` : ''
+    ].filter(Boolean).join('\n'))
+    .setColor(colorValue);
+}
+
+function runBattleDetailed(playerUnits, enemyUnits, options={}) {
+  const logs = [];
+  const snapshots = [];
+  const mode = options.mode || 'story';
+  const maxTurns = options.maxTurns || 8;
+
+  function snap(label) {
+    snapshots.push({
+      label,
+      logs: logs.slice(),
+      playerUnits: playerUnits.map(u => ({ ...u, status:{...(u.status||{})} })),
+      enemyUnits: enemyUnits.map(u => ({ ...u, status:{...(u.status||{})} }))
+    });
+  }
+
+  logs.push('🌌 The battlefield opens...');
+  snap('Start');
+
+  for (const u of playerUnits) {
+    if (u.passive.teamDmg) {
+      for (const a of playerUnits) a.atk = Math.floor(a.atk * (1 + u.passive.teamDmg/100));
+      logs.push(`✨ ${u.name}'s **${u.passiveName}** empowers the team.`);
+    }
+    if (u.passive.enemyAtk) {
+      for (const e of enemyUnits) e.atk = Math.floor(e.atk * (1 + u.passive.enemyAtk/100));
+      logs.push(`🕳️ ${u.name}'s **${u.passiveName}** weakens enemies.`);
+    }
+  }
+  snap('Passives');
+
+  for (let t=1; t<=maxTurns; t++) {
+    if (!alive(playerUnits).length || !alive(enemyUnits).length) break;
+
+    logs.push(`\n**Turn ${t}**`);
+    snap(`Turn ${t}`);
+
+    const order = [...alive(playerUnits), ...alive(enemyUnits)].sort((a,b)=>b.spd-a.spd);
+
+    let actionCount = 0;
+    for (const u of order) {
+      if (!alive(playerUnits).length || !alive(enemyUnits).length) break;
+      const before = logs.length;
+      attack(u, playerUnits.includes(u) ? enemyUnits : playerUnits, logs, mode);
+      actionCount++;
+      if (logs.length > before && (actionCount % 3 === 0 || logs[logs.length-1].includes('ULTIMATE') || logs[logs.length-1].includes('☠️'))) {
+        snap(`Turn ${t} Action ${actionCount}`);
+      }
+    }
+
+    snap(`End Turn ${t}`);
+  }
+
+  const pHp = playerUnits.reduce((s,u)=>s+Math.max(0,u.hp),0);
+  const eHp = enemyUnits.reduce((s,u)=>s+Math.max(0,u.hp),0);
+  const result = {
+    winner: pHp >= eHp ? 'player' : 'enemy',
+    playerHp: pHp,
+    enemyHp: eHp,
+    logs: logs.slice(0, 60),
+    playerUnits,
+    enemyUnits,
+    snapshots
+  };
+
+  logs.push(result.winner === 'player' ? '✅ Victory secured.' : '❌ Defeat.');
+  snap('Final');
+
+  return result;
+}
+
+async function playLiveBattle(i, { title, subtitle='', playerUnits, enemyUnits, mode='story', maxTurns=7, rewardsText='', onFinish=null }) {
+  await i.deferReply().catch(()=>{});
+  const intro = makeBattleEmbed({ title:`${title} — Starting`, subtitle, playerUnits, enemyUnits, logs:['🌌 Entering battle...', '⚔️ Preparing turns...'] });
+  await safeEdit(i, { embeds:[intro] });
+
+  const result = runBattleDetailed(playerUnits, enemyUnits, { mode, maxTurns });
+  const frames = result.snapshots || [];
+
+  for (let idx=0; idx<frames.length; idx++) {
+    const frame = frames[idx];
+    const embed = makeBattleEmbed({
+      title:`${title} — ${frame.label}`,
+      subtitle,
+      playerUnits: frame.playerUnits,
+      enemyUnits: frame.enemyUnits,
+      logs: frame.logs,
+      result: idx === frames.length-1 ? result : null
+    });
+
+    await safeEdit(i, { embeds:[embed] });
+    await sleep(idx < 2 ? 650 : 1050);
+  }
+
+  let finishRewards = rewardsText;
+  if (onFinish) {
+    const extra = await onFinish(result).catch(err => {
+      console.error('live battle onFinish failed:', err);
+      return '';
+    });
+    if (extra) finishRewards = extra;
+  }
+
+  const finalEmbed = makeBattleEmbed({
+    title:`${title} — ${result.winner === 'player' ? 'Victory' : 'Defeat'}`,
+    subtitle,
+    playerUnits: result.playerUnits,
+    enemyUnits: result.enemyUnits,
+    logs: result.logs,
+    result,
+    rewards: finishRewards
+  });
+
+  await safeEdit(i, { embeds:[finalEmbed] });
+  return result;
+}
+
+
+async function handleStoryBattle(i){
+  const u=await ensureUser(i.user);
+  const cards=await getBestCards(i.user.id,6);
+  if(!cards.length){
+    await i.reply({ content:'You need characters first. Use /roll.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+
+  const chapter=Number(u.chapter||u.storyChapter||1);
+  const stage=Number(u.stage||u.storyStage||1);
+  const playerUnits=cards.map(unitFromCard);
+  const enemyUnits=buildStoryEnemies(chapter,stage);
+
+  await playLiveBattle(i,{
+    title:'📖 Story Battle',
+    subtitle:`Chapter **${chapter}** • Stage **${stage}**`,
+    playerUnits,
+    enemyUnits,
+    mode:'story',
+    maxTurns:7,
+    onFinish: async (result)=>{
+      const won=result.winner==='player';
+      if(won){
+        let ns=stage+1,nc=chapter;
+        if(ns>30){ns=1;nc++;}
+        await prisma.user.update({
+          where:{id:String(i.user.id)},
+          data:{chapter:nc,stage:ns,gold:{increment:BigInt(75000+stage*3500)},essence:{increment:25},rolls:{increment:1}}
+        }).catch(()=>{});
+        return 'Rewards: **Gold + Essence + 1 Roll**';
+      }
+      return 'Tip: upgrade tree, traits, and use Tank/Support/Control.';
+    }
+  });
+}
+async function handlePvpBattle(i){
+  const opp=i.options.getUser('opponent');
+  if(!opp){
+    await i.reply({ content:'Choose an opponent.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+
+  await ensureUser(i.user);
+  await ensureUser(opp);
+  const pc=await getBestCards(i.user.id,6), oc=await getBestCards(opp.id,6);
+
+  if(!pc.length){
+    await i.reply({ content:'You need characters first. Use /roll.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+  if(!oc.length){
+    await i.reply({ content:'Opponent has no characters yet.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+
+  await playLiveBattle(i,{
+    title:'⚔️ Ranked PvP',
+    subtitle:`${i.user} vs ${opp}`,
+    playerUnits:pc.map(unitFromCard),
+    enemyUnits:oc.map(unitFromCard),
+    mode:'pvp',
+    maxTurns:6,
+    onFinish: async (result)=>{
+      const won=result.winner==='player';
+      await prisma.user.update({
+        where:{id:String(i.user.id)},
+        data:{pvpRating:{increment:won?28:-18},pvpWins:won?{increment:1}:undefined,pvpLosses:!won?{increment:1}:undefined,pvpWinStreak:won?{increment:1}:0}
+      }).catch(()=>{});
+      return `Rating: **${won?'+28':'-18'} RP**`;
+    }
+  });
+}
+async function handleDungeonBattle(i){
+  await ensureUser(i.user);
+  const type=i.options.getString('type')||'normal';
+  const cards=await getBestCards(i.user.id,6);
+  if(!cards.length){
+    await i.reply({ content:'You need characters first. Use /roll.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+
+  const playerUnits=cards.map(unitFromCard);
+  const enemyUnits=buildDungeonEnemies(type);
+
+  await playLiveBattle(i,{
+    title:`🏰 ${type.toUpperCase()} Dungeon`,
+    subtitle:'Live dungeon run',
+    playerUnits,
+    enemyUnits,
+    mode:'dungeon',
+    maxTurns:8,
+    onFinish: async (result)=>{
+      const won=result.winner==='player';
+      if(won){
+        const r={normal:{gold:100000,essence:60,tokens:100},elite:{gold:250000,essence:140,tokens:250},abyss:{gold:600000,essence:350,tokens:600},void:{gold:1200000,essence:900,tokens:1200,voidCrystals:1}}[type]||{gold:100000,essence:60,tokens:100};
+        await prisma.user.update({
+          where:{id:String(i.user.id)},
+          data:{gold:{increment:BigInt(r.gold)},essence:{increment:r.essence},tokens:{increment:r.tokens},voidCrystals:r.voidCrystals?{increment:r.voidCrystals}:undefined}
+        }).catch(()=>{});
+        return `Rewards: **${money(r.gold)} Gold + ${r.essence} Essence + ${r.tokens} Tokens**`;
+      }
+      return 'Try upgrading before entering again.';
+    }
+  });
+}
 async function getOrCreateRaidBoss(guildId='global'){ let b=await prisma.raidBoss.findFirst({where:{serverId:String(guildId),defeated:false},orderBy:{createdAt:'desc'}}).catch(()=>null); if(b)return b; return prisma.raidBoss.create({data:{serverId:String(guildId),templateId:'void-leviathan',type:'world',name:'Void Leviathan',level:1,element:'VOID',role:'TANK',rarity:'SECRET',maxHp:BigInt(250000000),currentHp:BigInt(250000000),basePower:BigInt(1800000),phase:1,defeated:false,startsAt:new Date(),endsAt:new Date(Date.now()+86400000)}}); }
 async function handleWorldBoss(i){ const b=await getOrCreateRaidBoss(i.guildId||'global'); const hp=Number(b.currentHp), max=Number(b.maxHp), pct=Math.max(0,Math.floor(hp/Math.max(max,1)*100)); return i.reply({embeds:[new EmbedBuilder().setTitle('🌍 World Boss — Void Leviathan').setDescription([`Rarity: **SECRET**`,`Element: **VOID**`,`HP: **${money(hp)} / ${money(max)}** (${pct}%)`,'','**Mechanics**','Shield Phase • Summons • Rage Mode • Void Bind • Enrage','','Use `/raid-attack` to attack.'].join('\n')).setColor(0x7c3aed)]}); }
-async function handleRaidAttack(i){ await i.deferReply(); const b=await getOrCreateRaidBoss(i.guildId||'global'); const cards=await getBestCards(i.user.id,6); if(!cards.length)return i.editReply('You need characters first. Use /roll.'); const bp=Math.max(50000,Math.floor(Number(b.basePower)/70)); const result=runBattle(cards.map(unitFromCard),[enemyUnit('Void Leviathan Core',bp*2,'TANK','VOID','SECRET'),enemyUnit('Void Leviathan Claw',bp,'DPS','VOID','VOIDBORN'),enemyUnit('Void Leviathan Eye',bp,'CONTROL','VOID','VOIDBORN')],{mode:'raid',maxTurns:6}); const damage=Math.max(1,result.playerUnits.reduce((s,u)=>s+Math.max(0,u.maxHp-u.hp),0)+cards.reduce((s,c)=>s+Number(c.power||0),0)); const newHp=Math.max(0,Number(b.currentHp)-damage); const defeated=newHp<=0; await prisma.raidBoss.update({where:{id:b.id},data:{currentHp:BigInt(newHp),defeated,lastHitUserId:defeated?String(i.user.id):b.lastHitUserId}}).catch(()=>{}); await prisma.raidDamageLog.create({data:{raidBossId:b.id,userId:String(i.user.id),username:i.user.username,damage:BigInt(damage)}}).catch(()=>{}); await prisma.user.update({where:{id:String(i.user.id)},data:{gold:{increment:BigInt(Math.floor(damage*.03))},essence:{increment:75},tokens:{increment:50}}}).catch(()=>{}); return i.editReply({embeds:[new EmbedBuilder().setTitle(`🌌 Raid Attack — ${defeated?'Boss Defeated':'Damage Dealt'}`).setDescription([`Damage: **${money(damage)}**`,`Boss HP: **${money(newHp)} / ${money(b.maxHp)}**`,'','**Battle Log**',result.logs.join('\n').slice(0,2000),'','Rewards: **Gold + 75 Essence + 50 Tokens**',defeated?'🏆 Last Hit Reward unlocked.':''].filter(Boolean).join('\n')).setColor(defeated?0xf59e0b:0x7c3aed)]}); }
+async function handleRaidAttack(i){
+  const b=await getOrCreateRaidBoss(i.guildId||'global');
+  const cards=await getBestCards(i.user.id,6);
+  if(!cards.length){
+    await i.reply({ content:'You need characters first. Use /roll.', ephemeral:true }).catch(()=>{});
+    return;
+  }
+
+  const bp=Math.max(50000,Math.floor(Number(b.basePower)/70));
+  const enemies=[
+    enemyUnit('Void Leviathan Core',bp*2,'TANK','VOID','SECRET'),
+    enemyUnit('Void Leviathan Claw',bp,'DPS','VOID','VOIDBORN'),
+    enemyUnit('Void Leviathan Eye',bp,'CONTROL','VOID','VOIDBORN')
+  ];
+
+  await playLiveBattle(i,{
+    title:'🌌 Raid Attack',
+    subtitle:'Void Leviathan encounter',
+    playerUnits:cards.map(unitFromCard),
+    enemyUnits:enemies,
+    mode:'raid',
+    maxTurns:6,
+    onFinish: async (result)=>{
+      const damage=Math.max(1,result.playerUnits.reduce((s,u)=>s+Math.max(0,u.maxHp-u.hp),0)+cards.reduce((s,c)=>s+Number(c.power||0),0));
+      const newHp=Math.max(0,Number(b.currentHp)-damage);
+      const defeated=newHp<=0;
+
+      await prisma.raidBoss.update({
+        where:{id:b.id},
+        data:{currentHp:BigInt(newHp),defeated,lastHitUserId:defeated?String(i.user.id):b.lastHitUserId}
+      }).catch(()=>{});
+
+      await prisma.raidDamageLog.create({
+        data:{raidBossId:b.id,userId:String(i.user.id),username:i.user.username,damage:BigInt(damage)}
+      }).catch(()=>{});
+
+      await prisma.user.update({
+        where:{id:String(i.user.id)},
+        data:{gold:{increment:BigInt(Math.floor(damage*.03))},essence:{increment:75},tokens:{increment:50}}
+      }).catch(()=>{});
+
+      return `Damage: **${money(damage)}**\nBoss HP: **${money(newHp)} / ${money(b.maxHp)}**\nRewards: **Gold + 75 Essence + 50 Tokens**${defeated?'\\n🏆 Last Hit Reward unlocked.':''}`;
+    }
+  });
+}
 async function handleRaidRank(i){ const b=await getOrCreateRaidBoss(i.guildId||'global'); const rows=await prisma.raidDamageLog.findMany({where:{raidBossId:b.id},orderBy:{damage:'desc'},take:20}).catch(()=>[]); const m=new Map(); for(const r of rows){ if(!m.has(r.userId))m.set(r.userId,{username:r.username||'Player',damage:0}); m.get(r.userId).damage+=Number(r.damage||0); } const lines=[...m.entries()].sort((a,b)=>b[1].damage-a[1].damage).slice(0,20).map(([id,row],i)=>`**${i+1}. ${row.username}** — ${money(row.damage)} DMG`).join('\n'); return i.reply({embeds:[new EmbedBuilder().setTitle('🏆 Raid Damage Ranking').setDescription(lines||'No raid damage yet.').setColor(0x7c3aed)]}); }
 async function handleBattlePolishCommand(i){ const n=i.commandName; if(n==='story')return handleStoryBattle(i).then(()=>true); if(n==='pvp')return handlePvpBattle(i).then(()=>true); if(n==='dungeon')return handleDungeonBattle(i).then(()=>true); if(n==='world-boss'||n==='raid')return handleWorldBoss(i).then(()=>true); if(n==='raid-attack')return handleRaidAttack(i).then(()=>true); if(n==='raid-rank')return handleRaidRank(i).then(()=>true); return false; }
 module.exports={ handleBattlePolishCommand, runBattle, unitFromCard };
