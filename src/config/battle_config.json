@@ -1,6 +1,6 @@
 {
   "projectName": "VoidRoll Reborn",
-  "phase": "Phase 7 - Battle Engine Foundation",
+  "phase": "Phase 30 - Full Role + Passive Combat",
   "formation": {
     "maxFormations": 6,
     "charactersPerFormation": 6,
@@ -20,158 +20,97 @@
     "energyOnCrit": 8,
     "energyOnKill": 25
   },
-  "baseStats": [
-    "hp",
-    "atk",
-    "def",
-    "spd",
-    "critRate",
-    "critDamage",
-    "effectChance",
-    "effectResistance",
-    "dodgeChance",
-    "counterChance",
-    "healingBonus",
-    "shieldPower",
-    "mana",
-    "energy"
-  ],
+  "gearBonuses": {
+    "COMMON":    { "atkPct": 0,    "hpPct": 0,    "defPct": 0,    "critRate": 0,  "power": 0    },
+    "RARE":      { "atkPct": 0.06, "hpPct": 0.06, "defPct": 0.04, "critRate": 2,  "power": 0.05 },
+    "EPIC":      { "atkPct": 0.12, "hpPct": 0.12, "defPct": 0.08, "critRate": 4,  "power": 0.10 },
+    "LEGENDARY": { "atkPct": 0.20, "hpPct": 0.20, "defPct": 0.14, "critRate": 6,  "power": 0.16 },
+    "MYTHIC":    { "atkPct": 0.30, "hpPct": 0.30, "defPct": 0.20, "critRate": 9,  "power": 0.24 },
+    "DIVINE":    { "atkPct": 0.42, "hpPct": 0.42, "defPct": 0.28, "critRate": 12, "power": 0.34 },
+    "SECRET":    { "atkPct": 0.55, "hpPct": 0.55, "defPct": 0.36, "critRate": 16, "power": 0.45 }
+  },
+  "skillBonuses": {
+    "perTier": { "atkPct": 0.025, "hpPct": 0.02, "critRate": 0.5, "effectChance": 0.5 },
+    "maxTier": 10
+  },
+  "coreBonuses": {
+    "perTier": { "hpPct": 0.03, "defPct": 0.025, "effectResistance": 0.5 },
+    "maxTier": 10
+  },
+  "baseStats": ["hp","atk","def","spd","critRate","critDamage","effectChance","effectResistance","dodgeChance","counterChance","healingBonus","shieldPower","mana","energy"],
   "statusEffects": {
-    "bleed": {
-      "emoji": "🩸",
-      "description": "Damage over time based on attacker ATK.",
-      "defaultTurns": 3,
-      "stackable": true
-    },
-    "burn": {
-      "emoji": "🔥",
-      "description": "Damage over time and reduces healing received.",
-      "defaultTurns": 3,
-      "stackable": true
-    },
-    "freeze": {
-      "emoji": "❄️",
-      "description": "Chance to skip turn and lowers speed.",
-      "defaultTurns": 1,
-      "stackable": false
-    },
-    "silence": {
-      "emoji": "🔇",
-      "description": "Prevents skill/ultimate usage temporarily.",
-      "defaultTurns": 1,
-      "stackable": false
-    },
-    "stun": {
-      "emoji": "💫",
-      "description": "Skips turn.",
-      "defaultTurns": 1,
-      "stackable": false
-    },
-    "defBreak": {
-      "emoji": "🛡️",
-      "description": "Reduces DEF.",
-      "defaultTurns": 2,
-      "stackable": false
-    },
-    "atkDown": {
-      "emoji": "⬇️",
-      "description": "Reduces ATK.",
-      "defaultTurns": 2,
-      "stackable": false
-    },
-    "voidBind": {
-      "emoji": "🌌",
-      "description": "Void control effect: reduces accuracy/effect resistance and may delay ultimate.",
-      "defaultTurns": 2,
-      "stackable": false
-    }
+    "bleed":    { "emoji": "🩸", "description": "DoT from ATK.", "defaultTurns": 3, "stackable": true },
+    "burn":     { "emoji": "🔥", "description": "DoT + reduces healing.", "defaultTurns": 3, "stackable": true },
+    "poison":   { "emoji": "☠️", "description": "DoT stacking each turn.", "defaultTurns": 3, "stackable": true },
+    "freeze":   { "emoji": "❄️", "description": "Chance to skip turn.", "defaultTurns": 1, "stackable": false },
+    "silence":  { "emoji": "🔇", "description": "Prevents skills.", "defaultTurns": 1, "stackable": false },
+    "stun":     { "emoji": "💫", "description": "Skips turn.", "defaultTurns": 1, "stackable": false },
+    "defBreak": { "emoji": "🛡️", "description": "Reduces DEF.", "defaultTurns": 2, "stackable": false },
+    "atkDown":  { "emoji": "⬇️", "description": "Reduces ATK.", "defaultTurns": 2, "stackable": false },
+    "voidBind": { "emoji": "🌌", "description": "Reduces accuracy and delays ultimate.", "defaultTurns": 2, "stackable": false }
   },
   "roles": {
     "TANK": {
-      "bonus": {
-        "hp": 0.18,
-        "def": 0.15
-      },
-      "purpose": "Absorb damage and protect formation."
+      "bonus": { "hp": 0.30, "def": 0.25, "counterChance": 0.10 },
+      "purpose": "Absorb damage, taunt enemies, counter attack.",
+      "tauntChance": 0.55,
+      "counterOnHit": 0.20
     },
     "DPS": {
-      "bonus": {
-        "atk": 0.16,
-        "critDamage": 0.15
-      },
-      "purpose": "Main damage dealer."
+      "bonus": { "atk": 0.22, "critDamage": 0.20 },
+      "purpose": "Main damage dealer.",
+      "execThreshold": 0.18
     },
     "SUPPORT": {
-      "bonus": {
-        "energyGain": 0.08,
-        "effectResistance": 0.08
-      },
-      "purpose": "Buff team and stabilize fights."
+      "bonus": { "healingBonus": 0.12, "effectResistance": 0.12, "energyGain": 0.10 },
+      "purpose": "Buff team, cleanse debuffs, boost energy.",
+      "teamBuffOnTurn": { "atkPct": 0.08, "turns": 2 },
+      "cleanseChance": 0.40
     },
     "ASSASSIN": {
-      "bonus": {
-        "spd": 0.12,
-        "critRate": 0.08
-      },
-      "purpose": "Fast burst and finish low HP enemies."
+      "bonus": { "spd": 0.18, "critRate": 0.12, "dodgeChance": 0.08 },
+      "purpose": "Fast burst, finish low HP enemies.",
+      "executeThreshold": 0.22,
+      "firstStrikeBonus": 0.15
     },
     "SUMMONER": {
-      "bonus": {
-        "mana": 0.12,
-        "shieldPower": 0.08
-      },
-      "purpose": "Summons and sustain pressure."
+      "bonus": { "mana": 0.15, "shieldPower": 0.12, "healingBonus": 0.08 },
+      "purpose": "Summon units, sustain pressure.",
+      "summonDmgPct": 0.28
     },
     "CONTROL": {
-      "bonus": {
-        "effectChance": 0.12
-      },
-      "purpose": "Debuff and disable enemies."
+      "bonus": { "effectChance": 0.18, "spd": 0.06 },
+      "purpose": "Debuff and disable enemies.",
+      "debuffOnHitChance": 0.20
     },
     "HEALER": {
-      "bonus": {
-        "healingBonus": 0.18
-      },
-      "purpose": "Healing and cleansing."
+      "bonus": { "healingBonus": 0.30, "effectResistance": 0.15 },
+      "purpose": "Heal allies and cleanse every turn.",
+      "healPerTurn": 0.08,
+      "cleanseChance": 0.70
     }
   },
   "elementRules": {
     "enabled": true,
-    "lightweight": true,
     "advantages": {
-      "FIRE": [
-        "ICE"
-      ],
-      "ICE": [
-        "WIND"
-      ],
-      "WIND": [
-        "LIGHTNING"
-      ],
-      "LIGHTNING": [
-        "WATER"
-      ],
-      "WATER": [
-        "FIRE"
-      ],
-      "LIGHT": [
-        "SHADOW"
-      ],
-      "SHADOW": [
-        "LIGHT"
-      ],
-      "VOID": [
-        "LIGHT",
-        "SHADOW"
-      ]
+      "FIRE":      ["ICE", "NATURE"],
+      "ICE":       ["WIND", "WATER"],
+      "WIND":      ["LIGHTNING", "EARTH"],
+      "LIGHTNING": ["WATER", "ICE"],
+      "WATER":     ["FIRE", "EARTH"],
+      "LIGHT":     ["SHADOW", "DARK"],
+      "SHADOW":    ["LIGHT", "SOUL"],
+      "VOID":      ["LIGHT", "SHADOW", "SOUL"],
+      "CURSED":    ["LIGHT", "SOUL"],
+      "BLOOD":     ["WATER", "ICE"],
+      "SOUL":      ["DARK", "SHADOW"],
+      "DARK":      ["LIGHT"],
+      "POISON":    ["NATURE", "WATER"],
+      "NATURE":    ["EARTH", "WATER"],
+      "EARTH":     ["FIRE", "LIGHTNING"]
     },
-    "advantageDamageBonus": 0.12,
-    "voidDamageBonus": 0.08
+    "advantageDamageBonus": 0.18,
+    "voidDamageBonus": 0.10
   },
-  "removed": [
-    "power_only_win_logic",
-    "stars",
-    "fusion",
-    "item_rolls"
-  ]
+  "removed": ["power_only_win_logic", "stars", "fusion", "item_rolls"]
 }

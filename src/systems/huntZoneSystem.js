@@ -157,11 +157,27 @@ function rewards(run, elite=false, final=false){
 function battle(run, elite=false, final=false){
   const d=DIFFICULTIES[run.difficultyId]||DIFFICULTIES.normal, st=stats(run);
   const enemy=d.enemy*(1+(st.enemyPower||0)/100)*(final?1.45:elite?1.22:1);
-  const power=1+((st.atk||0)+(st.hp||0)+(st.def||0)+(st.energy||0)/2+(st.bossDmg||0)*(final?1:.3))/100;
-  const win=chance(Math.max(.25,Math.min(.92,.62+(power-enemy)*.16+(st.dodge||0)/350)));
-  const dmg=win?rand(7,18)*enemy*(1-Math.max(-30,st.def||0)/180):rand(24,42)*enemy;
-  run.hp=Math.max(0,Math.floor(run.hp-dmg-(st.roomHpLoss||0)));
-  let log=win?`${final?'Final boss':elite?'Elite enemies':'Enemies'} defeated.`:`${final?'Final boss':elite?'Elite enemies':'Enemies'} overwhelmed your team.`;
+
+  // Use real team power if available (set when hunt starts with formation)
+  let teamPower = 1;
+  if (run.teamPower && run.teamPower > 0) {
+    const zoneBaseline = { void_forest:8000, cursed_city:12000, soul_palace:18000, titan_ruins:28000, corrupted_throne:45000, hero_arena:22000 };
+    const baseline = zoneBaseline[run.zoneId] || 10000;
+    const ratio = Math.min(2.5, run.teamPower / baseline);
+    teamPower = 0.55 + ratio * 0.35;
+  } else {
+    teamPower = 1+((st.atk||0)+(st.hp||0)+(st.def||0)+(st.energy||0)/2+(st.bossDmg||0)*(final?1:.3))/100;
+  }
+  const buffBoost = ((st.atk||0)+(st.hp||0)+(st.def||0))/300;
+  const power = teamPower + buffBoost;
+
+  const winChance = Math.max(0.18, Math.min(0.94, 0.55 + (power - enemy) * 0.18 + (st.dodge||0)/400));
+  const win = chance(winChance);
+  const dmg = win ? rand(5,15)*enemy*(1-Math.max(-30,st.def||0)/200) : rand(20,38)*enemy;
+  run.hp = Math.max(0, Math.floor(run.hp - dmg - (st.roomHpLoss||0)));
+  let log = win
+    ? (final?'Final boss':elite?'Elite enemies':'Enemies')+' defeated. (Win: '+Math.round(winChance*100)+'%)'
+    : (final?'Final boss':elite?'Elite enemies':'Enemies')+' overwhelmed your team.';
   if (win) { rewards(run, elite, final); run.huntCoins += Math.floor(rand(22,42)*(elite?1.4:1)*(final?2.5:1)); run.score += Math.floor(100*enemy*(elite?1.4:1)*(final?2:1)); }
   else { const rev=(run.buffs||[]).find(b=>b.stats?.revive); if(rev){ rev.stats.revive=0; run.hp=1; log += '\nRevive Charm saved the run at 1 HP.'; } else { run.active=false; log += '\nRun failed. Temporary buffs are lost.'; } }
   return { win, log };
@@ -271,7 +287,7 @@ async function handleCommand(i, prisma, rollBank){
     if(i.customId==='hunt_abandon') return abandon(i,runs,run,userId);
     if(i.customId.startsWith('hunt_pick_')) return choose(i,prisma,rollBank,runs,run,userId,i.customId.replace('hunt_pick_',''));
   }
-  if(cmd==='hunt'){ const zone=i.options.getString('zone')||'void_forest', diff=i.options.getString('difficulty')||'normal'; if(run?.active) return respond(i,{embeds:[embed(run,'Active Hunt Run')],components:[row(run)]}); run=baseRun(userId,zone,diff); runs[userId]=run; writeRuns(runs); return respond(i,{embeds:[embed(run,'Hunt Started')],components:[row(run)]}); }
+  if(cmd==='hunt'){ const zone=i.options.getString('zone')||'void_forest', diff=i.options.getString('difficulty')||'normal'; if(run?.active) return respond(i,{embeds:[embed(run,'Active Hunt Run')],components:[row(run)]}); run=baseRun(userId,zone,diff); try { const cards=await prisma.userCard.findMany({where:{userId:String(userId)},include:{character:true},orderBy:[{power:'desc'}],take:5}); run.teamPower=calcTeamPower(cards); } catch(_){ run.teamPower=0; } runs[userId]=run; writeRuns(runs); const pwrMsg=run.teamPower>0?' Team Power: **'+Number(run.teamPower).toLocaleString()+'**':'' ; return respond(i,{embeds:[embed(run,'Hunt Started').setFooter({text:'Formation power affects win chance'+pwrMsg})],components:[row(run)]}); }
   if(cmd==='hunt-next') return next(i,prisma,rollBank,runs,run,userId);
   if(cmd==='hunt-pick') return choose(i,prisma,rollBank,runs,run,userId,i.options.getString('choice',true));
   if(cmd==='hunt-extract') return extract(i,prisma,rollBank,runs,run,userId);
@@ -287,6 +303,24 @@ function commandDefinitions(){
     {name:'hunt-extract',description:'Extract safely and claim rewards',type:1},
     {name:'hunt-abandon',description:'Abandon current Hunt run',type:1}
   ];
+}
+
+
+// Calculate real team power from formation cards
+function calcTeamPower(cards = []) {
+  if (!cards || !cards.length) return 0;
+  return cards.reduce((sum, card) => {
+    const c = card.character || card;
+    const power = Number(card.power || c.basePower || c.power || 0);
+    // Gear bonus
+    const meta = (card.meta && typeof card.meta === 'object') ? card.meta : {};
+    const gearBonus = { COMMON:0, RARE:0.05, EPIC:0.10, LEGENDARY:0.16, MYTHIC:0.24, DIVINE:0.34, SECRET:0.45 };
+    const gear = String(card.gearTier || meta.gearTier || 'COMMON').toUpperCase();
+    const skillBonus = Number(card.skillTier || meta.skillTier || 0) * 0.025;
+    const coreBonus  = Number(card.coreTier  || meta.coreTier  || 0) * 0.02;
+    const corruptedBonus = String(c.name||'').toLowerCase().includes('corrupted') ? 0.25 : 0;
+    return sum + Math.floor(power * (1 + (gearBonus[gear]||0) + skillBonus + coreBonus + corruptedBonus));
+  }, 0);
 }
 
 module.exports = { ZONES, DIFFICULTIES, handleCommand, commandDefinitions };

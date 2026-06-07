@@ -17,9 +17,17 @@ function rarityValue(r='COMMON') {
   return { COMMON:1, RARE:2, EPIC:3, LEGENDARY:4, MYTHIC:5, DIVINE:6, VOIDBORN:7, SECRET:8 }[String(r || 'COMMON').toUpperCase()] || 1;
 }
 
-function scalePassiveByRarity(passive, rarity) {
+function scalePassiveByRarity(passive, rarity, isCorrupted = false) {
   const rv = rarityValue(rarity);
-  const mult = 1 + Math.max(0, rv - 3) * 0.08;
+  // Corrupted characters get a much stronger multiplier than even DIVINE
+  // Corrupted DIVINE > normal DIVINE, Corrupted SECRET = peak power
+  let mult;
+  if (isCorrupted) {
+    mult = 1 + Math.max(0, rv - 3) * 0.08;
+    mult *= 1.55; // Corrupted = +55% on top of rarity scaling
+  } else {
+    mult = 1 + Math.max(0, rv - 3) * 0.08;
+  }
   const out = { ...passive, effect:{ ...(passive.effect || {}) } };
   for (const [k,v] of Object.entries(out.effect)) {
     if (typeof v === 'number' && !['shield','summon'].includes(k)) {
@@ -200,11 +208,62 @@ function fallbackElement(text) {
   return FALLBACK_ELEMENTS[seededIndex(text || 'unknown', FALLBACK_ELEMENTS.length)];
 }
 
+// Corrupted-specific passives — unique and stronger than Divine equivalents
+const CORRUPTED_PROFILES = [
+  { keys:['corrupted gojo','corrupted satoru'],   role:'CONTROL',  element:'VOID',   passive:{ name:'Hollow Purple Infinity',    effect:{ dodge:40, shield:1, miss:30, energyDrain:20, silence:20 } } },
+  { keys:['corrupted itachi'],                    role:'CONTROL',  element:'VOID',   passive:{ name:'Void Tsukuyomi',             effect:{ miss:35, stun:30, silence:25, enemyAtk:-20, energyDrain:15 } } },
+  { keys:['corrupted ainz'],                      role:'CONTROL',  element:'VOID',   passive:{ name:'World Domination Overlord',  effect:{ silence:30, summon:1, enemyAtk:-22, execute:20, energyDrain:18 } } },
+  { keys:['corrupted aizen'],                     role:'CONTROL',  element:'VOID',   passive:{ name:'Perfect Hypnosis Collapse',  effect:{ miss:38, silence:28, enemyAtk:-24, energyDrain:20 } } },
+  { keys:['corrupted lelouch'],                   role:'CONTROL',  element:'VOID',   passive:{ name:'Zero Requiem Geass',         effect:{ stun:32, silence:26, enemyAtk:-22, execute:18, energyDrain:16 } } },
+  { keys:['corrupted rimuru'],                    role:'SUMMONER', element:'VOID',   passive:{ name:'Void God Azathoth',          effect:{ lifesteal:30, summon:1, teamDmg:22, pen:22, dmg:18 } } },
+  { keys:['corrupted makima'],                    role:'CONTROL',  element:'VOID',   passive:{ name:'Absolute Void Contract',     effect:{ silence:34, enemyAtk:-26, teamDmg:20, energyDrain:22 } } },
+  { keys:['corrupted eren'],                      role:'TANK',     element:'VOID',   passive:{ name:'Founding Void Titan',        effect:{ counter:30, heal:22, teamDmg:18, enemyAtk:-18, shield:1 } } },
+  { keys:['corrupted saber'],                     role:'ASSASSIN', element:'VOID',   passive:{ name:'Void Excalibur',             effect:{ crit:38, dmg:28, bossDmg:34, dodge:20, execute:22 } } },
+  { keys:['corrupted all might'],                 role:'TANK',     element:'VOID',   passive:{ name:'Void Symbol of Destruction', effect:{ counter:28, shield:1, teamDmg:20, enemyAtk:-20, heal:16 } } },
+];
+
 function getCombatProfile(character={}) {
   const name = normalize(character.name);
   const anime = normalize(character.anime);
   const combined = `${name} ${anime}`;
   const rarity = String(character.rarity || 'COMMON').toUpperCase();
+  const isCorrupted = name.includes('corrupted');
+
+  // Check Corrupted profiles first — they have unique passives
+  if (isCorrupted) {
+    const cp = CORRUPTED_PROFILES.find(r => hasAny(name, r.keys));
+    if (cp) {
+      return {
+        role: cp.role,
+        type: cp.role,
+        element: cp.element,
+        passive: scalePassiveByRarity(cp.passive, rarity, true),
+        source: 'corrupted'
+      };
+    }
+    // Generic Corrupted fallback — still stronger than normal
+    const baseExact = EXACT_PROFILES.find(r => {
+      const cleanName = name.replace('corrupted ', '').trim();
+      return hasAny(cleanName, r.keys) && (!r.anime || hasAny(anime, r.anime));
+    });
+    if (baseExact) {
+      const corruptedPassive = {
+        name: `Corrupted ${baseExact.passive.name}`,
+        effect: Object.fromEntries(
+          Object.entries(baseExact.passive.effect).map(([k,v]) =>
+            [k, typeof v === 'number' && !['shield','summon'].includes(k) ? Math.round(v * 1.55) : v]
+          )
+        )
+      };
+      return {
+        role: baseExact.role,
+        type: baseExact.role,
+        element: 'VOID',
+        passive: scalePassiveByRarity(corruptedPassive, rarity, true),
+        source: 'corrupted_derived'
+      };
+    }
+  }
 
   const exact = EXACT_PROFILES.find(r => hasAny(name, r.keys) && (!r.anime || hasAny(anime, r.anime)));
   if (exact) {
@@ -212,7 +271,7 @@ function getCombatProfile(character={}) {
       role: exact.role,
       type: exact.role,
       element: exact.element,
-      passive: scalePassiveByRarity(exact.passive, rarity),
+      passive: scalePassiveByRarity(exact.passive, rarity, false),
       source:'exact'
     };
   }
@@ -225,7 +284,7 @@ function getCombatProfile(character={}) {
       role: nameBased.role,
       type: nameBased.role,
       element: fallbackElement(combined),
-      passive: scalePassiveByRarity(nameBased.passive, rarity),
+      passive: scalePassiveByRarity(nameBased.passive, rarity, false),
       source:'name'
     };
   }
@@ -235,7 +294,7 @@ function getCombatProfile(character={}) {
       role: animeRule.role,
       type: animeRule.role,
       element: animeRule.element,
-      passive: scalePassiveByRarity(animeRule.passive, rarity),
+      passive: scalePassiveByRarity(animeRule.passive, rarity, false),
       source:'anime'
     };
   }
@@ -247,7 +306,7 @@ function getCombatProfile(character={}) {
     role: fb.role,
     type: fb.role,
     element,
-    passive: scalePassiveByRarity(fb.passive, rarity),
+    passive: scalePassiveByRarity(fb.passive, rarity, false),
     source:fb.source
   };
 }
