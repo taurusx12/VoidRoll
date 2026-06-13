@@ -753,19 +753,38 @@ function gearNames(c={}){
     boots: `${e} Step Boots`
   };
 }
-function baseStats(power, level=1, gearPower=0, skillBonus=0){
-  const levelMult = 1 + (Number(level || 1)-1) * 0.045 + Number(skillBonus||0);
+function baseStats(power, level=1, gearPower=0, skillBonusVal=0, skillTreeData=null){
+  const levelMult = 1 + (Number(level || 1)-1) * 0.045 + Number(skillBonusVal||0);
   const p = Math.floor((Number(power||1000) + Number(gearPower||0)) * levelMult);
+
+  // Skill tree attribute bonuses (each node adds specific stats)
+  const s = skillTreeData || {};
+  const coreLv    = Number(s.core    || 0); // HP + DEF
+  const skillLv   = Number(s.skill   || 0); // ATK + Passive
+  const traitLv   = Number(s.trait   || 0); // Crit + Dodge
+  const gearLv    = Number(s.gear    || 0); // Shield + Speed
+  const ultimateLv= Number(s.ultimate|| 0); // All stats surge
+
+  const critBonus  = clamp(traitLv * 1.8 + ultimateLv * 2.5, 0, 35);
+  const dodgeBonus = clamp(traitLv * 1.2 + ultimateLv * 1.5, 0, 20);
+  const speedBonus = clamp(gearLv  * 3.0 + ultimateLv * 4.0, 0, 60);
+  const shieldMult = 1 + (gearLv * 0.08) + (ultimateLv * 0.12);
+  const hpMult     = 1 + (coreLv * 0.05) + (ultimateLv * 0.08);
+  const atkMult    = 1 + (skillLv * 0.05) + (ultimateLv * 0.08);
+  const defMult    = 1 + (coreLv * 0.04) + (ultimateLv * 0.06);
+
   return {
-    power:p,
-    hp:Math.floor(p*3.2),
-    atk:Math.floor(p*0.62),
-    def:Math.floor(p*0.34),
-    crit:clamp(5+Math.floor(level/6)+Math.floor(p/80000),5,70),
-    dodge:clamp(3+Math.floor(level/9),3,45),
-    shield:Math.floor(p*0.18),
-    speed:clamp(90+Math.floor(level/2)+Math.floor(p/25000),90,230),
-    energy:clamp(100+Math.floor(level/4),100,200)
+    power: p,
+    hp:     Math.floor(p * 3.2  * hpMult),
+    atk:    Math.floor(p * 0.62 * atkMult),
+    def:    Math.floor(p * 0.34 * defMult),
+    crit:   clamp(5  + Math.floor(level/6)  + Math.floor(p/80000) + critBonus,  5, 95),
+    dodge:  clamp(3  + Math.floor(level/9)  + dodgeBonus,                        3, 55),
+    shield: Math.floor(p * 0.18 * shieldMult),
+    speed:  clamp(90 + Math.floor(level/2)  + Math.floor(p/25000) + speedBonus, 90, 280),
+    energy: clamp(100 + Math.floor(level/4) + ultimateLv * 8,                   100, 250),
+    // Extra attribute info for display
+    coreLv, skillLv, traitLv, gearLv, ultimateLv
   };
 }
 function skillInfo(meta, cardId){
@@ -843,7 +862,8 @@ async function gearPower(card){
 async function recalcCard(card, userMeta=null){
   const gp = await gearPower(card);
   const bonus = userMeta ? skillBonus(userMeta, card.id) : 0;
-  const stats = baseStats(card.character.basePower, card.level, gp, bonus);
+  const sTree = userMeta ? skillInfo(userMeta, card.id) : null;
+  const stats = baseStats(card.character.basePower, card.level, gp, bonus, sTree);
   await prisma.userCard.update({ where:{ id:card.id }, data:{ power:stats.power } }).catch(()=>{});
   return stats;
 }
@@ -1583,14 +1603,24 @@ async function cmdSkillTree(i){
   if(!card) return i.reply({ content:'Card not found.', ephemeral:true });
   const u = await ensureUser(i.user);
   const s = skillInfo(metaOf(u), card.id);
-  const e = new EmbedBuilder().setTitle(`Skill Tree — ${card.character.name}`).setColor(0x9333ea).setDescription([
-    `Core: Lv.${s.core}/10 — HP/Power growth`,
-    `Skill: Lv.${s.skill}/10 — Passive strength`,
-    `Trait: Lv.${s.trait}/10 — Crit/Dodge identity`,
-    `Gear Sync: Lv.${s.gear}/10 — Gear power scaling`,
-    `Ultimate: Lv.${s.ultimate}/5 — High-tier burst growth`,
+  const gp = await gearPower(card);
+  const bonus = skillBonus(metaOf(u), card.id);
+  const stats = baseStats(card.character.basePower, card.level, gp, bonus, s);
+  const bar = lv => '▰'.repeat(lv) + '▱'.repeat(Math.max(0,10-lv));
+  const e = new EmbedBuilder().setTitle('🌳 Skill Tree — ' + card.character.name).setColor(0x9333ea).setDescription([
+    '**Current Stats After Upgrades**',
+    'HP **' + money(stats.hp) + '** • ATK **' + money(stats.atk) + '** • DEF **' + money(stats.def) + '**',
+    'CRIT **' + stats.crit + '%** • DODGE **' + stats.dodge + '%** • SPD **' + stats.speed + '**',
     '',
-    'Use `/skill-upgrade card:<card> node:<node>`.'
+    '**Nodes**',
+    '🔷 Core      ' + bar(s.core)    + ' ' + s.core    + '/10 → +HP +DEF each level',
+    '⚔️  Skill     ' + bar(s.skill)   + ' ' + s.skill   + '/10 → +ATK +Passive power',
+    '🎯 Trait     ' + bar(s.trait)   + ' ' + s.trait   + '/10 → +CRIT +DODGE',
+    '⚙️  Gear Sync ' + bar(s.gear)    + ' ' + s.gear    + '/10 → +Shield +Speed',
+    '✦  Ultimate  ' + '▰'.repeat(s.ultimate) + '▱'.repeat(Math.max(0,5-s.ultimate)) + ' ' + s.ultimate + '/5  → All stats surge',
+    '',
+    'Use `/skill-upgrade card:' + card.character.name + ' node:<node>`.',
+    'Nodes: core | skill | trait | gear | ultimate'
   ].join('\n'));
   return i.reply({ embeds:[e] });
 }
@@ -1611,7 +1641,31 @@ async function cmdSkillUpgrade(i){
   if(Number(u.voidCrystals) < costVoid) return i.reply({ content:`Need ${costVoid} Void Crystals.`, ephemeral:true });
   await prisma.user.update({ where:{ id:i.user.id }, data:{ gold:{ decrement:BigInt(costGold) }, essence:{ decrement:costEssence }, voidCrystals:{ decrement:costVoid } } });
   await updateMeta(i.user.id, meta=>{ meta.skillTrees=meta.skillTrees||{}; meta.skillTrees[card.id]=meta.skillTrees[card.id]||{}; meta.skillTrees[card.id][node]=next; return meta; });
-  return i.reply({ embeds:[new EmbedBuilder().setTitle('Skill Node Upgraded').setColor(0x9333ea).setDescription(`${card.character.name}\n${title(node)} Lv.${next}\nGold -${money(costGold)}\nEssence -${costEssence}${costVoid?`\nVoid Crystals -${costVoid}`:''}`)] });
+  // Recalc with new tier to show stat change
+  const newMeta = metaOf(u);
+  newMeta.skillTrees = newMeta.skillTrees || {};
+  newMeta.skillTrees[card.id] = newMeta.skillTrees[card.id] || {};
+  newMeta.skillTrees[card.id][node] = next;
+  const gp2 = await gearPower(card);
+  const newStats = baseStats(card.character.basePower, card.level, gp2, skillBonus(newMeta, card.id), skillInfo(newMeta, card.id));
+  await prisma.userCard.update({ where:{id:card.id}, data:{power:newStats.power} }).catch(()=>{});
+  const nodeEffect = {
+    core:     'HP +' + money(Math.floor(newStats.hp * 0.05)) + ' • DEF +' + money(Math.floor(newStats.def * 0.04)),
+    skill:    'ATK +' + money(Math.floor(newStats.atk * 0.05)) + ' • Passive stronger',
+    trait:    'CRIT +1.8% • DODGE +1.2%',
+    gear:     'Shield +8% • Speed +3',
+    ultimate: 'All stats +8%'
+  };
+  return i.reply({ embeds:[new EmbedBuilder().setTitle('✨ Skill Node Upgraded').setColor(0x9333ea).setDescription([
+    '**' + card.character.name + '**',
+    title(node) + ' Node: Lv.' + (next-1) + ' → **' + next + '**',
+    '',
+    '**Bonus:** ' + (nodeEffect[node] || 'Stats increased'),
+    '**New Power:** ' + money(newStats.power),
+    'HP **' + money(newStats.hp) + '** • ATK **' + money(newStats.atk) + '** • Crit **' + newStats.crit + '%**',
+    '',
+    'Gold -' + money(costGold) + ' • Essence -' + costEssence + (costVoid ? ' • Void -' + costVoid : '')
+  ].join('\n'))] });
 }
 
 /* ---------- Formations ---------- */
@@ -2156,24 +2210,70 @@ async function startDungeonLike(i, type='dungeon'){
   return i.reply({ embeds:[new EmbedBuilder().setTitle(`${title(type)} Gate Opened`).setColor(0x7c3aed).setDescription(`Choose your path:\n1. **${roomA.name}**\n2. **${roomB.name}**`)], components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`${type}:0`).setLabel(roomA.name).setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(`${type}:1`).setLabel(roomB.name).setStyle(ButtonStyle.Primary))] });
 }
 async function resolveDungeonRoom(i, type, choice){
-  const user = await ensureUser(i.user); const meta = metaOf(user); const run = meta[type];
-  if(!run) return i.reply({ content:`No active ${type}.`, ephemeral:true });
-  const room = run.rooms[Number(choice)] || run.rooms[0];
-  let cards = await formationCards(i.user.id, 1); if(!cards.length){ await autoFormation(i.user.id); cards=await formationCards(i.user.id,1); }
-  const floor = Number(run.floor||1); const enemyPower = Math.floor(25000*Math.pow(1.16,floor)*room.mult);
-  const fight = combat(cards, `${room.name} Guardian`, enemyPower);
-  const desc = [`**${room.name} — Floor ${floor}**`, ...fight.log.slice(0,10)];
+  const user = await ensureUser(i.user);
+  const meta = metaOf(user);
+  const run = meta[type];
+  if(!run) return i.reply({ content:'No active ' + type + '.', ephemeral:true });
+
+  // Security: only the user who started the run can continue it
+  let cards = await formationCards(i.user.id, 1);
+  if(!cards.length){ await autoFormation(i.user.id); cards = await formationCards(i.user.id,1); }
+
+  const floor = Number(run.floor || 1);
+  const isBoss = floor % 5 === 0;
+  const isElite = floor % 3 === 0 && !isBoss;
+
+  // Named enemies based on floor
+  const enemyTiers = [
+    ['Goblin Scout','Shadow Rat','Cursed Imp'],
+    ['Iron Sentry','Plague Zombie','Dark Archer'],
+    ['Corrupted Golem','Void Specter','Soul Eater'],
+    ['Chaos Knight','Blood Mage','Abyssal Bat'],
+    ['Void Champion','Eternal Wraith','Ruin Lord'],
+  ];
+  const tier = Math.min(4, Math.floor(floor/4));
+  const enemyList = enemyTiers[tier];
+  const room = run.rooms ? (run.rooms[Number(choice)] || run.rooms[0]) : { name:'Chamber', mult:1, reward:'essence' };
+  const enemyName = isBoss ? 'Floor ' + floor + ' ⚔️ DUNGEON BOSS' : (isElite ? '[Elite] ' : '') + enemyList[Math.floor(Math.random()*enemyList.length)];
+  const enemyPower = Math.floor(25000 * Math.pow(1.16, floor) * room.mult * (isBoss?2.2:isElite?1.5:1.0));
+
+  const fight = combat(cards, enemyName, enemyPower);
+
+  // Milestone rewards
+  const milestones = { 5:{ premiumRolls:1, relicStones:3 }, 10:{ voidCrystals:1, eventRolls:1, traitStones:5 }, 15:{ voidCrystals:2, eventRolls:2 }, 20:{ voidCrystals:5, eventRolls:3, corruptedFragments:3000 } };
+  const milestone = milestones[floor];
+
+  const rewards = fight.win ? {
+    gold: 500 + floor * 150,
+    tokens: 15 + floor * 4,
+    [room.reward || 'essence']: Math.max(1, Math.floor(floor/2) + 1),
+    ...(floor % 3 === 0 ? { rolls:1 } : {}),
+    ...(isBoss ? { premiumRolls:1, huntCoins: floor } : {}),
+    ...(milestone || {})
+  } : {};
+
+  const desc = [
+    isBoss ? '👑 **BOSS FLOOR ' + floor + '!**' : isElite ? '⚠️ Elite: **' + enemyName + '**' : '**' + enemyName + '**',
+    '**Floor:** ' + floor + ' • **Power:** ' + money(teamPower(cards)) + ' vs ' + money(enemyPower),
+    '',
+    ...fight.log.slice(0, 8),
+    '',
+  ];
+
   if(fight.win){
-    const rewards = { gold:500+floor*120, tokens:15+floor*3, [room.reward]:Math.max(1,Math.floor(floor/2)+1), rolls:(floor % 3 === 0 ? 1 : 0) };
-    await grantModeRewards(i.user.id,rewards);
-    desc.push('','**Rewards**',rewardsText(rewards));
-    run.floor = floor+1;
+    const clean = cleanRewards(rewards);
+    await grantModeRewards(i.user.id, clean);
+    await updateMeta(i.user.id, m => { m.dungeonFloorMax = Math.max(Number(m.dungeonFloorMax||0), floor); return m; }).catch(()=>{});
+    desc.push('✅ **Cleared!**' + (milestone ? ' 🎉 Milestone!' : '') + '\\n' + rewardsText(clean));
+    run.floor = floor + 1;
     run.rooms = [DUNGEON_ROOMS[Math.floor(Math.random()*DUNGEON_ROOMS.length)], DUNGEON_ROOMS[Math.floor(Math.random()*DUNGEON_ROOMS.length)]];
-    meta[type]=run; await prisma.user.update({ where:{ id:i.user.id }, data:{ meta } });
-    return i.reply({ embeds:[new EmbedBuilder().setTitle(`${title(type)} Room Cleared`).setColor(0x22c55e).setDescription(desc.join('\n').slice(0,3900))], components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`${type}:0`).setLabel(run.rooms[0].name).setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(`${type}:1`).setLabel(run.rooms[1].name).setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(`${type}:extract`).setLabel('Extract').setStyle(ButtonStyle.Success))] });
+    meta[type] = run;
+    await prisma.user.update({ where:{ id:i.user.id }, data:{ meta } });
+    return i.reply({ embeds:[new EmbedBuilder().setTitle((type==='gate'?'⚔️ Gate':'🗝️ Dungeon') + ' — Floor ' + floor + (isBoss?' 👑':'')).setColor(isBoss?0xfacc15:0x22c55e).setDescription(desc.join('\\n').slice(0,3900))], components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(type+':0').setLabel(run.rooms[0].name).setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(type+':1').setLabel(run.rooms[1].name).setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(type+':extract').setLabel('Extract').setStyle(ButtonStyle.Success))] });
   }
-  delete meta[type]; await prisma.user.update({ where:{ id:i.user.id }, data:{ meta } });
-  return i.reply({ embeds:[new EmbedBuilder().setTitle(`${title(type)} Failed`).setColor(0xef4444).setDescription(desc.concat(['','Run ended.']).join('\n').slice(0,3900))] });
+  delete meta[type];
+  await prisma.user.update({ where:{ id:i.user.id }, data:{ meta } });
+  return i.reply({ embeds:[new EmbedBuilder().setTitle((type==='gate'?'⚔️ Gate':'🗝️ Dungeon') + ' Failed').setColor(0xef4444).setDescription(desc.concat(['❌ Defeated at Floor ' + floor + '. Run ended.']).join('\\n').slice(0,3900))] });
 }
 
 /* ---------- Raid ---------- */
@@ -2694,8 +2794,9 @@ async function cmdArena(i){
   const opponent = i.options.getUser('opponent', true);
   if(opponent.id === i.user.id) return i.editReply({ content:'You cannot fight yourself.', ephemeral:true });
   if(opponent.bot) return i.editReply({ content:'You cannot fight a bot.', ephemeral:true });
-
-  let myCards = await formationCards(i.user.id, 1);
+  // Only the user who typed the command can use their own formation
+  const callerId = i.user.id;
+  let myCards = await formationCards(callerId, 1);
   let theirCards = await formationCards(opponent.id, 1);
   if(!myCards.length){ await autoFormation(i.user.id); myCards = await formationCards(i.user.id, 1); }
   if(!theirCards.length) return i.editReply({ content:`${opponent.username} has no formation set up yet.` });
@@ -2731,7 +2832,7 @@ async function cmdAbyssTower(i){
   const u = await ensureUser(i.user);
   const meta = metaOf(u);
   const floor = Number(meta.towerFloor || 1);
-
+  // Only uses YOUR formation
   let cards = await formationCards(i.user.id, 1);
   if(!cards.length){ await autoFormation(i.user.id); cards = await formationCards(i.user.id, 1); }
   if(!cards.length) return i.editReply({ content:'You need cards first. Use /roll then /auto-formation.' });
@@ -2863,7 +2964,8 @@ async function cmdVoidRift(i){
 
   const u = await ensureUser(i.user);
   const meta = metaOf(u);
-  const weekKey = `rift_week_${Math.floor(Date.now() / (7*24*3600*1000))}`;
+  // Each user has their own Void Rift progress
+  const weekKey = 'rift_week_' + i.user.id + '_' + Math.floor(Date.now() / (7*24*3600*1000));
   const attemptsThisWeek = Number(meta[weekKey] || 0);
   const MAX_ATTEMPTS = 3;
 
@@ -2906,6 +3008,7 @@ async function cmdVoidRift(i){
 // ── BLITZ MODE ────────────────────────────────────────────────────
 async function cmdBlitz(i){
   await i.deferReply();
+  // Blitz uses YOUR formation only
   let cards = await formationCards(i.user.id, 1);
   if(!cards.length){ await autoFormation(i.user.id); cards = await formationCards(i.user.id, 1); }
   if(!cards.length) return i.editReply({ content:'You need cards first.' });
@@ -3027,10 +3130,9 @@ async function cmdGachaDungeonNext(i){
 async function cmdNightmare(i){
   await i.deferReply();
   const u = await ensureUser(i.user);
-  // Nightmare costs a Gate Key
+  // Only uses YOUR Gate Key and YOUR formation
   if(getMetaResource(u, 'gateKeys') < 1) return i.editReply({ content:'Nightmare Hunt requires 1 Gate Key.', ephemeral:true });
   await spendResource(i.user.id, 'gateKeys', 1);
-
   let cards = await formationCards(i.user.id, 1);
   if(!cards.length){ await autoFormation(i.user.id); cards = await formationCards(i.user.id, 1); }
   if(!cards.length) return i.editReply({ content:'You need cards first.' });
@@ -3108,8 +3210,9 @@ async function cmdVoidTrial(i){
 
   const u = await ensureUser(i.user);
   const meta = metaOf(u);
-  const todayKey = `trial_${dayIdx}`;
-  if(meta[todayKey]) return i.editReply({ embeds:[new EmbedBuilder().setTitle('🔮 Void Trial — Already Attempted').setColor(0x374151).setDescription(`You already faced **${bossName}** today. Come back tomorrow for a new trial.`)] });
+  // Each user has their own trial progress
+  const todayKey = 'trial_' + i.user.id + '_' + dayIdx;
+  if(meta[todayKey]) return i.editReply({ embeds:[new EmbedBuilder().setTitle('🔮 Void Trial — Already Attempted').setColor(0x374151).setDescription('You already faced **' + bossName + '** today. Come back tomorrow.')] });
 
   let cards = await formationCards(i.user.id, 1);
   if(!cards.length){ await autoFormation(i.user.id); cards = await formationCards(i.user.id, 1); }
@@ -3424,8 +3527,16 @@ client.on('interactionCreate', async i => {
     if(i.isButton()){
       await ensureUser(i.user);
       if(i.customId.startsWith('huntzone:')) return cmdHunt(i, i.customId.split(':')[1], 1);
-      if(i.customId==='huntnext'){ await lockButtonInteraction(i); return cmdHuntNext(i); }
+      if(i.customId==='huntnext'){
+        await lockButtonInteraction(i);
+        // Verify the hunt belongs to this user
+        const huntUser = await ensureUser(i.user);
+        const huntMeta = metaOf(huntUser);
+        if(!huntMeta.hunt) return i.reply({ content:'No active Hunt run.', ephemeral:true });
+        return cmdHuntNext(i);
+      }
       if(i.customId==='huntextract'){
+        // Only the run owner can extract
         await lockButtonInteraction(i);
         const user = await ensureUser(i.user);
         const meta = metaOf(user);
